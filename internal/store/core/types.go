@@ -1,0 +1,39 @@
+package core
+
+import "time"
+
+type Tenant struct {
+	ID, Name, Slug string
+	Settings       map[string]any
+	CreatedAt      time.Time
+}
+
+type Client struct {
+	ID, TenantID, Name, ClientID, ClientType string
+	RedirectURIs, AllowedOrigins             []string
+	Providers, Scopes                        []string
+	ActiveVersionID                          *string
+	CreatedAt                                time.Time
+}
+
+type ClientVersion struct {
+	ID, ClientID, Version                               string
+	ClaimSchemaJSON, ClaimMappingJSON, CryptoConfigJSON []byte
+	Status                                              string // draft|active|retired
+	CreatedAt                                           time.Time
+	PromotedAt                                          *time.Time
+}
+
+type User struct {
+	ID, TenantID, Email, Status string
+	EmailVerified               bool
+	Metadata                    map[string]any
+	CreatedAt                   time.Time
+}
+
+type Identity struct {
+	ID, UserID, Provider, ProviderUserID, Email string
+	EmailVerified                               bool
+	PasswordHash                                *string
+	CreatedAt                                   time.Time
+}

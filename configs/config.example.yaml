@@ -1,0 +1,27 @@
+server:
+  addr: ":8080"
+
+storage:
+  driver: "postgres"   # postgres | mysql | mongo
+  dsn: "postgres://lucho:supersecreta@localhost:5432/login?sslmode=disable"
+  postgres:
+    max_open_conns: 30
+    max_idle_conns: 5
+    conn_max_lifetime: "30m"
+  mysql:
+    dsn: "user:pass@tcp(localhost:3306)/login?parseTime=true&charset=utf8mb4"
+  mongo:
+    uri: "mongodb://user:pass@localhost:27017"
+    database: "login"
+
+cache:
+  kind: "redis"        # redis | memory
+  redis:
+    addr: "localhost:6379"
+    db: 0
+    prefix: "login:"
+  memory:
+    default_ttl: "2m"
+
+flags:
+  migrate: true         # corre migraciones al iniciar
