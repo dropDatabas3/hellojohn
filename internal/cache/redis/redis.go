@@ -4,13 +4,12 @@ import (
 	"context"
 	"time"
 
-	"github.com/dropDatabas3/hellojohn/internal/cache"
 	rdb "github.com/redis/go-redis/v9"
 )
 
 type Cache struct{ c *rdb.Client }
 
-func New(addr string, db int) cache.Cache {
+func New(addr string, db int) *Cache {
 	return &Cache{c: rdb.NewClient(&rdb.Options{Addr: addr, DB: db})}
 }
 

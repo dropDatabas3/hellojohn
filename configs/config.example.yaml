@@ -2,8 +2,8 @@ server:
   addr: ":8080"
 
 storage:
-  driver: "postgres"   # postgres | mysql | mongo
-  dsn: "postgres://lucho:supersecreta@localhost:5432/login?sslmode=disable"
+  driver: "postgres"
+  dsn: "postgres://user:password@localhost:5432/login?sslmode=disable"
   postgres:
     max_open_conns: 30
     max_idle_conns: 5
@@ -15,7 +15,7 @@ storage:
     database: "login"
 
 cache:
-  kind: "redis"        # redis | memory
+  kind: "redis"
   redis:
     addr: "localhost:6379"
     db: 0
@@ -23,5 +23,12 @@ cache:
   memory:
     default_ttl: "2m"
 
+jwt:
+  issuer: "http://localhost:8080"
+  access_ttl: "15m"
+
+register:
+  auto_login: true
+
 flags:
-  migrate: true         # corre migraciones al iniciar
+  migrate: true

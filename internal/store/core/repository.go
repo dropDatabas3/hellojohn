@@ -11,7 +11,7 @@ type Repository interface {
 	Ping(ctx context.Context) error
 	BeginTx(ctx context.Context) (Tx, error)
 
-	// Auth (mínimo para arrancar)
+	// Auth (mínimo)
 	GetUserByEmail(ctx context.Context, tenantID, email string) (*User, *Identity, error)
 	CheckPassword(hash *string, pwd string) bool
 
@@ -21,6 +21,10 @@ type Repository interface {
 	CreateClientVersion(ctx context.Context, v *ClientVersion) error
 	PromoteClientVersion(ctx context.Context, clientID, versionID string) error
 
-	// Lecturas de config activa
+	// Lecturas
 	GetClientByClientID(ctx context.Context, clientID string) (*Client, *ClientVersion, error)
+
+	// ------- NUEVO: Registro por password -------
+	CreateUser(ctx context.Context, u *User) error
+	CreatePasswordIdentity(ctx context.Context, userID, email string, emailVerified bool, passwordHash string) error
 }

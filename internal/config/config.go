@@ -41,6 +41,15 @@ type Config struct {
 		} `yaml:"memory"`
 	} `yaml:"cache"`
 
+	JWT struct {
+		Issuer    string `yaml:"issuer"`
+		AccessTTL string `yaml:"access_ttl"`
+	} `yaml:"jwt"`
+
+	Register struct {
+		AutoLogin bool `yaml:"auto_login"`
+	} `yaml:"register"`
+
 	Flags struct {
 		Migrate bool `yaml:"migrate"`
 	} `yaml:"flags"`

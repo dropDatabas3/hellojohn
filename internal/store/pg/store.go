@@ -67,13 +67,7 @@ func (s *Store) GetUserByEmail(ctx context.Context, tenantID, email string) (*co
 SELECT u.id, u.tenant_id, u.email, u.email_verified, u.status, u.metadata, u.created_at,
        i.id, i.provider, i.provider_user_id, i.email, i.email_verified, i.password_hash, i.created_at
 FROM app_user u
-LEFT JOIN LATERAL (
-    SELECT i2.*
-    FROM identity i2
-    WHERE i2.user_id = u.id AND i2.provider IN ('password','google','facebook')
-    ORDER BY CASE i2.provider WHEN 'password' THEN 0 WHEN 'google' THEN 1 ELSE 2 END
-    LIMIT 1
-) i ON TRUE
+JOIN identity i ON i.user_id = u.id AND i.provider = 'password'
 WHERE u.tenant_id = $1 AND LOWER(u.email) = LOWER($2)
 LIMIT 1`
 	row := s.pool.QueryRow(ctx, q, tenantID, email)
@@ -81,10 +75,16 @@ LIMIT 1`
 	var u core.User
 	var i core.Identity
 	var meta map[string]any
+	// campos NULLables
+	var providerUserID *string
+	var idEmail *string
+	var idEmailVerified *bool
 	var pwd *string
 
-	if err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.EmailVerified, &u.Status, &meta, &u.CreatedAt,
-		&i.ID, &i.Provider, &i.ProviderUserID, &i.Email, &i.EmailVerified, &pwd, &i.CreatedAt); err != nil {
+	if err := row.Scan(
+		&u.ID, &u.TenantID, &u.Email, &u.EmailVerified, &u.Status, &meta, &u.CreatedAt,
+		&i.ID, &i.Provider, &providerUserID, &idEmail, &idEmailVerified, &pwd, &i.CreatedAt,
+	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil, core.ErrNotFound
 		}
@@ -92,6 +92,15 @@ LIMIT 1`
 	}
 	u.Metadata = meta
 	i.UserID = u.ID
+	if providerUserID != nil {
+		i.ProviderUserID = *providerUserID
+	}
+	if idEmail != nil {
+		i.Email = *idEmail
+	}
+	if idEmailVerified != nil {
+		i.EmailVerified = *idEmailVerified
+	}
 	i.PasswordHash = pwd
 	return &u, &i, nil
 }
@@ -181,6 +190,41 @@ LIMIT 1`
 	}
 	v.ClientID = c.ID
 	return &c, &v, nil
+}
+
+// CreateUser crea o devuelve el existente (upsert) y rellena ID/CreatedAt.
+func (s *Store) CreateUser(ctx context.Context, u *core.User) error {
+	if u.Metadata == nil {
+		u.Metadata = map[string]any{}
+	}
+	// guardamos email en minúscula para consistencia
+	const q = `
+INSERT INTO app_user (id, tenant_id, email, email_verified, status, metadata)
+VALUES (gen_random_uuid(), $1, LOWER($2), $3, $4, $5)
+ON CONFLICT (tenant_id, email)
+DO UPDATE SET email = EXCLUDED.email
+RETURNING id, created_at`
+	return s.pool.QueryRow(ctx, q,
+		u.TenantID, u.Email, u.EmailVerified, u.Status, u.Metadata,
+	).Scan(&u.ID, &u.CreatedAt)
+}
+
+func (s *Store) CreatePasswordIdentity(ctx context.Context, userID, email string, emailVerified bool, passwordHash string) error {
+	const q = `
+INSERT INTO identity (id, user_id, provider, email, email_verified, password_hash)
+VALUES (gen_random_uuid(), $1, 'password', LOWER($2), $3, $4)
+ON CONFLICT (user_id, provider) DO NOTHING
+RETURNING id`
+	var id string
+	err := s.pool.QueryRow(ctx, q, userID, email, emailVerified, passwordHash).Scan(&id)
+	if err != nil {
+		// si no hay row (por ON CONFLICT DO NOTHING) pgx da ErrNoRows
+		if errors.Is(err, pgx.ErrNoRows) {
+			return core.ErrConflict // ya existía identidad password
+		}
+		return err
+	}
+	return nil
 }
 
 // ====================== MIGRACIONES ======================
