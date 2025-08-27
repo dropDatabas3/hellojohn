@@ -37,3 +37,14 @@ type Identity struct {
 	PasswordHash                                *string
 	CreatedAt                                   time.Time
 }
+
+type RefreshToken struct {
+	ID          string
+	UserID      string
+	ClientID    string
+	TokenHash   string
+	IssuedAt    time.Time
+	ExpiresAt   time.Time
+	RotatedFrom *string
+	RevokedAt   *time.Time
+}

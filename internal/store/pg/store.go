@@ -236,8 +236,11 @@ func (s *Store) RunMigrations(ctx context.Context, dir string) error {
 	}
 	var files []string
 	for _, e := range entries {
-		if e.Type().IsRegular() && strings.HasSuffix(strings.ToLower(e.Name()), ".sql") {
-			files = append(files, dir+"/"+e.Name())
+		if e.Type().IsRegular() {
+			name := strings.ToLower(e.Name())
+			if strings.HasSuffix(name, "_up.sql") { // <- solo UP
+				files = append(files, dir+"/"+e.Name())
+			}
 		}
 	}
 	sort.Strings(files)
@@ -251,4 +254,135 @@ func (s *Store) RunMigrations(ctx context.Context, dir string) error {
 		}
 	}
 	return nil
+}
+
+// Opcional: correr DOWN (en orden inverso).
+func (s *Store) RunMigrationsDown(ctx context.Context, dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	var files []string
+	for _, e := range entries {
+		if e.Type().IsRegular() {
+			name := strings.ToLower(e.Name())
+			if strings.HasSuffix(name, "_down.sql") { // <- solo DOWN
+				files = append(files, dir+"/"+e.Name())
+			}
+		}
+	}
+	sort.Strings(files)
+	// ejecutar en orden inverso
+	for i := len(files) - 1; i >= 0; i-- {
+		f := files[i]
+		b, err := os.ReadFile(f)
+		if err != nil {
+			return err
+		}
+		if _, err := s.pool.Exec(ctx, string(b)); err != nil {
+			return fmt.Errorf("exec %s: %w", f, err)
+		}
+	}
+	return nil
+}
+
+func (s *Store) CreateUserWithPassword(ctx context.Context, tenantID, email, passwordHash string) (*core.User, *core.Identity, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var u core.User
+	var meta map[string]any
+
+	// Insert user; si existe (unique tenant_id,email) devolvemos conflicto
+	err = tx.QueryRow(ctx, `
+		INSERT INTO app_user (tenant_id, email, email_verified, status, metadata)
+		VALUES ($1, LOWER($2), false, 'active', '{}'::jsonb)
+		RETURNING id, tenant_id, email, email_verified, status, metadata, created_at
+	`, tenantID, email).
+		Scan(&u.ID, &u.TenantID, &u.Email, &u.EmailVerified, &u.Status, &meta, &u.CreatedAt)
+	if err != nil {
+		// Si chocamos UNIQUE, lo más simple: conflicto
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return nil, nil, core.ErrConflict
+		}
+		return nil, nil, err
+	}
+	u.Metadata = meta
+
+	var id core.Identity
+	var providerUserID *string
+	var idEmail *string
+	var idEmailVerified *bool
+	var pwd *string
+
+	// Insert identity password; si ya existía para ese user -> conflicto
+	err = tx.QueryRow(ctx, `
+		INSERT INTO identity (user_id, provider, email, email_verified, password_hash)
+		VALUES ($1, 'password', $2, false, $3)
+		RETURNING id, provider, provider_user_id, email, email_verified, password_hash, created_at
+	`, u.ID, strings.ToLower(email), passwordHash).
+		Scan(&id.ID, &id.Provider, &providerUserID, &idEmail, &idEmailVerified, &pwd, &id.CreatedAt)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return nil, nil, core.ErrConflict
+		}
+		return nil, nil, err
+	}
+	id.UserID = u.ID
+	if providerUserID != nil {
+		id.ProviderUserID = *providerUserID
+	}
+	if idEmail != nil {
+		id.Email = *idEmail
+	}
+	if idEmailVerified != nil {
+		id.EmailVerified = *idEmailVerified
+	}
+	id.PasswordHash = pwd
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, err
+	}
+	return &u, &id, nil
+}
+
+// ====================== REFRESH TOKENS ======================
+
+func (s *Store) CreateRefreshToken(ctx context.Context, userID, clientID, tokenHash string, expiresAt time.Time, rotatedFrom *string) (string, error) {
+	const q = `
+INSERT INTO refresh_token (id, user_id, client_id, token_hash, issued_at, expires_at, rotated_from)
+VALUES (gen_random_uuid(), $1, $2, $3, now(), $4, $5)
+RETURNING id`
+	var id string
+	if err := s.pool.QueryRow(ctx, q, userID, clientID, tokenHash, expiresAt, rotatedFrom).Scan(&id); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func (s *Store) GetRefreshTokenByHash(ctx context.Context, tokenHash string) (*core.RefreshToken, error) {
+	const q = `
+SELECT id, user_id, client_id, token_hash, issued_at, expires_at, rotated_from, revoked_at
+FROM refresh_token
+WHERE token_hash = $1
+LIMIT 1`
+	row := s.pool.QueryRow(ctx, q, tokenHash)
+
+	var rt core.RefreshToken
+	if err := row.Scan(&rt.ID, &rt.UserID, &rt.ClientID, &rt.TokenHash, &rt.IssuedAt, &rt.ExpiresAt, &rt.RotatedFrom, &rt.RevokedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, core.ErrNotFound
+		}
+		return nil, err
+	}
+	return &rt, nil
+}
+
+func (s *Store) RevokeRefreshToken(ctx context.Context, id string) error {
+	const q = `UPDATE refresh_token SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL`
+	_, err := s.pool.Exec(ctx, q, id)
+	return err
 }

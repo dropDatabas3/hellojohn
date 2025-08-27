@@ -1,6 +1,9 @@
 package core
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type Tx interface {
 	Commit(ctx context.Context) error
@@ -24,7 +27,15 @@ type Repository interface {
 	// Lecturas
 	GetClientByClientID(ctx context.Context, clientID string) (*Client, *ClientVersion, error)
 
-	// ------- NUEVO: Registro por password -------
+	//------- Registro por password -------
 	CreateUser(ctx context.Context, u *User) error
 	CreatePasswordIdentity(ctx context.Context, userID, email string, emailVerified bool, passwordHash string) error
+
+	// Register (alta simple con password)
+	CreateUserWithPassword(ctx context.Context, tenantID, email, passwordHash string) (*User, *Identity, error)
+
+	// Refresh tokens
+	CreateRefreshToken(ctx context.Context, userID, clientID, tokenHash string, expiresAt time.Time, rotatedFrom *string) (string, error)
+	GetRefreshTokenByHash(ctx context.Context, tokenHash string) (*RefreshToken, error)
+	RevokeRefreshToken(ctx context.Context, id string) error
 }

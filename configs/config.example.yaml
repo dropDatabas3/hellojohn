@@ -1,5 +1,8 @@
 server:
   addr: ":8080"
+  cors_allowed_origins:
+    - "http://localhost:3000"
+    - "http://127.0.0.1:3000"
 
 storage:
   driver: "postgres"
@@ -26,9 +29,15 @@ cache:
 jwt:
   issuer: "http://localhost:8080"
   access_ttl: "15m"
+  refresh_ttl: "720h"   # 30d
 
 register:
   auto_login: true
+
+rate:
+  enabled: true
+  window: "1m"
+  max_requests: 60
 
 flags:
   migrate: true

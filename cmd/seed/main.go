@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	cfg, err := config.Load("../configs/config.example.yaml")
+	cfg, err := config.Load("configs/config.example.yaml")
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
