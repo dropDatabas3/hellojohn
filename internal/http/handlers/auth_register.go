@@ -117,7 +117,12 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			"tid": req.TenantID,
 			"amr": []string{"pwd"},
 		}
-		token, exp, err := c.Issuer.IssueAccess(u.ID, req.ClientID, std, map[string]any{})
+		custom := map[string]any{}
+
+		// Hook opcional
+		std, custom = applyAccessClaimsHook(ctx, c, req.TenantID, req.ClientID, u.ID, []string{}, []string{"pwd"}, std, custom)
+
+		token, exp, err := c.Issuer.IssueAccess(u.ID, req.ClientID, std, custom)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 1201)
 			return

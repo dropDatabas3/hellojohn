@@ -52,6 +52,18 @@ type Config struct {
 		AutoLogin bool `yaml:"auto_login"`
 	} `yaml:"register"`
 
+	// NUEVO: configuración de auth/sesión
+	Auth struct {
+		AllowBearerSession bool `yaml:"allow_bearer_session"` // fallback: /oauth2/authorize acepta Authorization: Bearer
+		Session            struct {
+			CookieName string `yaml:"cookie_name"`
+			Domain     string `yaml:"domain"`
+			SameSite   string `yaml:"samesite"` // "Lax" (default), "Strict", "None"
+			Secure     bool   `yaml:"secure"`
+			TTL        string `yaml:"ttl"` // ej "12h"
+		} `yaml:"session"`
+	} `yaml:"auth"`
+
 	Rate struct {
 		Enabled     bool   `yaml:"enabled"`
 		Window      string `yaml:"window"`
@@ -92,6 +104,24 @@ func Load(path string) (*Config, error) {
 	if c.Rate.MaxRequests == 0 {
 		c.Rate.MaxRequests = 60
 	}
+	// Defaults nuevos (Auth/Session)
+	if c.Auth.Session.CookieName == "" {
+		c.Auth.Session.CookieName = "sid"
+	}
+	if c.Auth.Session.SameSite == "" {
+		c.Auth.Session.SameSite = "Lax"
+	}
+	if c.Auth.Session.TTL == "" {
+		c.Auth.Session.TTL = "12h"
+	}
+	// por DX, true en dev; en prod podés setear false
+	// (si querés que /oauth2/authorize NO acepte Bearer como “sesión”)
+	// lo dejamos como true por compat.
+	if !c.Auth.AllowBearerSession {
+		// no-op: yaml bool por defecto es false; si querés true explícito en config, definilo.
+		// Para mantener compat, si no vino en YAML, lo asumimos true:
+		c.Auth.AllowBearerSession = true
+	}
 
 	// validate durations
 	if c.Storage.Postgres.ConnMaxLifetime != "" {
@@ -111,6 +141,11 @@ func Load(path string) (*Config, error) {
 	}
 	if c.Rate.Window != "" {
 		if _, err := time.ParseDuration(c.Rate.Window); err != nil {
+			return nil, err
+		}
+	}
+	if c.Auth.Session.TTL != "" {
+		if _, err := time.ParseDuration(c.Auth.Session.TTL); err != nil {
 			return nil, err
 		}
 	}

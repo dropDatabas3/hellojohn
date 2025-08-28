@@ -11,6 +11,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/config"
 	httpserver "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/http/handlers"
+	"github.com/dropDatabas3/hellojohn/internal/infra/cachefactory"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/rate"
 	"github.com/dropDatabas3/hellojohn/internal/store"
@@ -56,6 +57,7 @@ func (a redisLimiterAdapter) Allow(ctx context.Context, key string) (struct {
 }
 
 func main() {
+	// Config
 	cfgPath := os.Getenv("CONFIG_PATH")
 	if cfgPath == "" {
 		cfgPath = "configs/config.example.yaml"
@@ -124,14 +126,39 @@ func main() {
 		}
 	}
 
+	// Cache genérica (Redis o memoria)
+	cc, err := cachefactory.Open(cachefactory.Config{
+		Kind: cfg.Cache.Kind,
+		Redis: struct {
+			Addr string
+			DB   int
+		}{
+			Addr: cfg.Cache.Redis.Addr,
+			DB:   cfg.Cache.Redis.DB,
+		},
+		Memory: struct{ DefaultTTL string }{
+			DefaultTTL: cfg.Cache.Memory.DefaultTTL,
+		},
+	})
+	if err != nil {
+		log.Fatalf("cache: %v", err)
+	}
+
 	// Container DI
 	container := app.Container{
 		Store:  repo,
 		Issuer: issuer,
+		Cache:  cc,
+	}
+
+	// Parse TTL de sesión (para cookies)
+	sessionTTL, _ := time.ParseDuration(cfg.Auth.Session.TTL)
+	if sessionTTL == 0 {
+		sessionTTL = 12 * time.Hour
 	}
 
 	// Handlers base
-	jwksHandler := handlers.NewJWKSHandler(keys.JWKSJSON())
+	jwksHandler := handlers.NewJWKSHandler(&container)
 	authLoginHandler := handlers.NewAuthLoginHandler(&container, refreshTTL)
 	authRegisterHandler := handlers.NewAuthRegisterHandler(&container, cfg.Register.AutoLogin, refreshTTL)
 	authRefreshHandler := handlers.NewAuthRefreshHandler(&container, refreshTTL)
@@ -156,7 +183,31 @@ func main() {
 	// /readyz con chequeo de Redis si está disponible
 	readyzHandler := handlers.NewReadyzHandler(&container, redisPing)
 
-	// HTTP mux
+	// ───────── OIDC ─────────
+	oidcDiscoveryHandler := handlers.NewOIDCDiscoveryHandler(&container)
+	oauthAuthorizeHandler := handlers.NewOAuthAuthorizeHandler(&container, cfg.Auth.Session.CookieName, cfg.Auth.AllowBearerSession)
+	oauthTokenHandler := handlers.NewOAuthTokenHandler(&container, refreshTTL)
+	userInfoHandler := handlers.NewUserInfoHandler(&container)
+
+	// NUEVOS: revoke y sesión cookie
+	oauthRevokeHandler := handlers.NewOAuthRevokeHandler(&container)
+	sessionLoginHandler := handlers.NewSessionLoginHandler(
+		&container,
+		cfg.Auth.Session.CookieName,
+		cfg.Auth.Session.Domain,
+		cfg.Auth.Session.SameSite,
+		cfg.Auth.Session.Secure,
+		sessionTTL,
+	)
+	sessionLogoutHandler := handlers.NewSessionLogoutHandler(
+		&container,
+		cfg.Auth.Session.CookieName,
+		cfg.Auth.Session.Domain,
+		cfg.Auth.Session.SameSite, // <- ahora pasamos SameSite también para borrar bien
+		cfg.Auth.Session.Secure,
+	)
+
+	// HTTP mux (sumamos endpoints OIDC y sesión)
 	mux := httpserver.NewMux(
 		jwksHandler,
 		authLoginHandler,
@@ -165,14 +216,23 @@ func main() {
 		authLogoutHandler,
 		meHandler,
 		readyzHandler,
+		oidcDiscoveryHandler,
+		oauthAuthorizeHandler,
+		oauthTokenHandler,
+		userInfoHandler,
+		oauthRevokeHandler,
+		sessionLoginHandler,
+		sessionLogoutHandler,
 	)
 
-	// Middlewares: CORS -> RateLimit -> RequestID -> Recover -> Logging
+	// Middlewares: CORS -> Security -> RateLimit -> RequestID -> Recover -> Logging
 	handler := httpserver.WithLogging(
 		httpserver.WithRecover(
 			httpserver.WithRequestID(
 				httpserver.WithRateLimit(
-					httpserver.WithCORS(mux, cfg.Server.CORSAllowedOrigins),
+					httpserver.WithSecurityHeaders( // <- agregado acá
+						httpserver.WithCORS(mux, cfg.Server.CORSAllowedOrigins),
+					),
 					limiter,
 				),
 			),

@@ -386,3 +386,20 @@ func (s *Store) RevokeRefreshToken(ctx context.Context, id string) error {
 	_, err := s.pool.Exec(ctx, q, id)
 	return err
 }
+
+func (s *Store) GetUserByID(ctx context.Context, userID string) (*core.User, error) {
+	const q = `
+SELECT id, tenant_id, email, email_verified, status, metadata, created_at
+FROM app_user WHERE id = $1 LIMIT 1`
+	row := s.pool.QueryRow(ctx, q, userID)
+	var u core.User
+	var meta map[string]any
+	if err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.EmailVerified, &u.Status, &meta, &u.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, core.ErrNotFound
+		}
+		return nil, err
+	}
+	u.Metadata = meta
+	return &u, nil
+}

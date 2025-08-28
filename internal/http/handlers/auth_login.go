@@ -68,11 +68,15 @@ func NewAuthLoginHandler(c *app.Container, refreshTTL time.Duration) http.Handle
 			return
 		}
 
+		// Base claims
 		std := map[string]any{
 			"tid": req.TenantID,
 			"amr": []string{"pwd"},
 		}
 		custom := map[string]any{}
+
+		// Hook opcional (CEL/webhook/etc.)
+		std, custom = applyAccessClaimsHook(ctx, c, req.TenantID, req.ClientID, u.ID, []string{}, []string{"pwd"}, std, custom)
 
 		token, exp, err := c.Issuer.IssueAccess(u.ID, req.ClientID, std, custom)
 		if err != nil {

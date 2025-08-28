@@ -38,4 +38,7 @@ type Repository interface {
 	CreateRefreshToken(ctx context.Context, userID, clientID, tokenHash string, expiresAt time.Time, rotatedFrom *string) (string, error)
 	GetRefreshTokenByHash(ctx context.Context, tokenHash string) (*RefreshToken, error)
 	RevokeRefreshToken(ctx context.Context, id string) error
+
+	// Sprint 2: necesario para /userinfo
+	GetUserByID(ctx context.Context, userID string) (*User, error)
 }

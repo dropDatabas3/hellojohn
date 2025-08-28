@@ -60,6 +60,51 @@ func WithCORS(next http.Handler, allowed []string) http.Handler {
 	})
 }
 
+// ─────────────── Security Headers ───────────────
+
+// isHTTPS intenta detectar si el request llegó por HTTPS (directo o detrás de proxy).
+func isHTTPS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		return true
+	}
+	return false
+}
+
+// WithSecurityHeaders inyecta cabeceras de defensa por defecto.
+// No rompe endpoints porque no toca Cache-Control (eso ya lo maneja cada handler sensible a tokens).
+func WithSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		// Referrer y MIME sniffing
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+
+		// Clickjacking
+		w.Header().Set("X-Frame-Options", "DENY")
+
+		// CSP estricta para API (no servimos HTML estático acá)
+		// - default-src 'none' bloquea cualquier carga
+		// - frame-ancestors 'none' refuerza anti-embebidos
+		// - base-uri 'none' evita base href
+		// - form-action 'self' permite POST directos si algún día hay formularios 1st-party
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+
+		// Permissions-Policy: deshabilitamos superficies no usadas por una API
+		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=()")
+
+		// HSTS solo si estamos en HTTPS (directo o detrás de proxy)
+		if isHTTPS(r) {
+			// 180 días, incluye subdominios (preload lo dejamos a decisión operativa)
+			w.Header().Set("Strict-Transport-Security", "max-age=15552000; includeSubDomains")
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // ─────────────── Request ID ───────────────
 func WithRequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

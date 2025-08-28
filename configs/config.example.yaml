@@ -31,6 +31,15 @@ jwt:
   access_ttl: "15m"
   refresh_ttl: "720h"   # 30d
 
+auth:
+  allow_bearer_session: true
+  session:
+    cookie_name: "sid"
+    samesite: "Lax"
+    secure: false   # true en prod (https)
+    ttl: "12h"
+
+
 register:
   auto_login: true
 
