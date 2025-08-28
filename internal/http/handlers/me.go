@@ -16,24 +16,18 @@ func NewMeHandler(c *app.Container) http.HandlerFunc {
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo GET", 1000)
 			return
 		}
-
 		ah := strings.TrimSpace(r.Header.Get("Authorization"))
 		if ah == "" || !strings.HasPrefix(strings.ToLower(ah), "bearer ") {
 			httpx.WriteError(w, http.StatusUnauthorized, "missing_bearer", "falta Authorization: Bearer <token>", 1105)
 			return
 		}
 		raw := strings.TrimSpace(ah[len("Bearer "):])
-		if raw == "" {
-			httpx.WriteError(w, http.StatusUnauthorized, "missing_bearer", "token vacío", 1105)
-			return
-		}
 
 		tk, err := jwtv5.Parse(raw, func(t *jwtv5.Token) (any, error) {
-			// Solo aceptamos EdDSA/Ed25519 firmada por nuestra clave pública
 			return c.Issuer.Keys.Pub, nil
 		},
 			jwtv5.WithValidMethods([]string{"EdDSA"}),
-			jwtv5.WithIssuer(c.Issuer.Iss),
+			jwtv5.WithIssuer(c.Issuer.Iss), // <- de vuelta a estricto
 		)
 		if err != nil || !tk.Valid {
 			httpx.WriteError(w, http.StatusUnauthorized, "invalid_token", "token inválido o expirado", 1103)

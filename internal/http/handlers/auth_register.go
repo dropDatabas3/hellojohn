@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -47,8 +46,7 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
 		var req AuthRegisterRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "payload JSON inválido", 1001)
+		if !httpx.ReadJSON(w, r, &req) {
 			return
 		}
 		req.Email = strings.TrimSpace(strings.ToLower(req.Email))
@@ -61,7 +59,6 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 
 		ctx := r.Context()
 
-		// 1) Validar client y que soporte password
 		cl, _, err := c.Store.GetClientByClientID(ctx, req.ClientID)
 		if err != nil {
 			if err == core.ErrNotFound {
@@ -80,14 +77,12 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			return
 		}
 
-		// 2) Hashear password
 		phc, err := password.Hash(password.Default, req.Password)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "hash_failed", "no se pudo hashear el password", 1200)
 			return
 		}
 
-		// 3) Crear user + identidad
 		u := &core.User{
 			TenantID:      req.TenantID,
 			Email:         req.Email,
@@ -111,13 +106,13 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			return
 		}
 
-		// 4) Responder
+		// Si no hay auto-login, devolvés sólo el user_id (no hay tokens)
 		if !autoLogin {
-			_ = json.NewEncoder(w).Encode(AuthRegisterResponse{UserID: u.ID})
+			httpx.WriteJSON(w, http.StatusOK, AuthRegisterResponse{UserID: u.ID})
 			return
 		}
 
-		// auto-login + refresh inicial
+		// Auto-login + refresh inicial
 		std := map[string]any{
 			"tid": req.TenantID,
 			"amr": []string{"pwd"},
@@ -140,7 +135,11 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			return
 		}
 
-		_ = json.NewEncoder(w).Encode(AuthRegisterResponse{
+		// evitar cache en respuestas que incluyen tokens
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Pragma", "no-cache")
+
+		httpx.WriteJSON(w, http.StatusOK, AuthRegisterResponse{
 			UserID:       u.ID,
 			AccessToken:  token,
 			TokenType:    "Bearer",

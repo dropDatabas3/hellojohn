@@ -18,7 +18,7 @@ import (
 	rdb "github.com/redis/go-redis/v9"
 )
 
-// Adapter para que rate.RedisLimiter cumpla con http.RateLimiter
+// Adapter para que rate.Limiter cumpla con http.RateLimiter
 type redisLimiterAdapter struct {
 	inner rate.Limiter
 }
@@ -86,7 +86,7 @@ func main() {
 		log.Fatalf("store open: %v", err)
 	}
 
-	// Migraciones (opcionales)
+	// Migraciones
 	if cfg.Flags.Migrate {
 		if pg, ok := repo.(interface {
 			RunMigrations(context.Context, string) error
@@ -116,8 +116,7 @@ func main() {
 			issuer.AccessTTL = d
 		}
 	}
-
-	// Refresh TTL desde config (default 30d en config.Load)
+	// Refresh TTL (desde config si viene)
 	refreshTTL := 30 * 24 * time.Hour
 	if cfg.JWT.RefreshTTL != "" {
 		if d, err := time.ParseDuration(cfg.JWT.RefreshTTL); err == nil {
@@ -131,14 +130,31 @@ func main() {
 		Issuer: issuer,
 	}
 
-	// Handlers
+	// Handlers base
 	jwksHandler := handlers.NewJWKSHandler(keys.JWKSJSON())
 	authLoginHandler := handlers.NewAuthLoginHandler(&container, refreshTTL)
 	authRegisterHandler := handlers.NewAuthRegisterHandler(&container, cfg.Register.AutoLogin, refreshTTL)
 	authRefreshHandler := handlers.NewAuthRefreshHandler(&container, refreshTTL)
 	authLogoutHandler := handlers.NewAuthLogoutHandler(&container)
 	meHandler := handlers.NewMeHandler(&container)
-	readyzHandler := handlers.NewReadyzHandler(&container)
+
+	// Rate limiter (Redis) y ping opcional para /readyz
+	var limiter httpserver.RateLimiter
+	var redisPing func(context.Context) error
+	if cfg.Rate.Enabled && strings.EqualFold(cfg.Cache.Kind, "redis") {
+		rc := rdb.NewClient(&rdb.Options{
+			Addr: cfg.Cache.Redis.Addr,
+			DB:   cfg.Cache.Redis.DB,
+		})
+		if win, err := time.ParseDuration(cfg.Rate.Window); err == nil {
+			rl := rate.NewRedisLimiter(rc, cfg.Cache.Redis.Prefix+"rl:", cfg.Rate.MaxRequests, win)
+			limiter = redisLimiterAdapter{inner: rl}
+		}
+		redisPing = func(ctx context.Context) error { return rc.Ping(ctx).Err() }
+	}
+
+	// /readyz con chequeo de Redis si está disponible
+	readyzHandler := handlers.NewReadyzHandler(&container, redisPing)
 
 	// HTTP mux
 	mux := httpserver.NewMux(
@@ -150,19 +166,6 @@ func main() {
 		meHandler,
 		readyzHandler,
 	)
-
-	// Rate limiter (Redis) si está habilitado
-	var limiter httpserver.RateLimiter
-	if cfg.Rate.Enabled && strings.EqualFold(cfg.Cache.Kind, "redis") {
-		rc := rdb.NewClient(&rdb.Options{
-			Addr: cfg.Cache.Redis.Addr,
-			DB:   cfg.Cache.Redis.DB,
-		})
-		if win, err := time.ParseDuration(cfg.Rate.Window); err == nil {
-			rl := rate.NewRedisLimiter(rc, cfg.Cache.Redis.Prefix+"rl:", cfg.Rate.MaxRequests, win)
-			limiter = redisLimiterAdapter{inner: rl}
-		}
-	}
 
 	// Middlewares: CORS -> RateLimit -> RequestID -> Recover -> Logging
 	handler := httpserver.WithLogging(

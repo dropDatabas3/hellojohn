@@ -47,7 +47,8 @@ func WithCORS(next http.Handler, allowed []string) http.Handler {
 			h.Set("Access-Control-Allow-Credentials", "true")
 			h.Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
 			h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
-			h.Set("Access-Control-Expose-Headers", "X-Request-ID, X-RateLimit-Remaining")
+			// Exponemos también Retry-After para clientes browser
+			h.Set("Access-Control-Expose-Headers", "X-Request-ID, X-RateLimit-Remaining, Retry-After")
 			h.Set("Access-Control-Max-Age", "600") // preflight 10m
 		}
 
@@ -185,10 +186,15 @@ func WithRateLimit(next http.Handler, limiter RateLimiter) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// whitelist: no contar /healthz ni /readyz en el rate limit
+		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		key := rateKey(r)
 		res, err := limiter.Allow(r.Context(), key)
 		if err != nil {
-			// fail-open si Redis falla, pero logueamos
 			log.Printf(`{"level":"warn","msg":"rate_limit_error","err":"%v"}`, err)
 			next.ServeHTTP(w, r)
 			return
@@ -203,4 +209,27 @@ func WithRateLimit(next http.Handler, limiter RateLimiter) http.Handler {
 		w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", res.Remaining))
 		next.ServeHTTP(w, r)
 	})
+}
+
+// Adaptador de Limiter real a la interfaz local (si tu limiter es *rate.RedisLimiter)
+type RateLimiterAdapter struct {
+	inner interface {
+		Allow(ctx context.Context, key string) (struct {
+			Allowed     bool
+			Remaining   int64
+			RetryAfter  time.Duration
+			WindowTTL   time.Duration
+			CurrentHits int64
+		}, error)
+	}
+}
+
+func (a *RateLimiterAdapter) Allow(ctx context.Context, key string) (struct {
+	Allowed     bool
+	Remaining   int64
+	RetryAfter  time.Duration
+	WindowTTL   time.Duration
+	CurrentHits int64
+}, error) {
+	return a.inner.Allow(ctx, key)
 }

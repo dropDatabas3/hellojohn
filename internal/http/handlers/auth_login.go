@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -36,12 +35,9 @@ func NewAuthLoginHandler(c *app.Container, refreshTTL time.Duration) http.Handle
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
 		var req AuthLoginRequest
-		dec := json.NewDecoder(r.Body)
-		if err := dec.Decode(&req); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "payload JSON inválido", 1001)
+		if !httpx.ReadJSON(w, r, &req) {
 			return
 		}
-
 		req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 		if req.TenantID == "" || req.ClientID == "" || req.Email == "" || req.Password == "" {
 			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "tenant_id, client_id, email y password son obligatorios", 1002)
@@ -50,31 +46,28 @@ func NewAuthLoginHandler(c *app.Container, refreshTTL time.Duration) http.Handle
 
 		ctx := r.Context()
 
-		// Usuario + password
 		u, id, err := c.Store.GetUserByEmail(ctx, req.TenantID, req.Email)
 		if err != nil {
+			status := http.StatusInternalServerError
 			if err == core.ErrNotFound {
-				httpx.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "credenciales inválidas", 1101)
-				return
+				status = http.StatusUnauthorized
 			}
-			log.Printf("auth login: GetUserByEmail error: %v (tenant=%s email=%s)", err, req.TenantID, req.Email)
-			httpx.WriteError(w, http.StatusInternalServerError, "store_error", "error interno", 1500)
+			log.Printf("auth login: user not found or err: %v (tenant=%s email=%s)", err, req.TenantID, req.Email)
+			httpx.WriteError(w, status, "invalid_credentials", "usuario o password inválidos", 1201)
 			return
 		}
 		if id == nil || id.PasswordHash == nil || *id.PasswordHash == "" || !c.Store.CheckPassword(id.PasswordHash, req.Password) {
 			log.Printf("auth login: verify=false (tenant=%s email=%s)", req.TenantID, req.Email)
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "credenciales inválidas", 1101)
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "usuario o password inválidos", 1202)
 			return
 		}
 
-		// Validar client y tenant
 		cl, _, err := c.Store.GetClientByClientID(ctx, req.ClientID)
 		if err != nil || cl == nil || cl.TenantID != req.TenantID {
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido para el tenant", 1102)
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1203)
 			return
 		}
 
-		// Access token
 		std := map[string]any{
 			"tid": req.TenantID,
 			"amr": []string{"pwd"},
@@ -83,29 +76,31 @@ func NewAuthLoginHandler(c *app.Container, refreshTTL time.Duration) http.Handle
 
 		token, exp, err := c.Issuer.IssueAccess(u.ID, req.ClientID, std, custom)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 1201)
+			httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 1204)
 			return
 		}
 
-		// Refresh token (opaco) inicial
 		rawRT, err := tokens.GenerateOpaqueToken(32)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh token", 1202)
+			httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 1205)
 			return
 		}
 		hash := tokens.SHA256Base64URL(rawRT)
 		if _, err := c.Store.CreateRefreshToken(ctx, u.ID, cl.ID, hash, time.Now().Add(refreshTTL), nil); err != nil {
-			log.Printf("auth login: CreateRefreshToken error: %v", err)
-			httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh token", 1203)
+			log.Printf("login: create refresh err: %v", err)
+			httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1206)
 			return
 		}
 
-		resp := AuthLoginResponse{
+		// evitar cache en respuestas que incluyen tokens
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Pragma", "no-cache")
+
+		httpx.WriteJSON(w, http.StatusOK, AuthLoginResponse{
 			AccessToken:  token,
 			TokenType:    "Bearer",
 			ExpiresIn:    int64(time.Until(exp).Seconds()),
 			RefreshToken: rawRT,
-		}
-		_ = json.NewEncoder(w).Encode(resp)
+		})
 	}
 }
