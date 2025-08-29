@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"sort"
 	"strings"
@@ -37,7 +38,6 @@ func New(ctx context.Context, dsn string, cfg any) (*Store, error) {
 		if v.MaxOpenConns > 0 {
 			pcfg.MaxConns = int32(v.MaxOpenConns)
 		}
-		// pgxpool no tiene "idle conns" explícito; maneja el total con MaxConns
 		if v.ConnMaxLifetime != "" {
 			if d, err := time.ParseDuration(v.ConnMaxLifetime); err == nil {
 				pcfg.MaxConnLifetime = d
@@ -49,6 +49,7 @@ func New(ctx context.Context, dsn string, cfg any) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	log.Printf(`{"level":"info","msg":"pg_pool_ready","max_conns":%d}`, pcfg.MaxConns)
 	return &Store{pool: pool}, nil
 }
 
@@ -75,7 +76,6 @@ LIMIT 1`
 	var u core.User
 	var i core.Identity
 	var meta map[string]any
-	// campos NULLables
 	var providerUserID *string
 	var idEmail *string
 	var idEmailVerified *bool
@@ -88,6 +88,7 @@ LIMIT 1`
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil, core.ErrNotFound
 		}
+		log.Printf(`{"level":"error","msg":"pg_get_user_by_email_err","tenant_id":"%s","email":"%s","err":"%v"}`, tenantID, email, err)
 		return nil, nil, err
 	}
 	u.Metadata = meta
@@ -182,6 +183,7 @@ LIMIT 1`
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil, core.ErrNotFound
 		}
+		log.Printf(`{"level":"error","msg":"pg_get_client_by_client_id_err","client_id":"%s","err":"%v"}`, clientID, err)
 		return nil, nil, err
 	}
 	c.ActiveVersionID = active
@@ -197,7 +199,6 @@ func (s *Store) CreateUser(ctx context.Context, u *core.User) error {
 	if u.Metadata == nil {
 		u.Metadata = map[string]any{}
 	}
-	// guardamos email en minúscula para consistencia
 	const q = `
 INSERT INTO app_user (id, tenant_id, email, email_verified, status, metadata)
 VALUES (gen_random_uuid(), $1, LOWER($2), $3, $4, $5)
@@ -218,10 +219,10 @@ RETURNING id`
 	var id string
 	err := s.pool.QueryRow(ctx, q, userID, email, emailVerified, passwordHash).Scan(&id)
 	if err != nil {
-		// si no hay row (por ON CONFLICT DO NOTHING) pgx da ErrNoRows
 		if errors.Is(err, pgx.ErrNoRows) {
-			return core.ErrConflict // ya existía identidad password
+			return core.ErrConflict
 		}
+		log.Printf(`{"level":"error","msg":"pg_create_pwd_identity_err","user_id":"%s","email":"%s","err":"%v"}`, userID, email, err)
 		return err
 	}
 	return nil
@@ -238,7 +239,7 @@ func (s *Store) RunMigrations(ctx context.Context, dir string) error {
 	for _, e := range entries {
 		if e.Type().IsRegular() {
 			name := strings.ToLower(e.Name())
-			if strings.HasSuffix(name, "_up.sql") { // <- solo UP
+			if strings.HasSuffix(name, "_up.sql") {
 				files = append(files, dir+"/"+e.Name())
 			}
 		}
@@ -256,7 +257,6 @@ func (s *Store) RunMigrations(ctx context.Context, dir string) error {
 	return nil
 }
 
-// Opcional: correr DOWN (en orden inverso).
 func (s *Store) RunMigrationsDown(ctx context.Context, dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -266,13 +266,12 @@ func (s *Store) RunMigrationsDown(ctx context.Context, dir string) error {
 	for _, e := range entries {
 		if e.Type().IsRegular() {
 			name := strings.ToLower(e.Name())
-			if strings.HasSuffix(name, "_down.sql") { // <- solo DOWN
+			if strings.HasSuffix(name, "_down.sql") {
 				files = append(files, dir+"/"+e.Name())
 			}
 		}
 	}
 	sort.Strings(files)
-	// ejecutar en orden inverso
 	for i := len(files) - 1; i >= 0; i-- {
 		f := files[i]
 		b, err := os.ReadFile(f)
@@ -296,7 +295,6 @@ func (s *Store) CreateUserWithPassword(ctx context.Context, tenantID, email, pas
 	var u core.User
 	var meta map[string]any
 
-	// Insert user; si existe (unique tenant_id,email) devolvemos conflicto
 	err = tx.QueryRow(ctx, `
 		INSERT INTO app_user (tenant_id, email, email_verified, status, metadata)
 		VALUES ($1, LOWER($2), false, 'active', '{}'::jsonb)
@@ -304,10 +302,10 @@ func (s *Store) CreateUserWithPassword(ctx context.Context, tenantID, email, pas
 	`, tenantID, email).
 		Scan(&u.ID, &u.TenantID, &u.Email, &u.EmailVerified, &u.Status, &meta, &u.CreatedAt)
 	if err != nil {
-		// Si chocamos UNIQUE, lo más simple: conflicto
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			return nil, nil, core.ErrConflict
 		}
+		log.Printf(`{"level":"error","msg":"pg_create_user_err","tenant_id":"%s","email":"%s","err":"%v"}`, tenantID, email, err)
 		return nil, nil, err
 	}
 	u.Metadata = meta
@@ -318,7 +316,6 @@ func (s *Store) CreateUserWithPassword(ctx context.Context, tenantID, email, pas
 	var idEmailVerified *bool
 	var pwd *string
 
-	// Insert identity password; si ya existía para ese user -> conflicto
 	err = tx.QueryRow(ctx, `
 		INSERT INTO identity (user_id, provider, email, email_verified, password_hash)
 		VALUES ($1, 'password', $2, false, $3)
@@ -329,6 +326,7 @@ func (s *Store) CreateUserWithPassword(ctx context.Context, tenantID, email, pas
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			return nil, nil, core.ErrConflict
 		}
+		log.Printf(`{"level":"error","msg":"pg_create_identity_err","user_id":"%s","email":"%s","err":"%v"}`, u.ID, email, err)
 		return nil, nil, err
 	}
 	id.UserID = u.ID
@@ -344,6 +342,7 @@ func (s *Store) CreateUserWithPassword(ctx context.Context, tenantID, email, pas
 	id.PasswordHash = pwd
 
 	if err := tx.Commit(ctx); err != nil {
+		log.Printf(`{"level":"error","msg":"pg_tx_commit_err","err":"%v"}`, err)
 		return nil, nil, err
 	}
 	return &u, &id, nil
@@ -358,6 +357,7 @@ VALUES (gen_random_uuid(), $1, $2, $3, now(), $4, $5)
 RETURNING id`
 	var id string
 	if err := s.pool.QueryRow(ctx, q, userID, clientID, tokenHash, expiresAt, rotatedFrom).Scan(&id); err != nil {
+		log.Printf(`{"level":"error","msg":"pg_create_refresh_err","user_id":"%s","client_id":"%s","err":"%v"}`, userID, clientID, err)
 		return "", err
 	}
 	return id, nil
@@ -376,6 +376,7 @@ LIMIT 1`
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, core.ErrNotFound
 		}
+		log.Printf(`{"level":"error","msg":"pg_get_refresh_by_hash_err","err":"%v"}`)
 		return nil, err
 	}
 	return &rt, nil
@@ -398,6 +399,7 @@ FROM app_user WHERE id = $1 LIMIT 1`
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, core.ErrNotFound
 		}
+		log.Printf(`{"level":"error","msg":"pg_get_user_by_id_err","user_id":"%s","err":"%v"}`, userID, err)
 		return nil, err
 	}
 	u.Metadata = meta

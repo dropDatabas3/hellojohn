@@ -23,6 +23,12 @@ func NewMux(
 	oauthRevoke stdhttp.Handler,
 	sessionLogin stdhttp.Handler,
 	sessionLogout stdhttp.Handler,
+
+	// Email Flows (S3)
+	verifyEmailStartHandler stdhttp.Handler, // POST /v1/auth/verify-email/start
+	verifyEmailConfirmHandler stdhttp.Handler, // GET  /v1/auth/verify-email
+	forgotHandler stdhttp.Handler, // POST /v1/auth/forgot
+	resetHandler stdhttp.Handler, // POST /v1/auth/reset
 ) *stdhttp.ServeMux {
 	mux := stdhttp.NewServeMux()
 
@@ -52,6 +58,12 @@ func NewMux(
 	// Sesión por cookie (para /oauth2/authorize)
 	mux.Handle("/v1/session/login", sessionLogin)
 	mux.Handle("/v1/session/logout", sessionLogout)
+
+	// Email Flows
+	mux.Handle("/v1/auth/verify-email/start", verifyEmailStartHandler) // POST
+	mux.Handle("/v1/auth/verify-email", verifyEmailConfirmHandler)     // GET
+	mux.Handle("/v1/auth/forgot", forgotHandler)                       // POST
+	mux.Handle("/v1/auth/reset", resetHandler)                         // POST
 
 	return mux
 }

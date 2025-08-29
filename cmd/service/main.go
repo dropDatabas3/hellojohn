@@ -203,11 +203,19 @@ func main() {
 		&container,
 		cfg.Auth.Session.CookieName,
 		cfg.Auth.Session.Domain,
-		cfg.Auth.Session.SameSite, // <- ahora pasamos SameSite también para borrar bien
+		cfg.Auth.Session.SameSite,
 		cfg.Auth.Session.Secure,
 	)
 
-	// HTTP mux (sumamos endpoints OIDC y sesión)
+	// ───────── Email Flows (builder) ─────────
+	verifyEmailStartHandler, verifyEmailConfirmHandler, forgotHandler, resetHandler, cleanup, err :=
+		handlers.BuildEmailFlowHandlers(ctx, cfg, &container, refreshTTL)
+	if err != nil {
+		log.Fatalf("email flows: %v", err)
+	}
+	defer cleanup()
+
+	// HTTP mux (sumamos endpoints OIDC, sesión y email flows)
 	mux := httpserver.NewMux(
 		jwksHandler,
 		authLoginHandler,
@@ -223,6 +231,12 @@ func main() {
 		oauthRevokeHandler,
 		sessionLoginHandler,
 		sessionLogoutHandler,
+
+		// Email Flows
+		verifyEmailStartHandler,   // POST /v1/auth/verify-email/start
+		verifyEmailConfirmHandler, // GET  /v1/auth/verify-email
+		forgotHandler,             // POST /v1/auth/forgot
+		resetHandler,              // POST /v1/auth/reset
 	)
 
 	// Middlewares: CORS -> Security -> RateLimit -> RequestID -> Recover -> Logging
@@ -230,7 +244,7 @@ func main() {
 		httpserver.WithRecover(
 			httpserver.WithRequestID(
 				httpserver.WithRateLimit(
-					httpserver.WithSecurityHeaders( // <- agregado acá
+					httpserver.WithSecurityHeaders(
 						httpserver.WithCORS(mux, cfg.Server.CORSAllowedOrigins),
 					),
 					limiter,

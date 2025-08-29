@@ -35,10 +35,15 @@ auth:
   allow_bearer_session: true
   session:
     cookie_name: "sid"
+    domain: ""
     samesite: "Lax"
-    secure: false   # true en prod (https)
+    secure: false
     ttl: "12h"
-
+  reset:
+    ttl: "60m"
+    auto_login: true
+  verify:
+    ttl: "48h"
 
 register:
   auto_login: true
@@ -50,3 +55,26 @@ rate:
 
 flags:
   migrate: true
+
+# ───────── Gmail SMTP ─────────
+smtp:
+  host: "smtp.gmail.com"
+  port: 587                 # Gmail en 587 usa STARTTLS
+  username: "juanpalacio1996@gmail.com"
+  password: "gezl zchi oken ubkl"   # tu App Password de Google tal cual (con espacios)
+  from: "juanpalacio1996@gmail.com" # en Gmail conviene que FROM == username
+  tls: "starttls"           # starttls | ssl(465) | auto | none
+  insecure_skip_verify: false
+
+email:
+  base_url: "http://localhost:8080"
+  templates_dir: "./templates"
+  debug_echo_links: true    # deja los X-Debug-* para facilitar el test
+
+security:
+  password_policy:
+    min_length: 10
+    require_upper: true
+    require_lower: true
+    require_digit: true
+    require_symbol: false

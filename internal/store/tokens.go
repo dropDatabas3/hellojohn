@@ -1,0 +1,145 @@
+package store
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"log"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+)
+
+type TokenKind int
+
+const (
+	TokenEmailVerify TokenKind = iota + 1
+	TokenPasswordReset
+)
+
+type TokenStore struct {
+	DB *pgx.Conn
+}
+
+func NewTokenStore(db *pgx.Conn) *TokenStore { return &TokenStore{DB: db} }
+
+func generate() (plaintext string, hash []byte, err error) {
+	raw := make([]byte, 32)
+	if _, err = rand.Read(raw); err != nil {
+		return "", nil, err
+	}
+	plaintext = base64.RawURLEncoding.EncodeToString(raw)
+	h := sha256.Sum256([]byte(plaintext))
+	return plaintext, h[:], nil
+}
+
+// Guardamos el hash como base64url (TEXT) y usamos NULLIF para IP/UA
+func (s *TokenStore) CreateEmailVerification(ctx context.Context, tenantID, userID uuid.UUID, sentTo string, ttl time.Duration, ip, ua *string) (string, error) {
+	pt, h, err := generate()
+	if err != nil {
+		return "", err
+	}
+	hashText := base64.RawURLEncoding.EncodeToString(h)
+	exp := time.Now().Add(ttl)
+
+	log.Printf(`{"level":"debug","msg":"db_insert_email_verif_token_try","tenant_id":"%s","user_id":"%s","sent_to":"%s","exp":"%s"}`, tenantID, userID, sentTo, exp.Format(time.RFC3339))
+	_, err = s.DB.Exec(ctx, `
+		INSERT INTO email_verification_token
+		    (tenant_id, user_id, token_hash, sent_to, ip, user_agent, expires_at)
+		VALUES ($1,       $2,      $3,         $4,  NULLIF($5,'')::inet, NULLIF($6,'')::text, $7)`,
+		tenantID, userID, hashText, sentTo, ip, ua, exp,
+	)
+	if err != nil {
+		log.Printf(`{"level":"error","msg":"db_insert_email_verif_token_err","err":"%v"}`, err)
+		return "", err
+	}
+	log.Printf(`{"level":"debug","msg":"db_insert_email_verif_token_ok"}`)
+	return pt, nil
+}
+
+func (s *TokenStore) UseEmailVerification(ctx context.Context, plaintext string) (tenantID, userID uuid.UUID, err error) {
+	h := sha256.Sum256([]byte(plaintext))
+	hashText := base64.RawURLEncoding.EncodeToString(h[:])
+
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	log.Printf(`{"level":"debug","msg":"db_use_email_verif_try"}`)
+	row := tx.QueryRow(ctx, `
+		UPDATE email_verification_token
+		   SET used_at = now()
+		 WHERE token_hash = $1
+		   AND used_at IS NULL
+		   AND expires_at > now()
+		RETURNING tenant_id, user_id`, hashText,
+	)
+	if err = row.Scan(&tenantID, &userID); err != nil {
+		log.Printf(`{"level":"warn","msg":"db_use_email_verif_not_found","err":"%v"}`, err)
+		return
+	}
+	if err = tx.Commit(ctx); err != nil {
+		log.Printf(`{"level":"error","msg":"db_use_email_verif_commit_err","err":"%v"}`, err)
+		return
+	}
+	log.Printf(`{"level":"debug","msg":"db_use_email_verif_ok","tenant_id":"%s","user_id":"%s"}`, tenantID, userID)
+	return
+}
+
+func (s *TokenStore) CreatePasswordReset(ctx context.Context, tenantID, userID uuid.UUID, sentTo string, ttl time.Duration, ip, ua *string) (string, error) {
+	pt, h, err := generate()
+	if err != nil {
+		return "", err
+	}
+	hashText := base64.RawURLEncoding.EncodeToString(h)
+	exp := time.Now().Add(ttl)
+
+	log.Printf(`{"level":"debug","msg":"db_insert_pwd_reset_try","tenant_id":"%s","user_id":"%s","sent_to":"%s","exp":"%s"}`, tenantID, userID, sentTo, exp.Format(time.RFC3339))
+	_, err = s.DB.Exec(ctx, `
+		INSERT INTO password_reset_token
+		    (tenant_id, user_id, token_hash, sent_to, ip, user_agent, expires_at)
+		VALUES ($1,       $2,      $3,         $4,  NULLIF($5,'')::inet, NULLIF($6,'')::text, $7)`,
+		tenantID, userID, hashText, sentTo, ip, ua, exp,
+	)
+	if err != nil {
+		log.Printf(`{"level":"error","msg":"db_insert_pwd_reset_err","err":"%v"}`, err)
+		return "", err
+	}
+	log.Printf(`{"level":"debug","msg":"db_insert_pwd_reset_ok"}`)
+	return pt, nil
+}
+
+func (s *TokenStore) UsePasswordReset(ctx context.Context, plaintext string) (tenantID, userID uuid.UUID, err error) {
+	h := sha256.Sum256([]byte(plaintext))
+	hashText := base64.RawURLEncoding.EncodeToString(h[:])
+
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	log.Printf(`{"level":"debug","msg":"db_use_pwd_reset_try"}`)
+	row := tx.QueryRow(ctx, `
+		UPDATE password_reset_token
+		   SET used_at = now()
+		 WHERE token_hash = $1
+		   AND used_at IS NULL
+		   AND expires_at > now()
+		RETURNING tenant_id, user_id`, hashText,
+	)
+	if err = row.Scan(&tenantID, &userID); err != nil {
+		log.Printf(`{"level":"warn","msg":"db_use_pwd_reset_not_found","err":"%v"}`, err)
+		return
+	}
+	if err = tx.Commit(ctx); err != nil {
+		log.Printf(`{"level":"error","msg":"db_use_pwd_reset_commit_err","err":"%v"}`, err)
+		return
+	}
+	log.Printf(`{"level":"debug","msg":"db_use_pwd_reset_ok","tenant_id":"%s","user_id":"%s"}`, tenantID, userID)
+	return
+}

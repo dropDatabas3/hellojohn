@@ -1,0 +1,6 @@
+Hola {{.UserEmail}},
+
+Para verificar tu email, abrí este enlace:
+{{.Link}}
+
+Este enlace expira en {{.TTL}}. Si no fuiste vos, ignorá este correo.
