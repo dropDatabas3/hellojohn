@@ -2,11 +2,11 @@
 setlocal EnableExtensions EnableDelayedExpansion
 
 REM ── Defaults ────────────────────────────────────────────
-set "TENANT=155d31ab-b303-49a0-a3df-f0e03b814d79"
+set "TENANT=95f317cd-28f0-4bae-a0aa-4a4ddff92a16"
 set "CLIENT=web-frontend"
 set "BASE=http://localhost:8080"
 set "RATE_BURST=0"
-set "RealEmail=juanpalacio1996@gmail.com"
+set "RealEmail=john@gmail.com"
 set "AUTOMAIL=0"     REM 0/1, true/false, yes/no, auto
 set "USEREAL=0"      REM 0/1, true/false, yes/no
 set "EMAILTAG="      REM opcional (ej: prueba123)

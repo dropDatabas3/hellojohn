@@ -4,7 +4,7 @@ services:
   # ───────────────────── Shared DB for Development ─────────────────────
   postgres-dev:
     image: postgres:16-alpine
-    container_name: login-postgres-dev
+    container_name: hellojohn-postgres-dev
     restart: unless-stopped
     environment:
       POSTGRES_USER: user
@@ -21,7 +21,7 @@ services:
   # ───────────────────── Redis for Caching ─────────────────────
   redis-dev:
     image: redis:7-alpine
-    container_name: login-redis-dev
+    container_name: hellojohn-redis-dev
     restart: unless-stopped
     ports:
       - "6379:6379"

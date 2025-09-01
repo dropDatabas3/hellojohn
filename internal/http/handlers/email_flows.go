@@ -163,8 +163,9 @@ func (h *EmailFlowsHandler) verifyEmailStart(w http.ResponseWriter, r *http.Requ
 	log.Printf(`{"level":"info","msg":"verify_start_token_ok","request_id":"%s"}`, rid)
 
 	link := h.buildLink("/v1/auth/verify-email", pt, in.Redirect, in.ClientID)
-	log.Printf(`{"level":"debug","msg":"verify_start_link","request_id":"%s","link":"%s"}`, rid, link)
-
+	if h.DebugEchoLinks {
+		log.Printf(`{"level":"debug","msg":"verify_start_link","request_id":"%s","link":"%s"}`, rid, link)
+	}
 	htmlBody, textBody, err := renderVerify(h.Tmpl, email.VerifyVars{
 		UserEmail: emailStr, Tenant: in.TenantID.String(), Link: link, TTL: h.VerifyTTL.String(),
 	})
@@ -175,8 +176,14 @@ func (h *EmailFlowsHandler) verifyEmailStart(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := h.Mailer.Send(emailStr, "Verificá tu email", htmlBody, textBody); err != nil {
-		// No bloqueamos, pero registramos
-		log.Printf(`{"level":"error","msg":"verify_start_mail_send_err","request_id":"%s","to":"%s","err":"%v"}`, rid, emailStr, err)
+		diag := email.DiagnoseSMTP(err)
+		lvl := "error"
+		if diag.Temporary {
+			lvl = "warn"
+		}
+		log.Printf(`{"level":"%s","msg":"verify_start_mail_send_err","request_id":"%s","to":"%s","code":"%s","temporary":%t,"retry_after_sec":%d,"err":"%v"}`,
+			lvl, rid, emailStr, diag.Code, diag.Temporary, int(diag.RetryAfter.Seconds()), err)
+		// Respuesta sigue siendo 204 para no filtrar info al usuario.
 	} else {
 		log.Printf(`{"level":"info","msg":"verify_start_mail_send_ok","request_id":"%s","to":"%s"}`, rid, emailStr)
 	}
@@ -296,12 +303,20 @@ func (h *EmailFlowsHandler) forgot(w http.ResponseWriter, r *http.Request) {
 
 		if pt, err := h.Tokens.CreatePasswordReset(r.Context(), in.TenantID, uid, in.Email, h.ResetTTL, ipPtr, uaPtr); err == nil {
 			link := h.buildLink("/v1/auth/reset", pt, in.Redirect, in.ClientID)
-			log.Printf(`{"level":"debug","msg":"forgot_link","request_id":"%s","link":"%s"}`, rid, link)
+			if h.DebugEchoLinks {
+				log.Printf(`{"level":"debug","msg":"forgot_link","request_id":"%s","link":"%s"}`, rid, link)
+			}
 			htmlBody, textBody, _ := renderReset(h.Tmpl, email.ResetVars{
 				UserEmail: in.Email, Tenant: in.TenantID.String(), Link: link, TTL: h.ResetTTL.String(),
 			})
 			if err := h.Mailer.Send(in.Email, "Restablecé tu contraseña", htmlBody, textBody); err != nil {
-				log.Printf(`{"level":"error","msg":"forgot_mail_send_err","request_id":"%s","to":"%s","err":"%v"}`, rid, in.Email, err)
+				diag := email.DiagnoseSMTP(err)
+				lvl := "error"
+				if diag.Temporary {
+					lvl = "warn"
+				}
+				log.Printf(`{"level":"%s","msg":"forgot_mail_send_err","request_id":"%s","to":"%s","code":"%s","temporary":%t,"retry_after_sec":%d,"err":"%v"}`,
+					lvl, rid, in.Email, diag.Code, diag.Temporary, int(diag.RetryAfter.Seconds()), err)
 			} else {
 				log.Printf(`{"level":"info","msg":"forgot_mail_send_ok","request_id":"%s","to":"%s"}`, rid, in.Email)
 			}

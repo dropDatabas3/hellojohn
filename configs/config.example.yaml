@@ -60,9 +60,9 @@ flags:
 smtp:
   host: "smtp.gmail.com"
   port: 587                 # Gmail en 587 usa STARTTLS
-  username: "juanpalacio1996@gmail.com"
+  username: "john@gmail.com"
   password: "gezl zchi oken ubkl"   # tu App Password de Google tal cual (con espacios)
-  from: "juanpalacio1996@gmail.com" # en Gmail conviene que FROM == username
+  from: "john@gmail.com" # en Gmail conviene que FROM == username
   tls: "starttls"           # starttls | ssl(465) | auto | none
   insecure_skip_verify: false
 

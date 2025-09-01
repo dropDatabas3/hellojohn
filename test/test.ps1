@@ -1,9 +1,9 @@
 param(
-  [string]$TenantId     = '155d31ab-b303-49a0-a3df-f0e03b814d79',
+  [string]$TenantId     = '95f317cd-28f0-4bae-a0aa-4a4ddff92a16',
   [string]$ClientId     = 'web-frontend',
   [string]$Base         = 'http://localhost:8080',
   [int]$RateBurst       = 0,
-  [string]$RealEmail    = 'juanpalacio1996@gmail.com',
+  [string]$RealEmail    = 'juan@gmail.com',
   [switch]$AutoMail     = $false,   # auto-click a links (no prompts)
   [switch]$UseRealEmail = $false,   # manda a RealEmail exacto (sin plus)
   [string]$EmailTag     = ''        # si no se da, se usa random para plus

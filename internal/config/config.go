@@ -2,12 +2,20 @@ package config
 
 import (
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
+	// Bloque app (opcional en YAML). Si no está, queda vacío.
+	App struct {
+		// dev | staging | prod
+		Env string `yaml:"app_env"`
+	} `yaml:"app"`
+
 	Server struct {
 		Addr               string   `yaml:"addr"`
 		CORSAllowedOrigins []string `yaml:"cors_allowed_origins"`
@@ -192,5 +200,226 @@ func Load(path string) (*Config, error) {
 			return nil, err
 		}
 	}
+
+	// Overrides por env + salvaguarda prod
+	c.applyEnvOverrides()
+
 	return &c, nil
+}
+
+// ---- Helpers env ----
+
+func getEnvStr(key string) (string, bool) {
+	v := os.Getenv(key)
+	return v, v != ""
+}
+func getEnvInt(key string) (int, bool) {
+	if s, ok := getEnvStr(key); ok {
+		if i, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
+			return i, true
+		}
+	}
+	return 0, false
+}
+func getEnvBool(key string) (bool, bool) {
+	if s, ok := getEnvStr(key); ok {
+		if b, err := strconv.ParseBool(strings.TrimSpace(s)); err == nil {
+			return b, true
+		}
+	}
+	return false, false
+}
+func getEnvDur(key string) (time.Duration, bool) {
+	if s, ok := getEnvStr(key); ok {
+		if d, err := time.ParseDuration(strings.TrimSpace(s)); err == nil {
+			return d, true
+		}
+	}
+	return 0, false
+}
+func getEnvCSV(key string) ([]string, bool) {
+	if s, ok := getEnvStr(key); ok {
+		if strings.TrimSpace(s) == "" {
+			return []string{}, true
+		}
+		parts := strings.Split(s, ",")
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				out = append(out, p)
+			}
+		}
+		return out, true
+	}
+	return nil, false
+}
+
+// applyEnvOverrides: pisa config.yaml con variables de entorno
+// y fuerza seguridad en prod (sin X-Debug-*).
+func (c *Config) applyEnvOverrides() {
+	// APP
+	if v, ok := getEnvStr("APP_ENV"); ok {
+		c.App.Env = strings.ToLower(v)
+	}
+
+	// SERVER
+	if v, ok := getEnvStr("SERVER_ADDR"); ok {
+		c.Server.Addr = v
+	}
+	if v, ok := getEnvCSV("SERVER_CORS_ALLOWED_ORIGINS"); ok {
+		c.Server.CORSAllowedOrigins = v
+	}
+
+	// STORAGE
+	if v, ok := getEnvStr("STORAGE_DRIVER"); ok {
+		c.Storage.Driver = v
+	}
+	if v, ok := getEnvStr("STORAGE_DSN"); ok {
+		c.Storage.DSN = v
+	}
+	if v, ok := getEnvInt("POSTGRES_MAX_OPEN_CONNS"); ok {
+		c.Storage.Postgres.MaxOpenConns = v
+	}
+	if v, ok := getEnvInt("POSTGRES_MAX_IDLE_CONNS"); ok {
+		c.Storage.Postgres.MaxIdleConns = v
+	}
+	if v, ok := getEnvStr("POSTGRES_CONN_MAX_LIFETIME"); ok {
+		// validación ya existe más arriba
+		c.Storage.Postgres.ConnMaxLifetime = v
+	}
+
+	// CACHE
+	if v, ok := getEnvStr("CACHE_KIND"); ok {
+		c.Cache.Kind = v
+	}
+	if v, ok := getEnvStr("REDIS_ADDR"); ok {
+		c.Cache.Redis.Addr = v
+	}
+	if v, ok := getEnvInt("REDIS_DB"); ok {
+		c.Cache.Redis.DB = v
+	}
+	if v, ok := getEnvStr("REDIS_PREFIX"); ok {
+		c.Cache.Redis.Prefix = v
+	}
+	if v, ok := getEnvStr("MEMORY_DEFAULT_TTL"); ok {
+		c.Cache.Memory.DefaultTTL = v
+	}
+
+	// JWT
+	if v, ok := getEnvStr("JWT_ISSUER"); ok {
+		c.JWT.Issuer = v
+	}
+	if v, ok := getEnvStr("JWT_ACCESS_TTL"); ok {
+		c.JWT.AccessTTL = v
+	}
+	if v, ok := getEnvStr("JWT_REFRESH_TTL"); ok {
+		c.JWT.RefreshTTL = v
+	}
+
+	// REGISTER
+	if v, ok := getEnvBool("REGISTER_AUTO_LOGIN"); ok {
+		c.Register.AutoLogin = v
+	}
+
+	// AUTH
+	if v, ok := getEnvBool("AUTH_ALLOW_BEARER_SESSION"); ok {
+		c.Auth.AllowBearerSession = v
+	}
+	if v, ok := getEnvStr("AUTH_SESSION_COOKIE_NAME"); ok {
+		c.Auth.Session.CookieName = v
+	}
+	if v, ok := getEnvStr("AUTH_SESSION_DOMAIN"); ok {
+		c.Auth.Session.Domain = v
+	}
+	if v, ok := getEnvStr("AUTH_SESSION_SAMESITE"); ok {
+		c.Auth.Session.SameSite = v
+	}
+	if v, ok := getEnvBool("AUTH_SESSION_SECURE"); ok {
+		c.Auth.Session.Secure = v
+	}
+	if v, ok := getEnvStr("AUTH_SESSION_TTL"); ok {
+		c.Auth.Session.TTL = v
+	}
+	if v, ok := getEnvDur("AUTH_RESET_TTL"); ok {
+		c.Auth.Reset.TTL = v
+	}
+	if v, ok := getEnvBool("AUTH_RESET_AUTO_LOGIN"); ok {
+		c.Auth.Reset.AutoLogin = v
+	}
+	if v, ok := getEnvDur("AUTH_VERIFY_TTL"); ok {
+		c.Auth.Verify.TTL = v
+	}
+
+	// RATE
+	if v, ok := getEnvBool("RATE_ENABLED"); ok {
+		c.Rate.Enabled = v
+	}
+	if v, ok := getEnvStr("RATE_WINDOW"); ok {
+		c.Rate.Window = v
+	}
+	if v, ok := getEnvInt("RATE_MAX_REQUESTS"); ok {
+		c.Rate.MaxRequests = v
+	}
+
+	// FLAGS
+	if v, ok := getEnvBool("FLAGS_MIGRATE"); ok {
+		c.Flags.Migrate = v
+	}
+
+	// SMTP
+	if v, ok := getEnvStr("SMTP_HOST"); ok {
+		c.SMTP.Host = v
+	}
+	if v, ok := getEnvInt("SMTP_PORT"); ok {
+		c.SMTP.Port = v
+	}
+	if v, ok := getEnvStr("SMTP_USERNAME"); ok {
+		c.SMTP.Username = v
+	}
+	if v, ok := getEnvStr("SMTP_PASSWORD"); ok {
+		c.SMTP.Password = v
+	}
+	if v, ok := getEnvStr("SMTP_FROM"); ok {
+		c.SMTP.From = v
+	}
+	if v, ok := getEnvStr("SMTP_TLS"); ok {
+		c.SMTP.TLS = strings.ToLower(v) // auto|starttls|ssl|none
+	}
+	if v, ok := getEnvBool("SMTP_INSECURE_SKIP_VERIFY"); ok {
+		c.SMTP.InsecureSkipVerify = v
+	}
+
+	// EMAIL
+	if v, ok := getEnvStr("EMAIL_BASE_URL"); ok {
+		c.Email.BaseURL = v
+	}
+	if v, ok := getEnvStr("EMAIL_TEMPLATES_DIR"); ok {
+		c.Email.TemplatesDir = v
+	}
+	if v, ok := getEnvBool("EMAIL_DEBUG_LINKS"); ok {
+		c.Email.DebugEchoLinks = v
+	}
+
+	// SECURITY
+	if v, ok := getEnvInt("SECURITY_PASSWORD_POLICY_MIN_LENGTH"); ok {
+		c.Security.PasswordPolicy.MinLength = v
+	}
+	if v, ok := getEnvBool("SECURITY_PASSWORD_POLICY_REQUIRE_UPPER"); ok {
+		c.Security.PasswordPolicy.RequireUpper = v
+	}
+	if v, ok := getEnvBool("SECURITY_PASSWORD_POLICY_REQUIRE_LOWER"); ok {
+		c.Security.PasswordPolicy.RequireLower = v
+	}
+	if v, ok := getEnvBool("SECURITY_PASSWORD_POLICY_REQUIRE_DIGIT"); ok {
+		c.Security.PasswordPolicy.RequireDigit = v
+	}
+	if v, ok := getEnvBool("SECURITY_PASSWORD_POLICY_REQUIRE_SYMBOL"); ok {
+		c.Security.PasswordPolicy.RequireSymbol = v
+	}
+
+	// Guardia dura: en prod NUNCA exponemos los links por headers.
+	if strings.EqualFold(c.App.Env, "prod") {
+		c.Email.DebugEchoLinks = false
+	}
 }
