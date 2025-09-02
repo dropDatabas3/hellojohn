@@ -24,7 +24,7 @@ func NewMux(
 	sessionLogin stdhttp.Handler,
 	sessionLogout stdhttp.Handler,
 
-	// Email Flows (S3)
+	// Email Flows
 	verifyEmailStartHandler stdhttp.Handler, // POST /v1/auth/verify-email/start
 	verifyEmailConfirmHandler stdhttp.Handler, // GET  /v1/auth/verify-email
 	forgotHandler stdhttp.Handler, // POST /v1/auth/forgot

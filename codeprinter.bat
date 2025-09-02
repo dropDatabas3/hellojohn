@@ -14,7 +14,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >NUL
 
 :: Extensiones binarias a ignorar (podés sumar/sacar)
-set "BINARY_EXT=.exe .dll .bin .iso .img .gif .sum .png .jpg .jpeg .ico .pdf .zip .tar .gz .7z .rar .mp3 .wav .ogg .mp4 .mov .avi .heic .ttf .woff .woff2 .eot .class .jar"
+set "BINARY_EXT=.exe .dll .bin .iso .img .gif .sum .png .jpg .jpeg .ico .pdf .zip .tar .gz .7z .rar .mp3 .wav .ogg .mp4 .mov .avi .heic .ttf .woff .woff2 .eot .class .jar .ps1 .bat .html .htm"
 
 :: Directorios a ignorar (opcional). Descomentá la línea del bloque IF más abajo para usarlos.
 set "SKIP_DIRS=.git node_modules vendor dist build bin obj .idea .vscode .venv go.sum test.bat test.ps1"
@@ -29,9 +29,14 @@ for /r "%CD%" %%F in (*) do (
         echo(!DIR!| findstr /I "\\%%D\\">NUL && set "SKIP=1"
     )
 
-    :: Saltar binarios por extensión
+    :: Saltar binarios / scripts / archivos sensibles por extensión (.env se maneja aparte porque puede venir como .env, .env.local, etc.)
     for %%E in (%BINARY_EXT%) do (
         if /I "![EXT]!"=="%%E" set "SKIP=1"
+    )
+
+    :: Saltar cualquier archivo que contenga la secuencia ".env" en su nombre (ej: .env, .env.local, .env.prod)
+    if !SKIP! EQU 0 (
+        echo %%~nxF | findstr /I ".env" >NUL && set "SKIP=1"
     )
 
     if "!SKIP!"=="0" (

@@ -125,7 +125,7 @@ func (a currentUserProviderAdapter) parse(r *http.Request) (jwtv5.MapClaims, err
 	}
 	raw := strings.TrimSpace(ah[len("Bearer "):])
 	tk, err := jwtv5.Parse(raw,
-		func(t *jwtv5.Token) (any, error) { return a.issuer.Keys.Pub, nil },
+		a.issuer.Keyfunc(), // ← usa keystore/JWKS (resuelve según 'kid')
 		jwtv5.WithValidMethods([]string{"EdDSA"}),
 		jwtv5.WithIssuer(a.issuer.Iss),
 	)

@@ -1,2 +1,26 @@
+# ───────── Environment files ─────────
 .env
-.env.dev
+.env.*
+!.env.example
+
+# ───────── Local utility scripts (keep out of repo) ─────────
+codeprinter.bat
+dump_code.ps1
+dump_code_*.txt
+code_dump_*.txt
+
+
+
+# ───────── Optional: ignore sprint planning docs locally (remove if you want them tracked) ─────────
+sprint4.md
+
+# ───────── OS / Tooling ─────────
+*.log
+*.swp
+*.DS_Store
+Thumbs.db
+
+# ───────── Build / Cache (future) ─────────
+bin/
+dist/
+coverage/

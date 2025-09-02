@@ -13,15 +13,16 @@ import (
 
 func NewReadyzHandler(c *app.Container, checkRedis func(ctx context.Context) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Headers informativos si están disponibles
 		if v := os.Getenv("SERVICE_VERSION"); v != "" {
 			w.Header().Set("X-Service-Version", v)
 		}
 		if git := os.Getenv("SERVICE_COMMIT"); git != "" {
 			w.Header().Set("X-Service-Commit", git)
 		}
-		if c != nil && c.Issuer != nil && c.Issuer.Keys != nil && c.Issuer.Keys.KID != "" {
-			w.Header().Set("X-JWKS-KID", c.Issuer.Keys.KID)
+		if c != nil && c.Issuer != nil && c.Issuer.Keys != nil {
+			if kid, err := c.Issuer.ActiveKID(); err == nil && kid != "" {
+				w.Header().Set("X-JWKS-KID", kid)
+			}
 		}
 
 		// 1) DB
@@ -30,13 +31,7 @@ func NewReadyzHandler(c *app.Container, checkRedis func(ctx context.Context) err
 			return
 		}
 
-		// 2) Claves cargadas
-		if c.Issuer == nil || c.Issuer.Keys == nil || c.Issuer.Keys.Priv == nil || c.Issuer.Keys.Pub == nil {
-			httpx.WriteError(w, http.StatusServiceUnavailable, "keys_unavailable", "no hay claves cargadas", 2002)
-			return
-		}
-
-		// 3) Self-check EdDSA: firmar y verificar un JWT efímero en memoria
+		// 2) Self-check EdDSA: firmar y verificar un JWT efímero en memoria
 		now := time.Now().UTC()
 		claims := jwtv5.MapClaims{
 			"iss": c.Issuer.Iss,
@@ -46,19 +41,13 @@ func NewReadyzHandler(c *app.Container, checkRedis func(ctx context.Context) err
 			"nbf": now.Unix(),
 			"exp": now.Add(60 * time.Second).Unix(),
 		}
-		tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
-		tk.Header["kid"] = c.Issuer.Keys.KID
-		tk.Header["typ"] = "JWT"
-
-		signed, err := tk.SignedString(c.Issuer.Keys.Priv)
+		signed, _, err := c.Issuer.SignRaw(claims)
 		if err != nil {
 			httpx.WriteError(w, http.StatusServiceUnavailable, "sign_failed", "no se pudo firmar self-check", 2004)
 			return
 		}
 
-		parsed, err := jwtv5.Parse(signed, func(t *jwtv5.Token) (any, error) {
-			return c.Issuer.Keys.Pub, nil
-		},
+		parsed, err := jwtv5.Parse(signed, c.Issuer.Keyfunc(),
 			jwtv5.WithValidMethods([]string{"EdDSA"}),
 			jwtv5.WithIssuer(c.Issuer.Iss),
 		)
@@ -95,7 +84,7 @@ func NewReadyzHandler(c *app.Container, checkRedis func(ctx context.Context) err
 			return
 		}
 
-		// 4) Redis (opcional)
+		// 3) Redis (opcional)
 		if checkRedis != nil {
 			if err := checkRedis(r.Context()); err != nil {
 				httpx.WriteError(w, http.StatusServiceUnavailable, "redis_unavailable", err.Error(), 2003)
@@ -103,7 +92,6 @@ func NewReadyzHandler(c *app.Container, checkRedis func(ctx context.Context) err
 			}
 		}
 
-		// Listo
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ready"))
 	}

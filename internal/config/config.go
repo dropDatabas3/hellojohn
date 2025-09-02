@@ -104,6 +104,11 @@ type Config struct {
 		DebugEchoLinks bool   `yaml:"debug_echo_links"`
 	} `yaml:"email"`
 
+	// ───────── Social Login ─────────
+	Providers struct {
+		Google SocialProviderConfig `yaml:"google"`
+	} `yaml:"providers"`
+
 	Security struct {
 		PasswordPolicy struct {
 			MinLength     int  `yaml:"min_length"`
@@ -113,6 +118,17 @@ type Config struct {
 			RequireSymbol bool `yaml:"require_symbol"`
 		} `yaml:"password_policy"`
 	} `yaml:"security"`
+}
+
+// SocialProviderConfig: reutilizable para otros IdPs
+type SocialProviderConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	ClientID       string   `yaml:"client_id"`
+	ClientSecret   string   `yaml:"client_secret"`
+	RedirectURL    string   `yaml:"redirect_url"` // si vacío, se autocompleta con <jwt.issuer>/v1/auth/social/<provider>/callback
+	Scopes         []string `yaml:"scopes"`       // default: openid,email,profile
+	AllowedTenants []string `yaml:"allowed_tenants"`
+	AllowedClients []string `yaml:"allowed_clients"`
 }
 
 func Load(path string) (*Config, error) {
@@ -203,6 +219,17 @@ func Load(path string) (*Config, error) {
 
 	// Overrides por env + salvaguarda prod
 	c.applyEnvOverrides()
+
+	// ───────── Defaults Social (post-env) ─────────
+	// Google: si está habilitado y no se setea redirect_url, lo armamos desde el issuer.
+	if c.Providers.Google.Enabled {
+		if len(c.Providers.Google.Scopes) == 0 {
+			c.Providers.Google.Scopes = []string{"openid", "email", "profile"}
+		}
+		if strings.TrimSpace(c.Providers.Google.RedirectURL) == "" && strings.TrimSpace(c.JWT.Issuer) != "" {
+			c.Providers.Google.RedirectURL = strings.TrimRight(c.JWT.Issuer, "/") + "/v1/auth/social/google/callback"
+		}
+	}
 
 	return &c, nil
 }
@@ -399,6 +426,29 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v, ok := getEnvBool("EMAIL_DEBUG_LINKS"); ok {
 		c.Email.DebugEchoLinks = v
+	}
+
+	// PROVIDERS - GOOGLE
+	if v, ok := getEnvBool("GOOGLE_ENABLED"); ok {
+		c.Providers.Google.Enabled = v
+	}
+	if v, ok := getEnvStr("GOOGLE_CLIENT_ID"); ok {
+		c.Providers.Google.ClientID = v
+	}
+	if v, ok := getEnvStr("GOOGLE_CLIENT_SECRET"); ok {
+		c.Providers.Google.ClientSecret = v
+	}
+	if v, ok := getEnvStr("GOOGLE_REDIRECT_URL"); ok {
+		c.Providers.Google.RedirectURL = v
+	}
+	if v, ok := getEnvCSV("GOOGLE_SCOPES"); ok {
+		c.Providers.Google.Scopes = v
+	}
+	if v, ok := getEnvCSV("GOOGLE_ALLOWED_TENANTS"); ok {
+		c.Providers.Google.AllowedTenants = v
+	}
+	if v, ok := getEnvCSV("GOOGLE_ALLOWED_CLIENTS"); ok {
+		c.Providers.Google.AllowedClients = v
 	}
 
 	// SECURITY

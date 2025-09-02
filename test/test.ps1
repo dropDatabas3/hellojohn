@@ -1,5 +1,5 @@
 param(
-  [string]$TenantId     = '95f317cd-28f0-4bae-a0aa-4a4ddff92a16',
+  [string]$TenantId     = '77407778-1e19-4623-a61a-0593ebcfa08e',
   [string]$ClientId     = 'web-frontend',
   [string]$Base         = 'http://localhost:8080',
   [int]$RateBurst       = 0,

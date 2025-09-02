@@ -42,7 +42,6 @@ func addQS(u, k, v string) string {
 }
 
 func redirectError(w http.ResponseWriter, r *http.Request, redirectURI, state, code, desc string) {
-	// Evitar cache en errores de autorización también
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
 
@@ -56,22 +55,19 @@ func redirectError(w http.ResponseWriter, r *http.Request, redirectURI, state, c
 	http.Redirect(w, r, loc, http.StatusFound)
 }
 
-// soporta cookie de sesión (preferida) y, opcionalmente, Bearer como fallback (modo dev)
+// soporta cookie de sesión y (opcional) Bearer como fallback
 func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo GET", 1000)
 			return
 		}
-
-		// Dependemos de Cookie y (opcionalmente) Authorization, ayudemos a caches/proxies
 		w.Header().Add("Vary", "Cookie")
 		if allowBearer {
 			w.Header().Add("Vary", "Authorization")
 		}
 
 		q := r.URL.Query()
-
 		responseType := strings.TrimSpace(q.Get("response_type"))
 		clientID := strings.TrimSpace(q.Get("client_id"))
 		redirectURI := strings.TrimSpace(q.Get("redirect_uri"))
@@ -115,7 +111,6 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 			httpx.WriteError(w, http.StatusBadRequest, "invalid_redirect_uri", "redirect_uri no coincide con el client", 2105)
 			return
 		}
-		// Scopes ⊆ client.Scopes
 		reqScopes := strings.Fields(scope)
 		for _, s := range reqScopes {
 			found := false
@@ -137,7 +132,7 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 			amr []string
 		)
 
-		// 1) Sesión COOKIE (preferida)
+		// 1) Sesión COOKIE
 		if ck, err := r.Cookie(cookieName); err == nil && ck != nil && strings.TrimSpace(ck.Value) != "" {
 			key := "sid:" + tokens.SHA256Base64URL(ck.Value)
 			if b, ok := c.Cache.Get(key); ok {
@@ -146,19 +141,18 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 				if time.Now().Before(sp.Expires) && sp.TenantID == cl.TenantID {
 					sub = sp.UserID
 					tid = sp.TenantID
-					amr = []string{"pwd"} // (o según identidad real)
+					amr = []string{"pwd"}
 				}
 			}
 		}
 
-		// 2) Fallback: Authorization: Bearer (opcional)
+		// 2) Fallback Bearer
 		if sub == "" && allowBearer {
 			ah := strings.TrimSpace(r.Header.Get("Authorization"))
 			if strings.HasPrefix(strings.ToLower(ah), "bearer ") {
 				raw := strings.TrimSpace(ah[len("Bearer "):])
-				tk, err := jwtv5.Parse(raw, func(t *jwtv5.Token) (any, error) {
-					return c.Issuer.Keys.Pub, nil
-				}, jwtv5.WithValidMethods([]string{"EdDSA"}), jwtv5.WithIssuer(c.Issuer.Iss))
+				tk, err := jwtv5.Parse(raw, c.Issuer.Keyfunc(),
+					jwtv5.WithValidMethods([]string{"EdDSA"}), jwtv5.WithIssuer(c.Issuer.Iss))
 				if err == nil && tk.Valid {
 					if claims, ok := tk.Claims.(jwtv5.MapClaims); ok {
 						sub, _ = claims["sub"].(string)
@@ -180,7 +174,6 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 			return
 		}
 
-		// Generar code y guardar en cache (TTL 5m)
 		code, err := tokens.GenerateOpaqueToken(32)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "server_error", "no se pudo generar code", 2106)
@@ -202,7 +195,6 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 		b, _ := json.Marshal(payload)
 		c.Cache.Set(key, b, 5*time.Minute)
 
-		// Redirigir con code (+ state) y evitar cache
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Pragma", "no-cache")
 

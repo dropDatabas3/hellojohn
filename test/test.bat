@@ -2,7 +2,7 @@
 setlocal EnableExtensions EnableDelayedExpansion
 
 REM ── Defaults ────────────────────────────────────────────
-set "TENANT=95f317cd-28f0-4bae-a0aa-4a4ddff92a16"
+set "TENANT=77407778-1e19-4623-a61a-0593ebcfa08e"
 set "CLIENT=web-frontend"
 set "BASE=http://localhost:8080"
 set "RATE_BURST=0"

@@ -23,11 +23,9 @@ func NewMeHandler(c *app.Container) http.HandlerFunc {
 		}
 		raw := strings.TrimSpace(ah[len("Bearer "):])
 
-		tk, err := jwtv5.Parse(raw, func(t *jwtv5.Token) (any, error) {
-			return c.Issuer.Keys.Pub, nil
-		},
+		tk, err := jwtv5.Parse(raw, c.Issuer.Keyfunc(),
 			jwtv5.WithValidMethods([]string{"EdDSA"}),
-			jwtv5.WithIssuer(c.Issuer.Iss), // <- de vuelta a estricto
+			jwtv5.WithIssuer(c.Issuer.Iss),
 		)
 		if err != nil || !tk.Valid {
 			httpx.WriteError(w, http.StatusUnauthorized, "invalid_token", "token inválido o expirado", 1103)

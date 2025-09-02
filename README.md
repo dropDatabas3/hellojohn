@@ -235,7 +235,7 @@ EMAIL_DEBUG_LINKS=true
 ## 8. Seguridad
 - Hash de contraseñas: Argon2id (parámetros configurados en código; TODO exponer ajustes).
 - Política: requerimientos mínimos y composición configurables.
-- Cabezeras: CSP estricta (sin inline), HSTS solo si secure, X-Frame-Options DENY, X-Content-Type-Options nosniff, Permissions-Policy mínima.
+- Cabeceras: CSP estricta (sin inline), HSTS solo si secure, X-Frame-Options DENY, X-Content-Type-Options nosniff, Permissions-Policy mínima.
 - PKCE S256 obligatorio en `/oauth2/authorize`.
 - En prod se fuerza `EMAIL_DEBUG_LINKS=false`.
 - Sesiones: cookie HttpOnly, SameSite configurable, Secure opcional (recomendado true en prod), TTL configurable.

@@ -149,7 +149,7 @@ func loadConfigFromEnv() *config.Config {
 	c.Auth.Session.Secure = getenvBool("AUTH_SESSION_SECURE", false)
 	c.Auth.Session.TTL = getenv("AUTH_SESSION_TTL", "12h")
 
-	// Reset / Verify (time.Duration)
+	// Reset / Verify
 	if d, err := time.ParseDuration(getenv("AUTH_RESET_TTL", "1h")); err == nil {
 		c.Auth.Reset.TTL = d
 	} else {
@@ -176,7 +176,7 @@ func loadConfigFromEnv() *config.Config {
 	c.SMTP.Username = getenv("SMTP_USERNAME", "")
 	c.SMTP.Password = getenv("SMTP_PASSWORD", "")
 	c.SMTP.From = getenv("SMTP_FROM", c.SMTP.Username)
-	c.SMTP.TLS = getenv("SMTP_TLS", "starttls") // starttls|ssl|auto|none
+	c.SMTP.TLS = getenv("SMTP_TLS", "starttls")
 	c.SMTP.InsecureSkipVerify = getenvBool("SMTP_INSECURE_SKIP_VERIFY", false)
 
 	// --- Email ---
@@ -191,7 +191,6 @@ func loadConfigFromEnv() *config.Config {
 	c.Security.PasswordPolicy.RequireDigit = getenvBool("SECURITY_PASSWORD_POLICY_REQUIRE_DIGIT", true)
 	c.Security.PasswordPolicy.RequireSymbol = getenvBool("SECURITY_PASSWORD_POLICY_REQUIRE_SYMBOL", false)
 
-	// Safety: si APP_ENV=prod, nunca expongas X-Debug-*
 	if strings.EqualFold(getenv("APP_ENV", "dev"), "prod") {
 		c.Email.DebugEchoLinks = false
 	}
@@ -200,7 +199,6 @@ func loadConfigFromEnv() *config.Config {
 }
 
 func printConfigSummary(c *config.Config) {
-	// Evitar secretos: no mostramos password
 	log.Printf(`CONFIG:
   server.addr=%s
   cors=%v
@@ -237,52 +235,31 @@ func printConfigSummary(c *config.Config) {
 	)
 }
 
-// ---------- Modo YAML (default): ---------
-// lee configs/config.yaml si existe; si no, configs/config.example.yaml. Overrides por env si cargás .env.
-// go run ./cmd/service -config configs/config.yaml
-// o simplemente:
-// go run ./cmd/service
-// y si querés cargar .env:
-// go run ./cmd/service -env-file .env
-//
-// --------- Sólo ENV (sin YAML) ---------
-// todo desde variables de entorno (y opcional .env):
-// go run ./cmd/service -env -env-file .env
-//
-//  ------ Verificar configuración efectiva ------
-// go run ./cmd/service -env -env-file .env -print-config
-
 func main() {
-	// ---- Flags de arranque ----
 	var (
 		flagConfigPath = flag.String("config", "", "ruta a config.yaml (fallback: $CONFIG_PATH o configs/config.example.yaml)")
-		flagEnvOnly    = flag.Bool("env", false, "usar SOLO variables de entorno (y .env si se pasa -env-file)")
-		flagEnvFile    = flag.String("env-file", ".env", "ruta al archivo .env (si existe, se carga)")
-		flagPrint      = flag.Bool("print-config", false, "imprime el resumen de la configuración efectiva y termina")
+		flagEnvOnly    = flag.Bool("env", false, "usar SOLO env (y .env si se pasa -env-file)")
+		flagEnvFile    = flag.String("env-file", ".env", "ruta a .env (si existe, se carga)")
+		flagPrint      = flag.Bool("print-config", false, "imprime config efectiva y termina")
 	)
 	flag.Parse()
 
-	// Cargar .env si corresponde
 	if *flagEnvFile != "" && (fileExists(*flagEnvFile) || *flagEnvOnly) {
 		if err := godotenv.Load(*flagEnvFile); err == nil {
 			log.Printf("dotenv: cargado %s", *flagEnvFile)
 		}
 	}
 
-	// Construir config
 	var cfg *config.Config
 	var err error
-
 	if *flagEnvOnly {
 		cfg = loadConfigFromEnv()
 	} else {
-		// YAML base + overrides por entorno (si tu config.Config tiene ApplyEnvOverrides(), se aplica)
 		cfgPath := *flagConfigPath
 		if cfgPath == "" {
 			cfgPath = os.Getenv("CONFIG_PATH")
 		}
 		if cfgPath == "" {
-			// default amistoso para dev
 			if fileExists("configs/config.yaml") {
 				cfgPath = "configs/config.yaml"
 			} else {
@@ -293,13 +270,11 @@ func main() {
 		if err != nil {
 			log.Fatalf("config: %v", err)
 		}
-		// Si existe el método de overrides, úsalo (paso 1 del sprint)
 		type envOverrider interface{ ApplyEnvOverrides() }
 		if o, ok := any(cfg).(envOverrider); ok {
 			o.ApplyEnvOverrides()
 		}
 	}
-
 	if *flagPrint {
 		printConfigSummary(cfg)
 		return
@@ -341,22 +316,26 @@ func main() {
 		}
 	}
 
-	// JWT / JWKS
-	keys, err := jwtx.NewDevEd25519("dev-1")
-	if err != nil {
-		log.Fatalf("keys: %v", err)
+	// JWT / JWKS (Keystore persistente con bootstrap)
+	pgRepo, ok := repo.(*pgdriver.Store)
+	if !ok {
+		log.Fatalf("signing keys: Postgres store requerido")
 	}
+	ks := jwtx.NewPersistentKeystore(ctx, pgRepo)
+	if err := ks.EnsureBootstrap(); err != nil {
+		log.Fatalf("bootstrap signing key: %v", err)
+	}
+
 	iss := cfg.JWT.Issuer
 	if iss == "" {
 		iss = "http://localhost:8080"
 	}
-	issuer := jwtx.NewIssuer(iss, keys)
+	issuer := jwtx.NewIssuer(iss, ks)
 	if cfg.JWT.AccessTTL != "" {
 		if d, err := time.ParseDuration(cfg.JWT.AccessTTL); err == nil {
 			issuer.AccessTTL = d
 		}
 	}
-	// Refresh TTL (desde config si viene)
 	refreshTTL := 30 * 24 * time.Hour
 	if cfg.JWT.RefreshTTL != "" {
 		if d, err := time.ParseDuration(cfg.JWT.RefreshTTL); err == nil {
@@ -364,7 +343,7 @@ func main() {
 		}
 	}
 
-	// Cache genérica (Redis o memoria)
+	// Cache genérica
 	cc, err := cachefactory.Open(cachefactory.Config{
 		Kind: cfg.Cache.Kind,
 		Redis: struct {
@@ -382,20 +361,17 @@ func main() {
 		log.Fatalf("cache: %v", err)
 	}
 
-	// Container DI
 	container := app.Container{
 		Store:  repo,
 		Issuer: issuer,
 		Cache:  cc,
 	}
 
-	// Parse TTL de sesión (para cookies)
 	sessionTTL, _ := time.ParseDuration(cfg.Auth.Session.TTL)
 	if sessionTTL == 0 {
 		sessionTTL = 12 * time.Hour
 	}
 
-	// Handlers base
 	jwksHandler := handlers.NewJWKSHandler(&container)
 	authLoginHandler := handlers.NewAuthLoginHandler(&container, refreshTTL)
 	authRegisterHandler := handlers.NewAuthRegisterHandler(&container, cfg.Register.AutoLogin, refreshTTL)
@@ -403,7 +379,6 @@ func main() {
 	authLogoutHandler := handlers.NewAuthLogoutHandler(&container)
 	meHandler := handlers.NewMeHandler(&container)
 
-	// Rate limiter (Redis) y ping opcional para /readyz
 	var limiter httpserver.RateLimiter
 	var redisPing func(context.Context) error
 	if cfg.Rate.Enabled && strings.EqualFold(cfg.Cache.Kind, "redis") {
@@ -418,16 +393,13 @@ func main() {
 		redisPing = func(ctx context.Context) error { return rc.Ping(ctx).Err() }
 	}
 
-	// /readyz con chequeo de Redis si está disponible
 	readyzHandler := handlers.NewReadyzHandler(&container, redisPing)
 
-	// ───────── OIDC ─────────
 	oidcDiscoveryHandler := handlers.NewOIDCDiscoveryHandler(&container)
 	oauthAuthorizeHandler := handlers.NewOAuthAuthorizeHandler(&container, cfg.Auth.Session.CookieName, cfg.Auth.AllowBearerSession)
 	oauthTokenHandler := handlers.NewOAuthTokenHandler(&container, refreshTTL)
 	userInfoHandler := handlers.NewUserInfoHandler(&container)
 
-	// NUEVOS: revoke y sesión cookie
 	oauthRevokeHandler := handlers.NewOAuthRevokeHandler(&container)
 	sessionLoginHandler := handlers.NewSessionLoginHandler(
 		&container,
@@ -445,7 +417,6 @@ func main() {
 		cfg.Auth.Session.Secure,
 	)
 
-	// ───────── Email Flows (builder) ─────────
 	verifyEmailStartHandler, verifyEmailConfirmHandler, forgotHandler, resetHandler, cleanup, err :=
 		handlers.BuildEmailFlowHandlers(ctx, cfg, &container, refreshTTL)
 	if err != nil {
@@ -453,7 +424,6 @@ func main() {
 	}
 	defer cleanup()
 
-	// HTTP mux (sumamos endpoints OIDC, sesión y email flows)
 	mux := httpserver.NewMux(
 		jwksHandler,
 		authLoginHandler,
@@ -469,14 +439,12 @@ func main() {
 		oauthRevokeHandler,
 		sessionLoginHandler,
 		sessionLogoutHandler,
-		// Email Flows
-		verifyEmailStartHandler,   // POST /v1/auth/verify-email/start
-		verifyEmailConfirmHandler, // GET  /v1/auth/verify-email
-		forgotHandler,             // POST /v1/auth/forgot
-		resetHandler,              // POST /v1/auth/reset
+		verifyEmailStartHandler,
+		verifyEmailConfirmHandler,
+		forgotHandler,
+		resetHandler,
 	)
 
-	// Middlewares: CORS -> Security -> RateLimit -> RequestID -> Recover -> Logging
 	handler := httpserver.WithLogging(
 		httpserver.WithRecover(
 			httpserver.WithRequestID(
@@ -490,7 +458,6 @@ func main() {
 		),
 	)
 
-	// Log de arranque (breve) + hint de modo
 	mode := "yaml"
 	if flag.Lookup("env").Value.String() == "true" {
 		mode = "env"

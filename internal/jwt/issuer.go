@@ -1,32 +1,75 @@
 package jwt
 
 import (
+	"crypto/ed25519"
+	"errors"
 	"time"
 
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 )
 
-// Issuer firma tokens JWT (EdDSA) y define TTLs.
+// Issuer firma tokens usando la clave activa del keystore persistente.
 type Issuer struct {
-	Iss       string        // "iss" claim (URL base del servicio)
-	Keys      *KeySet       // Claves Ed25519 (Priv, Pub, KID)
-	AccessTTL time.Duration // TTL por defecto (ej. 15m) aplicado también a ID Tokens
+	Iss       string              // "iss"
+	Keys      *PersistentKeystore // keystore persistente
+	AccessTTL time.Duration       // TTL por defecto de Access/ID (ej: 15m)
 }
 
-// NewIssuer crea un emisor con TTL por defecto 15m.
-func NewIssuer(iss string, keys *KeySet) *Issuer {
+func NewIssuer(iss string, ks *PersistentKeystore) *Issuer {
 	return &Issuer{
 		Iss:       iss,
-		Keys:      keys,
+		Keys:      ks,
 		AccessTTL: 15 * time.Minute,
 	}
 }
 
+// ActiveKID devuelve el KID activo actual.
+func (i *Issuer) ActiveKID() (string, error) {
+	kid, _, _, err := i.Keys.Active()
+	return kid, err
+}
+
+// Keyfunc devuelve un jwt.Keyfunc que elige la pubkey por 'kid' del token (active/retiring).
+func (i *Issuer) Keyfunc() jwtv5.Keyfunc {
+	return func(t *jwtv5.Token) (any, error) {
+		kid, _ := t.Header["kid"].(string)
+		if kid != "" {
+			return i.Keys.PublicKeyByKID(kid)
+		}
+		// Fallback: usar la activa
+		_, _, pub, err := i.Keys.Active()
+		if err != nil {
+			return nil, err
+		}
+		return ed25519.PublicKey(pub), nil
+	}
+}
+
+// SignRaw firma un MapClaims arbitrario, setea header kid/typ y devuelve el JWT firmado.
+func (i *Issuer) SignRaw(claims jwtv5.MapClaims) (string, string, error) {
+	kid, priv, _, err := i.Keys.Active()
+	if err != nil {
+		return "", "", err
+	}
+	tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
+	tk.Header["kid"] = kid
+	tk.Header["typ"] = "JWT"
+	signed, err := tk.SignedString(priv)
+	if err != nil {
+		return "", "", err
+	}
+	return signed, kid, nil
+}
+
 // IssueAccess emite un Access Token con claims estándar + std (flat) y custom (anidado).
-// std puede incluir "tid", "amr", "scp", etc. custom va dentro de "custom".
 func (i *Issuer) IssueAccess(sub, aud string, std map[string]any, custom map[string]any) (string, time.Time, error) {
 	now := time.Now().UTC()
 	exp := now.Add(i.AccessTTL)
+
+	kid, priv, _, err := i.Keys.Active()
+	if err != nil {
+		return "", time.Time{}, err
+	}
 
 	claims := jwtv5.MapClaims{
 		"iss": i.Iss,
@@ -36,32 +79,32 @@ func (i *Issuer) IssueAccess(sub, aud string, std map[string]any, custom map[str
 		"nbf": now.Unix(),
 		"exp": exp.Unix(),
 	}
-	// std (flat)
 	for k, v := range std {
 		claims[k] = v
 	}
-	// custom (anidado)
 	if custom != nil {
 		claims["custom"] = custom
 	}
-
 	tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
-	tk.Header["kid"] = i.Keys.KID
+	tk.Header["kid"] = kid
 	tk.Header["typ"] = "JWT"
 
-	signed, err := tk.SignedString(i.Keys.Priv)
+	signed, err := tk.SignedString(priv)
 	if err != nil {
 		return "", time.Time{}, err
 	}
 	return signed, exp, nil
 }
 
-// IssueIDToken emite un ID Token OIDC con claims estándar y extras en top-level.
-// Usar std para todo lo que quieras garantizar en top-level (p.ej. tid, at_hash).
-// En extra podés pasar "nonce", "auth_time", "acr", "amr" u otros benignos.
+// IssueIDToken emite un ID Token OIDC con claims estándar y extras.
 func (i *Issuer) IssueIDToken(sub, aud string, std map[string]any, extra map[string]any) (string, time.Time, error) {
 	now := time.Now().UTC()
 	exp := now.Add(i.AccessTTL)
+
+	kid, priv, _, err := i.Keys.Active()
+	if err != nil {
+		return "", time.Time{}, err
+	}
 
 	claims := jwtv5.MapClaims{
 		"iss": i.Iss,
@@ -71,13 +114,9 @@ func (i *Issuer) IssueIDToken(sub, aud string, std map[string]any, extra map[str
 		"nbf": now.Unix(),
 		"exp": exp.Unix(),
 	}
-
-	// std (flat, prioridad para asegurar presencia en top-level)
 	for k, v := range std {
 		claims[k] = v
 	}
-
-	// extras (flat; no los anidamos para OIDC)
 	if extra != nil {
 		for k, v := range extra {
 			claims[k] = v
@@ -85,12 +124,23 @@ func (i *Issuer) IssueIDToken(sub, aud string, std map[string]any, extra map[str
 	}
 
 	tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
-	tk.Header["kid"] = i.Keys.KID
+	tk.Header["kid"] = kid
 	tk.Header["typ"] = "JWT"
 
-	signed, err := tk.SignedString(i.Keys.Priv)
+	signed, err := tk.SignedString(priv)
 	if err != nil {
 		return "", time.Time{}, err
 	}
 	return signed, exp, nil
 }
+
+// JWKSJSON expone el JWKS actual (active+retiring)
+func (i *Issuer) JWKSJSON() []byte {
+	j, _ := i.Keys.JWKSJSON()
+	return j
+}
+
+// Helpers defensivos para errores comunes
+var (
+	ErrInvalidIssuer = errors.New("invalid_issuer")
+)
