@@ -56,34 +56,19 @@ rate:
 flags:
   migrate: true
 
-# ───────── Gmail SMTP ─────────
 smtp:
-  host: "smtp.gmail.com"
-  port: 587                 # Gmail en 587 usa STARTTLS
-  username: "juanpalacio1996@gmail.com"
-  password: "gezl zchi oken ubkl"   # tu App Password de Google tal cual (con espacios)
-  from: "juanpalacio1996@gmail.com" # en Gmail conviene que FROM == username
-  tls: "starttls"           # starttls | ssl(465) | auto | none
+  host: "smtp.example.com"           # ej: smtp.gmail.com
+  port: 587                          # 587 = STARTTLS
+  username: "your_email@example.com" # ej: tu_usuario@gmail.com
+  password: "your_app_password_here" # App Password / credencial
+  from: "your_email@example.com"
+  tls: "starttls"                    # starttls | ssl | auto | none
   insecure_skip_verify: false
 
 email:
   base_url: "http://localhost:8080"
   templates_dir: "./templates"
-  debug_echo_links: true    # deja los X-Debug-* para facilitar el test
-
-# ───────── Social Login ─────────
-providers:
-  google:
-    enabled: false
-    client_id: ""           # requerido si enabled=true
-    client_secret: ""       # requerido si enabled=true
-    # Si se deja vacío, se autocompleta con: <jwt.issuer>/v1/auth/social/google/callback
-    redirect_url: ""
-    # Defaults sensatos; podés dejarlos así
-    scopes: ["openid","email","profile"]
-    # Vacíos => permitido para todos (universal)
-    allowed_tenants: []
-    allowed_clients: []
+  debug_echo_links: true             # en prod se fuerza a false
 
 security:
   password_policy:
@@ -92,3 +77,14 @@ security:
     require_lower: true
     require_digit: true
     require_symbol: false
+
+# ───────── Social Login ─────────
+providers:
+  google:
+    enabled: false
+    client_id: ""        # completa con tu OAuth Client ID
+    client_secret: ""    # completa con tu Client Secret
+    redirect_url: ""     # vacío => <jwt.issuer>/v1/auth/social/google/callback
+    scopes: ["openid","email","profile"]
+    allowed_tenants: []  # vacío => todos
+    allowed_clients: []  # vacío => todos

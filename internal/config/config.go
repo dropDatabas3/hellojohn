@@ -104,11 +104,6 @@ type Config struct {
 		DebugEchoLinks bool   `yaml:"debug_echo_links"`
 	} `yaml:"email"`
 
-	// ───────── Social Login ─────────
-	Providers struct {
-		Google SocialProviderConfig `yaml:"google"`
-	} `yaml:"providers"`
-
 	Security struct {
 		PasswordPolicy struct {
 			MinLength     int  `yaml:"min_length"`
@@ -118,17 +113,19 @@ type Config struct {
 			RequireSymbol bool `yaml:"require_symbol"`
 		} `yaml:"password_policy"`
 	} `yaml:"security"`
-}
 
-// SocialProviderConfig: reutilizable para otros IdPs
-type SocialProviderConfig struct {
-	Enabled        bool     `yaml:"enabled"`
-	ClientID       string   `yaml:"client_id"`
-	ClientSecret   string   `yaml:"client_secret"`
-	RedirectURL    string   `yaml:"redirect_url"` // si vacío, se autocompleta con <jwt.issuer>/v1/auth/social/<provider>/callback
-	Scopes         []string `yaml:"scopes"`       // default: openid,email,profile
-	AllowedTenants []string `yaml:"allowed_tenants"`
-	AllowedClients []string `yaml:"allowed_clients"`
+	// ───────── Social Login Providers ─────────
+	Providers struct {
+		Google struct {
+			Enabled        bool     `yaml:"enabled"`
+			ClientID       string   `yaml:"client_id"`
+			ClientSecret   string   `yaml:"client_secret"`
+			RedirectURL    string   `yaml:"redirect_url"` // si vacío => <jwt.issuer>/v1/auth/social/google/callback
+			Scopes         []string `yaml:"scopes"`       // default: openid,email,profile
+			AllowedTenants []string `yaml:"allowed_tenants"`
+			AllowedClients []string `yaml:"allowed_clients"`
+		} `yaml:"google"`
+	} `yaml:"providers"`
 }
 
 func Load(path string) (*Config, error) {
@@ -190,6 +187,11 @@ func Load(path string) (*Config, error) {
 		c.SMTP.TLS = "auto"
 	}
 
+	// Social defaults
+	if len(c.Providers.Google.Scopes) == 0 {
+		c.Providers.Google.Scopes = []string{"openid", "email", "profile"}
+	}
+
 	// validate string durations
 	if c.Storage.Postgres.ConnMaxLifetime != "" {
 		if _, err := time.ParseDuration(c.Storage.Postgres.ConnMaxLifetime); err != nil {
@@ -220,15 +222,14 @@ func Load(path string) (*Config, error) {
 	// Overrides por env + salvaguarda prod
 	c.applyEnvOverrides()
 
-	// ───────── Defaults Social (post-env) ─────────
-	// Google: si está habilitado y no se setea redirect_url, lo armamos desde el issuer.
-	if c.Providers.Google.Enabled {
-		if len(c.Providers.Google.Scopes) == 0 {
-			c.Providers.Google.Scopes = []string{"openid", "email", "profile"}
-		}
-		if strings.TrimSpace(c.Providers.Google.RedirectURL) == "" && strings.TrimSpace(c.JWT.Issuer) != "" {
-			c.Providers.Google.RedirectURL = strings.TrimRight(c.JWT.Issuer, "/") + "/v1/auth/social/google/callback"
-		}
+	// Si Google.RedirectURL vacío pero tenemos issuer ⇒ autogenerar
+	if c.Providers.Google.Enabled && strings.TrimSpace(c.Providers.Google.RedirectURL) == "" && strings.TrimSpace(c.JWT.Issuer) != "" {
+		c.Providers.Google.RedirectURL = strings.TrimRight(c.JWT.Issuer, "/") + "/v1/auth/social/google/callback"
+	}
+
+	// Guardia dura: en prod NUNCA exponemos los links por headers.
+	if strings.EqualFold(c.App.Env, "prod") {
+		c.Email.DebugEchoLinks = false
 	}
 
 	return &c, nil
@@ -428,29 +429,6 @@ func (c *Config) applyEnvOverrides() {
 		c.Email.DebugEchoLinks = v
 	}
 
-	// PROVIDERS - GOOGLE
-	if v, ok := getEnvBool("GOOGLE_ENABLED"); ok {
-		c.Providers.Google.Enabled = v
-	}
-	if v, ok := getEnvStr("GOOGLE_CLIENT_ID"); ok {
-		c.Providers.Google.ClientID = v
-	}
-	if v, ok := getEnvStr("GOOGLE_CLIENT_SECRET"); ok {
-		c.Providers.Google.ClientSecret = v
-	}
-	if v, ok := getEnvStr("GOOGLE_REDIRECT_URL"); ok {
-		c.Providers.Google.RedirectURL = v
-	}
-	if v, ok := getEnvCSV("GOOGLE_SCOPES"); ok {
-		c.Providers.Google.Scopes = v
-	}
-	if v, ok := getEnvCSV("GOOGLE_ALLOWED_TENANTS"); ok {
-		c.Providers.Google.AllowedTenants = v
-	}
-	if v, ok := getEnvCSV("GOOGLE_ALLOWED_CLIENTS"); ok {
-		c.Providers.Google.AllowedClients = v
-	}
-
 	// SECURITY
 	if v, ok := getEnvInt("SECURITY_PASSWORD_POLICY_MIN_LENGTH"); ok {
 		c.Security.PasswordPolicy.MinLength = v
@@ -468,8 +446,26 @@ func (c *Config) applyEnvOverrides() {
 		c.Security.PasswordPolicy.RequireSymbol = v
 	}
 
-	// Guardia dura: en prod NUNCA exponemos los links por headers.
-	if strings.EqualFold(c.App.Env, "prod") {
-		c.Email.DebugEchoLinks = false
+	// ───── Providers: Google ─────
+	if v, ok := getEnvBool("GOOGLE_ENABLED"); ok {
+		c.Providers.Google.Enabled = v
+	}
+	if v, ok := getEnvStr("GOOGLE_CLIENT_ID"); ok {
+		c.Providers.Google.ClientID = v
+	}
+	if v, ok := getEnvStr("GOOGLE_CLIENT_SECRET"); ok {
+		c.Providers.Google.ClientSecret = v
+	}
+	if v, ok := getEnvStr("GOOGLE_REDIRECT_URL"); ok {
+		c.Providers.Google.RedirectURL = v
+	}
+	if v, ok := getEnvCSV("GOOGLE_SCOPES"); ok && len(v) > 0 {
+		c.Providers.Google.Scopes = v
+	}
+	if v, ok := getEnvCSV("GOOGLE_ALLOWED_TENANTS"); ok {
+		c.Providers.Google.AllowedTenants = v
+	}
+	if v, ok := getEnvCSV("GOOGLE_ALLOWED_CLIENTS"); ok {
+		c.Providers.Google.AllowedClients = v
 	}
 }

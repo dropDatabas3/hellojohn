@@ -144,3 +144,18 @@ func (i *Issuer) JWKSJSON() []byte {
 var (
 	ErrInvalidIssuer = errors.New("invalid_issuer")
 )
+
+// ───────────────────────────────────────────────────────────────
+// helpers para firmar claims arbitrarios EdDSA
+// ───────────────────────────────────────────────────────────────
+
+// SignEdDSA firma claims arbitrarios con la clave activa (no inyecta iss/exp/iat).
+// Útil para firmar "state" de flows sociales, etc.
+func (i *Issuer) SignEdDSA(claims map[string]any) (string, error) {
+	mc := jwtv5.MapClaims{}
+	for k, v := range claims {
+		mc[k] = v
+	}
+	signed, _, err := i.SignRaw(mc)
+	return signed, err
+}

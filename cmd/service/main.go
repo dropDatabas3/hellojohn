@@ -417,13 +417,25 @@ func main() {
 		cfg.Auth.Session.Secure,
 	)
 
-	verifyEmailStartHandler, verifyEmailConfirmHandler, forgotHandler, resetHandler, cleanup, err :=
+	// Email Flows
+	verifyEmailStartHandler, verifyEmailConfirmHandler, forgotHandler, resetHandler, emailCleanup, err :=
 		handlers.BuildEmailFlowHandlers(ctx, cfg, &container, refreshTTL)
 	if err != nil {
 		log.Fatalf("email flows: %v", err)
 	}
-	defer cleanup()
+	defer emailCleanup()
 
+	// ───────── Social: Google ─────────
+	googleStart, googleCallback, googleCleanup, gerr :=
+		handlers.BuildGoogleSocialHandlers(ctx, cfg, &container, refreshTTL)
+	if gerr != nil {
+		log.Fatalf("google social: %v", gerr)
+	}
+	if googleCleanup != nil {
+		defer googleCleanup()
+	}
+
+	// Mux base (función no-variádica)
 	mux := httpserver.NewMux(
 		jwksHandler,
 		authLoginHandler,
@@ -444,6 +456,14 @@ func main() {
 		forgotHandler,
 		resetHandler,
 	)
+
+	// Rutas Google (solo si está habilitado)
+	if googleStart != nil {
+		mux.Handle("/v1/auth/social/google/start", googleStart)
+	}
+	if googleCallback != nil {
+		mux.Handle("/v1/auth/social/google/callback", googleCallback)
+	}
 
 	handler := httpserver.WithLogging(
 		httpserver.WithRecover(

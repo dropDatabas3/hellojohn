@@ -17,7 +17,7 @@ chcp 65001 >NUL
 set "BINARY_EXT=.exe .dll .bin .iso .img .gif .sum .png .jpg .jpeg .ico .pdf .zip .tar .gz .7z .rar .mp3 .wav .ogg .mp4 .mov .avi .heic .ttf .woff .woff2 .eot .class .jar .ps1 .bat .html .htm"
 
 :: Directorios a ignorar (opcional). Descomentá la línea del bloque IF más abajo para usarlos.
-set "SKIP_DIRS=.git node_modules vendor dist build bin obj .idea .vscode .venv go.sum test.bat test.ps1"
+set "SKIP_DIRS=.git node_modules vendor dist build bin obj .idea .vscode .venv go.sum test.bat test.ps1 codeprinter.bat"
 
 for /r "%CD%" %%F in (*) do (
     set "SKIP=0"

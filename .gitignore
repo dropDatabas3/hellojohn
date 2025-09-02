@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+configs/config.yaml
 
 # ───────── Local utility scripts (keep out of repo) ─────────
 codeprinter.bat
