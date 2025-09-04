@@ -95,45 +95,62 @@ SIGNING_MASTER_KEY=... go run ./cmd/keys -rotate
 
 ---
 ## 4. Catálogo de Endpoints
-Leyenda: (A) Autenticación requerida (B) Bearer Access Token, (C) Cookie de sesión, (RL) sujeto a rate limit semántico.
+Formato unificado para facilitar lectura. Columnas:
+* Auth: No | B (Bearer) | C (Cookie de sesión) | Token (link de email) | Refresh (usa refresh token)
+* RL (Rate Limit): Global (middleware), Login, Forgot/Verify/Reset (semánticos) o Cacheable (respuestas públicas cacheables).
 
-Autenticación clásica:
+### 4.1 Autenticación clásica (JSON)
 | Método | Path | Descripción | Auth | RL |
 |--------|------|-------------|------|----|
-| POST | `/v1/auth/register` | Crea usuario (+auto-login opcional) | No | Global |
-| POST | `/v1/auth/login` | Login email/password (access+refresh) | No | Login específico |
-| POST | `/v1/auth/refresh` | Rotación refresh → nuevos tokens | No (usa refresh) | Global |
-| POST | `/v1/auth/logout` | Revoca refresh actual (best effort) | No (usa refresh) | Global |
-| GET  | `/v1/me` | Decodifica bearer y devuelve claims básicos | B | Global |
+| POST | /v1/auth/register | Crea usuario (opción auto-login) | No | Global |
+| POST | /v1/auth/login | Email + password → access + refresh | No | Login |
+| POST | /v1/auth/refresh | Usa refresh válido y rota a uno nuevo | Refresh | Global |
+| POST | /v1/auth/logout | Revoca refresh actual (idempotente) | Refresh | Global |
+| GET  | /v1/me | Devuelve claims básicos del access token | B | Global |
 
-Sesiones navegador:
-| POST `/v1/session/login` | Crea cookie `sid` (para `/oauth2/authorize`). |
-| POST `/v1/session/logout` | Elimina cookie y borra sesión en cache. |
+### 4.2 Sesiones navegador (para flujo /oauth2/authorize)
+| Método | Path | Descripción | Auth | RL |
+|--------|------|-------------|------|----|
+| POST | /v1/session/login | Crea cookie sid (login interactivo) | No | Global |
+| POST | /v1/session/logout | Borra cookie y sesión en cache | C | Global |
 
-OAuth2 / OIDC:
-| GET  | `/oauth2/authorize` | Authorization Code + PKCE S256 | C (o Bearer si `allow_bearer_session`) | Global |
-| POST | `/oauth2/token` | Intercambio code / refresh | No (secret-less: PKCE) | Global |
-| POST | `/oauth2/revoke` | RFC7009 revocación refresh (idempotente) | No | Global |
-| GET/POST | `/userinfo` | Claims OIDC (scope email opcional) | B | Global |
-| GET  | `/.well-known/openid-configuration` | Discovery | No | Cacheable |
-| GET  | `/.well-known/jwks.json` | JWKS activo + retiring | No | Cacheable |
+### 4.3 OAuth2 / OIDC
+| Método | Path | Descripción | Auth | RL |
+|--------|------|-------------|------|----|
+| GET | /oauth2/authorize | Authorization Code + PKCE S256 | C (o B si permitido) | Global |
+| POST | /oauth2/token | Intercambio code o refresh → tokens | No / Refresh | Global |
+| POST | /oauth2/revoke | Revoca refresh (RFC7009, idempotente) | No | Global |
+| GET / POST | /userinfo | Devuelve claims OIDC (scope email) | B | Global |
+| GET | /.well-known/openid-configuration | Documento Discovery OIDC | No | Cacheable |
+| GET | /.well-known/jwks.json | Claves públicas (active + retiring) | No | Cacheable |
 
-Email flows:
-| POST | `/v1/auth/verify-email/start` | Enviar link verificación | B | Forgot/verify RL |
-| GET  | `/v1/auth/verify-email` | Marca email verificado | Token link | - |
-| POST | `/v1/auth/forgot` | Genera token reset + email | No (oculta existencia) | Forgot RL |
-| POST | `/v1/auth/reset` | Aplica nuevo password (opcional auto-login) | Token link | Reset RL |
+### 4.4 Flujos de Email (verify / reset)
+| Método | Path | Descripción | Auth | RL |
+|--------|------|-------------|------|----|
+| POST | /v1/auth/verify-email/start | Envía link para verificar email | B | Verify |
+| GET  | /v1/auth/verify-email | Consume token y marca verificado | Token | - |
+| POST | /v1/auth/forgot | Envia email con link de reset | No (respuesta neutra) | Forgot |
+| POST | /v1/auth/reset | Aplica nuevo password (auto-login opc.) | Token | Reset |
 
-Social (Google) – si habilitado:
-| GET | `/v1/auth/social/google/start` | Redirige a Google con state firmado | No | Global |
-| GET | `/v1/auth/social/google/callback` | Intercambio code → user provisioning + tokens | No | Global |
-Nota: si se pasa `redirect_uri` de la app cliente, se devuelve `302` con `code=<login_code>` (cache 1 uso). Endpoint de canje del `login_code` aún no implementado (pendiente).
+### 4.5 Social (Google) – si habilitado
+| Método | Path | Descripción | Auth | RL |
+|--------|------|-------------|------|----|
+| GET | /v1/auth/social/google/start | Redirige a Google (state firmado) | No | Global |
+| GET | /v1/auth/social/google/callback | Intercambia code → tokens / login_code | No | Global |
+Nota: si se pasa `redirect_uri`, se devuelve 302 con `code=<login_code>` (uso único en cache). Endpoint de intercambio de `login_code` aún pendiente.
 
-Salud:
-| GET `/healthz` | Liveness simple |
-| GET `/readyz`  | DB + keystore + firma/verify + Redis opcional |
+### 4.6 Salud
+| Método | Path | Descripción |
+|--------|------|-------------|
+| GET | /healthz | Liveness simple |
+| GET | /readyz | DB + firma/verificación + Redis opcional |
 
-Respuestas de error siguen patrón JSON `{ "error": <code>, "error_description": <texto> }` + códigos específicos internos (no expuestos públicamente).
+### 4.7 Errores
+Todas las respuestas de error JSON siguen:
+```json
+{ "error": "<codigo_corto>", "error_description": "Mensaje legible" }
+```
+Los códigos internos detallados no se exponen para evitar filtración de lógica.
 
 ---
 ## 5. Flujos (diagramas)
@@ -226,21 +243,142 @@ Claims destacados:
 * ID Token agrega `at_hash`, `azp` (authorized party), `nonce` (si se envió en authorize).
 
 ---
-## 7. Configuración (resumen agrupado)
-Variables más usadas (todas soportan YAML + env override):
+## 7. Configuración (guía clara)
+La configuración se puede definir en YAML (`configs/config.yaml`) y luego cada campo puede ser sobre‑escrito por variables de entorno. Flags CLI (p.ej. `-env`, `-env-file`, `-migrate`) controlan cómo se cargan.
 
-Servidor: `SERVER_ADDR`, `SERVER_CORS_ALLOWED_ORIGINS`
-JWT: `JWT_ISSUER`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL`
-Storage: `STORAGE_DSN`, pool (`POSTGRES_*`)
-Cache: `CACHE_KIND`, `REDIS_ADDR`, `REDIS_DB`, `REDIS_PREFIX`, `MEMORY_DEFAULT_TTL`
-Auth / Registro: `REGISTER_AUTO_LOGIN`, `AUTH_ALLOW_BEARER_SESSION`
-Sesión cookie: `AUTH_SESSION_COOKIE_NAME`, `AUTH_SESSION_DOMAIN`, `AUTH_SESSION_SAMESITE`, `AUTH_SESSION_SECURE`, `AUTH_SESSION_TTL`
-Email flows: `AUTH_VERIFY_TTL`, `AUTH_RESET_TTL`, `AUTH_RESET_AUTO_LOGIN`, `EMAIL_BASE_URL`, `EMAIL_TEMPLATES_DIR`, `EMAIL_DEBUG_LINKS`
-SMTP: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_TLS`, `SMTP_INSECURE_SKIP_VERIFY`
-Rate: global (`RATE_ENABLED`, `RATE_WINDOW`, `RATE_MAX_REQUESTS`) + específicos `RATE_LOGIN_LIMIT`, `RATE_LOGIN_WINDOW`, `RATE_FORGOT_LIMIT`, `RATE_FORGOT_WINDOW`
-Seguridad password: `SECURITY_PASSWORD_POLICY_*`
-Social Google: `GOOGLE_ENABLED`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URL`, `GOOGLE_SCOPES`, `GOOGLE_ALLOWED_TENANTS`, `GOOGLE_ALLOWED_CLIENTS`, `SOCIAL_LOGIN_CODE_TTL`
-Claves: `SIGNING_MASTER_KEY` (cifrado privadas), rotación vía CLI.
+Orden de precedencia (menor → mayor): `defaults en código` → `config.yaml` → `variables de entorno` → `flags`.
+
+Formato de duraciones: usa notación Go (`15m`, `1h`, `48h`, `30s`).
+
+### 7.1 Variables mínimas para arrancar en desarrollo
+Configura sólo lo imprescindible (usa cache en memoria y PostgreSQL local):
+```bash
+export STORAGE_DSN=postgres://user:pass@localhost:5432/login?sslmode=disable
+export JWT_ISSUER=http://localhost:8080
+export FLAGS_MIGRATE=true
+go run ./cmd/service -env
+```
+
+### 7.2 Categorías y explicación simple
+
+#### Servidor
+| Variable | Qué hace | Ejemplo / Default |
+|----------|---------|--------------------|
+| SERVER_ADDR | Dirección y puerto de escucha | :8080 |
+| SERVER_CORS_ALLOWED_ORIGINS | Lista orígenes (CSV) habilitados | http://localhost:5173 |
+
+#### JWT / Tokens
+| Variable | Qué hace | Default |
+|----------|---------|---------|
+| JWT_ISSUER | URL base que aparecerá como `iss` | (vacío) |
+| JWT_ACCESS_TTL | Vida access & id tokens | 15m aprox (si no se ajustó) |
+| JWT_REFRESH_TTL | Vida de refresh token | 720h (30 días) |
+
+#### Almacenamiento
+| Variable | Qué hace | Ejemplo |
+|----------|---------|---------|
+| STORAGE_DRIVER | postgres | postgres |
+| STORAGE_DSN | Cadena conexión principal | postgres://user:pass@host:5432/db?sslmode=disable |
+| POSTGRES_MAX_OPEN_CONNS | Conexiones máximas (pool) | 10 / 20 |
+| POSTGRES_MAX_IDLE_CONNS | Conexiones inactivas pool | 5 |
+| POSTGRES_CONN_MAX_LIFETIME | Reciclado conexiones (duración) | 1h |
+
+#### Cache
+| Variable | Qué hace | Default |
+|----------|---------|---------|
+| CACHE_KIND | memory o redis | memory |
+| REDIS_ADDR | host:puerto Redis | localhost:6379 |
+| REDIS_DB | Número DB Redis | 0 |
+| REDIS_PREFIX | Prefijo claves | (vacío) |
+| MEMORY_DEFAULT_TTL | TTL por defecto (cache memoria) | 2m |
+
+#### Registro & Auth general
+| Variable | Qué hace | Default |
+|----------|---------|---------|
+| REGISTER_AUTO_LOGIN | Tras registrarse emite tokens | false |
+| AUTH_ALLOW_BEARER_SESSION | Permite usar bearer en /authorize (dev) | true |
+
+#### Sesión (cookie del navegador)
+| Variable | Qué hace | Default |
+|----------|---------|---------|
+| AUTH_SESSION_COOKIE_NAME | Nombre cookie | sid |
+| AUTH_SESSION_DOMAIN | Dominio (opcional) | (vacío) |
+| AUTH_SESSION_SAMESITE | Lax / Strict / None | Lax |
+| AUTH_SESSION_SECURE | Requiere HTTPS si true | false (poner true en prod) |
+| AUTH_SESSION_TTL | Duración sesión | 12h |
+
+#### Flujos de email
+| Variable | Qué hace | Default |
+|----------|---------|---------|
+| AUTH_VERIFY_TTL | Vigencia token verificación email | 48h |
+| AUTH_RESET_TTL | Vigencia token reset password | 60m |
+| AUTH_RESET_AUTO_LOGIN | Auto-login tras reset | false |
+| EMAIL_BASE_URL | Base para construir links email | (usa issuer si vacío) |
+| EMAIL_TEMPLATES_DIR | Carpeta plantillas | ./templates |
+| EMAIL_DEBUG_LINKS | Exponer links en headers (no prod) | true en dev / forzado false en prod |
+
+#### SMTP
+| Variable | Qué hace | Ejemplo |
+|----------|---------|---------|
+| SMTP_HOST | Servidor SMTP | smtp.gmail.com |
+| SMTP_PORT | Puerto | 587 |
+| SMTP_USERNAME | Usuario | you@example.com |
+| SMTP_PASSWORD | Password / App password | **** |
+| SMTP_FROM | Dirección remitente | you@example.com |
+| SMTP_TLS | auto | auto / starttls / ssl / none |
+| SMTP_INSECURE_SKIP_VERIFY | Saltar verificación TLS (solo dev) | false |
+
+#### Rate limiting
+| Variable | Qué hace | Default |
+|----------|---------|---------|
+| RATE_ENABLED | Activa capa global | false |
+| RATE_WINDOW | Ventana global | 1m |
+| RATE_MAX_REQUESTS | Peticiones permitidas ventana global | 60 |
+| RATE_LOGIN_LIMIT | Intentos login ventana login | 10 |
+| RATE_LOGIN_WINDOW | Ventana login | 1m |
+| RATE_FORGOT_LIMIT | Intentos forgot | 5 |
+| RATE_FORGOT_WINDOW | Ventana forgot | 10m |
+
+#### Política de password
+| Variable | Qué hace | Default |
+|----------|---------|---------|
+| SECURITY_PASSWORD_POLICY_MIN_LENGTH | Longitud mínima | 10 |
+| SECURITY_PASSWORD_POLICY_REQUIRE_UPPER | Requiere mayúscula | false |
+| SECURITY_PASSWORD_POLICY_REQUIRE_LOWER | Requiere minúscula | false |
+| SECURITY_PASSWORD_POLICY_REQUIRE_DIGIT | Requiere dígito | false |
+| SECURITY_PASSWORD_POLICY_REQUIRE_SYMBOL | Requiere símbolo | false |
+
+#### Social Google
+| Variable | Qué hace | Ejemplo / Default |
+|----------|---------|--------------------|
+| GOOGLE_ENABLED | Habilita flujo Google | false |
+| GOOGLE_CLIENT_ID | Client ID OAuth Google | (vacío) |
+| GOOGLE_CLIENT_SECRET | Client Secret | (vacío) |
+| GOOGLE_REDIRECT_URL | Callback (auto si vacío) | <issuer>/v1/auth/social/google/callback |
+| GOOGLE_SCOPES | Scopes CSV | openid,email,profile |
+| GOOGLE_ALLOWED_TENANTS | Limitar a tenants (CSV) | (vacío = todos) |
+| GOOGLE_ALLOWED_CLIENTS | Limitar a client_ids | (vacío = todos) |
+| SOCIAL_LOGIN_CODE_TTL | TTL código efímero login_code | 60s |
+
+#### Claves de firma
+| Variable | Qué hace | Notas |
+|----------|---------|-------|
+| SIGNING_MASTER_KEY | Hex 64 chars (32 bytes) para cifrar privada | Si no se define la clave privada queda en claro en DB |
+
+### 7.3 Tips de producción
+* Forzá `AUTH_SESSION_SECURE=true` y serví detrás de HTTPS.
+* Usa Redis para consistencia de rate limit y sesiones multi‑instancia.
+* Programa rotación de claves (`cmd/keys -rotate`) y retiro (`-retire`).
+* Mantén `EMAIL_DEBUG_LINKS=false` (ya se fuerza en prod) para no filtrar enlaces sensibles.
+* Ajusta política de password si tu modelo de riesgo lo exige.
+
+### 7.4 Depuración rápida
+Si algo “no arranca”, revisa:
+1. Cadena DSN postgres correcta.
+2. `JWT_ISSUER` accesible (usa http://host:puerto en dev).
+3. Migraciones corriendo (`FLAGS_MIGRATE=true`).
+4. Redis (si configurado) responde en `REDIS_ADDR`.
+5. Tiempos (duraciones) sin typos (`1m30s`, no `1min30`).
 
 ---
 ## 8. Rate limiting semántico
