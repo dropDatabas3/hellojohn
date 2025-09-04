@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -27,7 +28,10 @@ func NewReadyzHandler(c *app.Container, checkRedis func(ctx context.Context) err
 
 		// 1) DB
 		if err := c.Store.Ping(r.Context()); err != nil {
-			httpx.WriteError(w, http.StatusServiceUnavailable, "db_unavailable", err.Error(), 2001)
+			// Log interno con detalle
+			// (import "log")
+			log.Printf(`{"level":"error","msg":"db_unavailable","err":"%v"}`, err)
+			httpx.WriteError(w, http.StatusServiceUnavailable, "db_unavailable", "database unavailable", 2001)
 			return
 		}
 
@@ -87,7 +91,8 @@ func NewReadyzHandler(c *app.Container, checkRedis func(ctx context.Context) err
 		// 3) Redis (opcional)
 		if checkRedis != nil {
 			if err := checkRedis(r.Context()); err != nil {
-				httpx.WriteError(w, http.StatusServiceUnavailable, "redis_unavailable", err.Error(), 2003)
+				log.Printf(`{"level":"error","msg":"redis_unavailable","err":"%v"}`, err)
+				httpx.WriteError(w, http.StatusServiceUnavailable, "redis_unavailable", "redis unavailable", 2003)
 				return
 			}
 		}

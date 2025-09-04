@@ -3,9 +3,11 @@ package handlers
 import (
 	"encoding/json"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -85,7 +87,11 @@ func (h *EmailFlowsHandler) rlOr429(w http.ResponseWriter, key string) bool {
 		return false
 	}
 	if retry > 0 {
-		w.Header().Set("Retry-After", strings.TrimSuffix(retry.String(), "0s"))
+		secs := int(math.Ceil(retry.Seconds()))
+		if secs < 1 {
+			secs = 1
+		}
+		w.Header().Set("Retry-After", strconv.Itoa(secs))
 	}
 	writeErr(w, "rate_limited", "Too many requests", http.StatusTooManyRequests)
 	return true
@@ -116,8 +122,8 @@ func (h *EmailFlowsHandler) verifyEmailStart(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if h.rlOr429(w, "verify_start:"+r.RemoteAddr) {
-		log.Printf(`{"level":"warn","msg":"verify_start_rate_limited","request_id":"%s","remote":"%s"}`, rid, r.RemoteAddr)
+	if h.rlOr429(w, "verify_start:"+clientIPOrEmpty(r)) {
+		log.Printf(`{"level":"warn","msg":"verify_start_rate_limited","request_id":"%s","remote":"%s"}`, rid, clientIPOrEmpty(r))
 		return
 	}
 
@@ -357,7 +363,7 @@ func (h *EmailFlowsHandler) reset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.rlOr429(w, "reset:"+r.RemoteAddr) {
+	if h.rlOr429(w, "reset:"+clientIPOrEmpty(r)) {
 		log.Printf(`{"level":"warn","msg":"reset_rate_limited","request_id":"%s"}`, rid)
 		return
 	}

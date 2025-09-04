@@ -80,8 +80,19 @@ type Config struct {
 
 	Rate struct {
 		Enabled     bool   `yaml:"enabled"`
-		Window      string `yaml:"window"`
-		MaxRequests int    `yaml:"max_requests"`
+		Window      string `yaml:"window"`       // global (backward compatibility)
+		MaxRequests int    `yaml:"max_requests"` // global (backward compatibility)
+
+		// Endpoint-specific configurations
+		Login struct {
+			Limit  int    `yaml:"limit"`
+			Window string `yaml:"window"`
+		} `yaml:"login"`
+
+		Forgot struct {
+			Limit  int    `yaml:"limit"`
+			Window string `yaml:"window"`
+		} `yaml:"forgot"`
 	} `yaml:"rate"`
 
 	Flags struct {
@@ -116,7 +127,8 @@ type Config struct {
 
 	// ───────── Social Login Providers ─────────
 	Providers struct {
-		Google struct {
+		LoginCodeTTL time.Duration `yaml:"login_code_ttl"` // NUEVO: TTL para el login_code del social flow
+		Google       struct {
 			Enabled        bool     `yaml:"enabled"`
 			ClientID       string   `yaml:"client_id"`
 			ClientSecret   string   `yaml:"client_secret"`
@@ -157,6 +169,19 @@ func Load(path string) (*Config, error) {
 	if c.Rate.MaxRequests == 0 {
 		c.Rate.MaxRequests = 60
 	}
+	// Endpoint-specific rate limit defaults
+	if c.Rate.Login.Limit == 0 {
+		c.Rate.Login.Limit = 10
+	}
+	if c.Rate.Login.Window == "" {
+		c.Rate.Login.Window = "1m"
+	}
+	if c.Rate.Forgot.Limit == 0 {
+		c.Rate.Forgot.Limit = 5
+	}
+	if c.Rate.Forgot.Window == "" {
+		c.Rate.Forgot.Window = "10m"
+	}
 	// Auth/session defaults
 	if c.Auth.Session.CookieName == "" {
 		c.Auth.Session.CookieName = "sid"
@@ -190,6 +215,9 @@ func Load(path string) (*Config, error) {
 	// Social defaults
 	if len(c.Providers.Google.Scopes) == 0 {
 		c.Providers.Google.Scopes = []string{"openid", "email", "profile"}
+	}
+	if c.Providers.LoginCodeTTL == 0 {
+		c.Providers.LoginCodeTTL = 60 * time.Second
 	}
 
 	// validate string durations
@@ -390,6 +418,20 @@ func (c *Config) applyEnvOverrides() {
 		c.Rate.MaxRequests = v
 	}
 
+	// Rate limit endpoints específicos
+	if v, ok := getEnvInt("RATE_LOGIN_LIMIT"); ok {
+		c.Rate.Login.Limit = v
+	}
+	if v, ok := getEnvStr("RATE_LOGIN_WINDOW"); ok {
+		c.Rate.Login.Window = v
+	}
+	if v, ok := getEnvInt("RATE_FORGOT_LIMIT"); ok {
+		c.Rate.Forgot.Limit = v
+	}
+	if v, ok := getEnvStr("RATE_FORGOT_WINDOW"); ok {
+		c.Rate.Forgot.Window = v
+	}
+
 	// FLAGS
 	if v, ok := getEnvBool("FLAGS_MIGRATE"); ok {
 		c.Flags.Migrate = v
@@ -446,7 +488,12 @@ func (c *Config) applyEnvOverrides() {
 		c.Security.PasswordPolicy.RequireSymbol = v
 	}
 
-	// ───── Providers: Google ─────
+	// ───── Providers (Social) ─────
+	// TTL del login_code del flujo social
+	if d, ok := getEnvDur("SOCIAL_LOGIN_CODE_TTL"); ok {
+		c.Providers.LoginCodeTTL = d
+	}
+	// GOOGLE
 	if v, ok := getEnvBool("GOOGLE_ENABLED"); ok {
 		c.Providers.Google.Enabled = v
 	}

@@ -57,18 +57,18 @@ flags:
   migrate: true
 
 smtp:
-  host: "smtp.example.com"           # ej: smtp.gmail.com
-  port: 587                          # 587 = STARTTLS
-  username: "your_email@example.com" # ej: tu_usuario@gmail.com
-  password: "your_app_password_here" # App Password / credencial
-  from: "your_email@example.com"
-  tls: "starttls"                    # starttls | ssl | auto | none
+  host: "smtp.gmail.com"
+  port: 587
+  username: "juanpalacio1996@gmail.com"
+  password: "gezl zchi oken ubkl"  # App Password
+  from: "juanpalacio1996@gmail.com"
+  tls: "starttls"
   insecure_skip_verify: false
 
 email:
   base_url: "http://localhost:8080"
   templates_dir: "./templates"
-  debug_echo_links: true             # en prod se fuerza a false
+  debug_echo_links: true
 
 security:
   password_policy:
@@ -80,11 +80,12 @@ security:
 
 # ───────── Social Login ─────────
 providers:
+  login_code_ttl: "60s"   # NUEVO: TTL del code efímero que devuelve /social/result
   google:
     enabled: false
-    client_id: ""        # completa con tu OAuth Client ID
-    client_secret: ""    # completa con tu Client Secret
-    redirect_url: ""     # vacío => <jwt.issuer>/v1/auth/social/google/callback
+    client_id: "1090604839946-j132hvbd6s0aijfsd57444i9u9dep2hn.apps.googleusercontent.com"
+    client_secret: "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"
+    redirect_url: "" # si vacío => <jwt.issuer>/v1/auth/social/google/callback
     scopes: ["openid","email","profile"]
-    allowed_tenants: []  # vacío => todos
-    allowed_clients: []  # vacío => todos
+    allowed_tenants: []   # vacío => todos
+    allowed_clients: []   # vacío => todos

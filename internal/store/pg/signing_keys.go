@@ -98,6 +98,15 @@ LIMIT 1`
 		}
 	}
 
+	// Marcar la anterior como retiring PRIMERO (para evitar constraint violation)
+	if prev != nil {
+		const q = `UPDATE signing_keys SET status='retiring', rotated_at=now() WHERE kid=$1 AND status='active'`
+		if _, err := tx.Exec(ctx, q, prev.KID); err != nil {
+			return nil, err
+		}
+	}
+
+	// Luego insertar la nueva como active
 	{
 		const q = `
 INSERT INTO signing_keys (kid, alg, public_key, private_key, status, not_before, created_at)
@@ -107,15 +116,48 @@ VALUES ($1,$2,$3,$4,'active',COALESCE($5, now()), now())`
 		}
 	}
 
-	if prev != nil {
-		const q = `UPDATE signing_keys SET status='retiring', rotated_at=now() WHERE kid=$1 AND status='active'`
-		if _, err := tx.Exec(ctx, q, prev.KID); err != nil {
-			return nil, err
-		}
-	}
-
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return prev, nil
+}
+
+// ListAllSigningKeys: todas las claves (active, retiring, retired)
+func (s *Store) ListAllSigningKeys(ctx context.Context) ([]core.SigningKey, error) {
+	const q = `
+SELECT kid, alg, public_key, NULL::bytea as private_key, status, not_before, created_at, rotated_at
+FROM signing_keys
+ORDER BY status DESC, not_before DESC`
+	rows, err := s.pool.Query(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []core.SigningKey
+	for rows.Next() {
+		var k core.SigningKey
+		var rotatedAt *time.Time
+		if err := rows.Scan(&k.KID, &k.Alg, &k.PublicKey, &k.PrivateKey, &k.Status, &k.NotBefore, &k.CreatedAt, &rotatedAt); err != nil {
+			return nil, err
+		}
+		k.RotatedAt = rotatedAt
+		out = append(out, k)
+	}
+	return out, rows.Err()
+}
+
+// RetireOldKeys: marca claves 'retiring' anteriores al cutoff como 'retired'
+func (s *Store) RetireOldKeys(ctx context.Context, cutoff time.Time) (int, error) {
+	const q = `
+UPDATE signing_keys
+SET status = 'retired'
+WHERE status = 'retiring'
+  AND rotated_at IS NOT NULL
+  AND rotated_at < $1`
+	result, err := s.pool.Exec(ctx, q, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return int(result.RowsAffected()), nil
 }

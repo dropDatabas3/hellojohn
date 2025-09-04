@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/oauth/google"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
+	"github.com/dropDatabas3/hellojohn/internal/util"
 )
 
 type googleHandler struct {
@@ -184,7 +186,14 @@ func (h *googleHandler) start(w http.ResponseWriter, r *http.Request) {
 
 	// redirect de la app debe estar permitido por el client? (opcional; distinto del redirect de Google)
 	if clientRedirect != "" {
-		if !h.validator.ValidateRedirectURI(tid, cid, clientRedirect) {
+		// Validamos solo scheme+host+path (ignoramos query/fragment)
+		baseToValidate := clientRedirect
+		if u, err := url.Parse(clientRedirect); err == nil {
+			u.RawQuery = ""
+			u.Fragment = ""
+			baseToValidate = u.String()
+		}
+		if !h.validator.ValidateRedirectURI(tid, cid, baseToValidate) {
 			httpx.WriteError(w, http.StatusBadRequest, "invalid_redirect_uri", "redirect_uri no permitido", 1603)
 			return
 		}
@@ -314,8 +323,42 @@ func (h *googleHandler) callback(w http.ResponseWriter, r *http.Request) {
 		RefreshToken: rawRT,
 	}
 
-	// Por simplicidad: devolvemos JSON (igual que /v1/auth/login).
-	// futuro: cuando clientRedirect != "" se puede 302 al front con hash.
+	// ─────────────────────────────────────────────────────────────
+	// Si el cliente nos pasó un redirect, 302 con login_code efímero
+	if clientRedirect != "" {
+		loginCode := randB64(32)
+		cacheKey := "social:code:" + loginCode
+
+		// Guardamos el payload como JSON por 60s (single-use)
+		payload, _ := json.Marshal(resp)
+		ttl := h.cfg.Providers.LoginCodeTTL
+		if ttl <= 0 {
+			ttl = 60 * time.Second
+		}
+		h.c.Cache.Set(cacheKey, payload, ttl)
+
+		// Construir redirección robusta (mergea query existente y respeta fragment)
+		target := clientRedirect
+		if u, err := url.Parse(clientRedirect); err == nil {
+			q := u.Query()
+			q.Set("code", loginCode)
+			u.RawQuery = q.Encode()
+			target = u.String()
+		} else {
+			// Fallback simple
+			sep := "?"
+			if strings.Contains(clientRedirect, "?") {
+				sep = "&"
+			}
+			target = clientRedirect + sep + "code=" + loginCode
+		}
+
+		http.Redirect(w, r, target, http.StatusFound)
+		return
+	}
+	// ─────────────────────────────────────────────────────────────
+
+	// Fallback dev: JSON como /v1/auth/login
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -323,7 +366,7 @@ func (h *googleHandler) callback(w http.ResponseWriter, r *http.Request) {
 
 	// Log útil
 	rid := w.Header().Get("X-Request-ID")
-	log.Printf(`{"level":"info","msg":"google_callback_ok","request_id":"%s","email":"%s","tenant":"%s","client_id":"%s","redir":"%s"}`, rid, idc.Email, tid, cid, clientRedirect)
+	log.Printf(`{"level":"info","msg":"google_callback_ok","request_id":"%s","email":"%s","tenant":"%s","client_id":"%s","redir":"%s"}`, rid, util.MaskEmail(idc.Email), tid, cid, clientRedirect)
 }
 
 // ensureUserAndIdentity: upsert app_user + identity(provider='google')

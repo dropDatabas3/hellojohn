@@ -25,7 +25,10 @@ func main() {
 		flagEnvFile    = flag.String("env-file", ".env", "ruta a .env")
 		flagConfigPath = flag.String("config", "", "ruta a config.yaml (si no se usa -env)")
 		cmdRotate      = flag.Bool("rotate", false, "genera nueva clave ACTIVE y pasa la anterior a RETIRING")
+		cmdRetire      = flag.Bool("retire", false, "marca claves RETIRING antiguas como RETIRED (limpia JWKS)")
+		cmdList        = flag.Bool("list", false, "lista todas las claves con sus estados")
 		flagNotBefore  = flag.String("not-before", "", "RFC3339 (opcional) para not_before de la nueva clave")
+		flagAge        = flag.String("age", "24h", "duración mínima para marcar retiring->retired")
 	)
 	flag.Parse()
 
@@ -98,6 +101,17 @@ func main() {
 			Status:     core.KeyActive,
 			NotBefore:  nb,
 		}
+
+		// Opcional: cifrar private_key si SIGNING_MASTER_KEY está presente
+		if masterKey := os.Getenv("SIGNING_MASTER_KEY"); masterKey != "" {
+			encrypted, err := jwtx.EncryptPrivateKey(k.PrivateKey, masterKey)
+			if err != nil {
+				log.Fatalf("encrypt private key: %v", err)
+			}
+			k.PrivateKey = encrypted
+			fmt.Printf("Private key encrypted with SIGNING_MASTER_KEY\n")
+		}
+
 		prev, err := pgRepo.RotateSigningKeyTx(ctx, k)
 		if err != nil {
 			log.Fatalf("rotate: %v", err)
@@ -107,8 +121,40 @@ func main() {
 		} else {
 			fmt.Printf("Inserted first active key. kid=%s\n", k.KID)
 		}
+	case *cmdRetire:
+		minAge, err := time.ParseDuration(*flagAge)
+		if err != nil {
+			log.Fatalf("invalid age: %v", err)
+		}
+		cutoff := time.Now().UTC().Add(-minAge)
+
+		count, err := pgRepo.RetireOldKeys(ctx, cutoff)
+		if err != nil {
+			log.Fatalf("retire: %v", err)
+		}
+		fmt.Printf("Marked %d retiring keys as retired (older than %s)\n", count, *flagAge)
+	case *cmdList:
+		keys, err := pgRepo.ListAllSigningKeys(ctx)
+		if err != nil {
+			log.Fatalf("list: %v", err)
+		}
+		fmt.Printf("KID\t\t\t\tSTATUS\t\tNOT_BEFORE\t\t\tCREATED_AT\t\t\tROTATED_AT\n")
+		for _, k := range keys {
+			rotated := ""
+			if k.RotatedAt != nil {
+				rotated = k.RotatedAt.Format("2006-01-02 15:04:05")
+			}
+			fmt.Printf("%s\t%s\t\t%s\t%s\t%s\n",
+				k.KID, k.Status,
+				k.NotBefore.Format("2006-01-02 15:04:05"),
+				k.CreatedAt.Format("2006-01-02 15:04:05"),
+				rotated)
+		}
 	default:
-		fmt.Println("usage: keys -rotate [-env | -config configs/config.yaml] [-env-file .env] [-not-before RFC3339]")
+		fmt.Println("usage:")
+		fmt.Println("  keys -rotate [-env | -config configs/config.yaml] [-env-file .env] [-not-before RFC3339]")
+		fmt.Println("  keys -retire [-age 24h]")
+		fmt.Println("  keys -list")
 	}
 }
 

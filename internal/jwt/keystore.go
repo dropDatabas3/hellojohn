@@ -1,9 +1,12 @@
 package jwt
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -94,7 +97,19 @@ func (k *PersistentKeystore) Active() (kid string, priv ed25519.PrivateKey, pub 
 		return "", nil, nil, err
 	}
 	k.activeKID = rec.KID
-	k.activePriv = ed25519.PrivateKey(rec.PrivateKey)
+
+	// Descifrar clave privada si está cifrada (detectar por magic header GCMV1)
+	privKey := rec.PrivateKey
+	if masterKey := os.Getenv("SIGNING_MASTER_KEY"); masterKey != "" && bytes.HasPrefix(rec.PrivateKey, []byte("GCMV1")) {
+		// Clave cifrada detectada por magic header, descifrar
+		decrypted, err := DecryptPrivateKey(rec.PrivateKey, masterKey)
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("decrypt private key: %w", err)
+		}
+		privKey = decrypted
+	}
+
+	k.activePriv = ed25519.PrivateKey(privKey)
 	k.activePub = ed25519.PublicKey(rec.PublicKey)
 	k.cacheUntil = time.Now().Add(k.cacheTTL)
 	return k.activeKID, k.activePriv, k.activePub, nil

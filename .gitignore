@@ -12,9 +12,6 @@ code_dump_*.txt
 
 
 
-# ───────── Optional: ignore sprint planning docs locally (remove if you want them tracked) ─────────
-sprint4.md
-
 # ───────── OS / Tooling ─────────
 *.log
 *.swp

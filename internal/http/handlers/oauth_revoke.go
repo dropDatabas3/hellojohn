@@ -16,6 +16,7 @@ func NewOAuthRevokeHandler(c *app.Container) http.HandlerFunc {
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo POST", 1000)
 			return
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, 32<<10) // 32KB alcanza
 		if err := r.ParseForm(); err != nil {
 			httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "form inválido", 2301)
 			return

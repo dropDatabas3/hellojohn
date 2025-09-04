@@ -1,280 +1,321 @@
-# HelloJohn
+<div align="center">
 
-Plataforma de autenticación y autorización (en desarrollo) que unifica login clásico (usuario/contraseña), emisión de JWT / ID Tokens OIDC, sesiones por cookie para flujos OAuth2 Authorization Code + PKCE y flujos de verificación / recuperación por email. El objetivo es ofrecer un "Universal Login" extensible multi‑tenant con soporte para múltiples proveedores (password / social / enterprise) y drivers de base de datos intercambiables.
+# HelloJohn – Universal Login Service
 
-> Estado: MVP temprano. Implementado: registro + login password, refresh / revoke, sesiones, OAuth2/OIDC básico (authorize, token, revoke, discovery, userinfo), emisión de JWT (Ed25519), verificación de email y reset de contraseña, rate limiting, política de contraseñas, caché (mem/redis) y migraciones Postgres. Pendiente: callback OAuth social, rotación y persistencia de claves, multi‑tenant avanzado, panel admin, MFA, flujos enterprise, métricas, auditoría avanzada.
+Autenticación y emisión de tokens (JWT / OAuth2 / OIDC / flujos de email / social Google) para entornos multi‑tenant.
+
+</div>
+
+## Índice rápido
+1. Objetivo y alcance
+2. Arquitectura (mapa de carpetas + módulos)
+3. Comandos CLI y flags
+4. Endpoints (catálogo resumido)
+5. Flujos principales (diagramas)
+6. Ciclo de vida de tokens y claves
+7. Configuración & variables de entorno
+8. Rate limiting semántico
+9. Seguridad y buenas prácticas
+10. Tests (scripts E2E)
+11. Glosario de términos clave
+12. Roadmap / TODO visibles
 
 ---
-## Tabla de Contenido
-1. Visión General
-2. Arquitectura Lógica
-3. Modelo de Datos (Postgres actual)
-4. Endpoints y Flujos Principales
-5. Diagramas de Secuencia (Mermaid)
-6. Configuración y Variables de Entorno
-7. Ciclo de Vida de Tokens (Access / ID / Refresh / Email)
-8. Seguridad
-9. Ejecución y Flags
-10. Roadmap Breve
-11. Contribuir
+## 1. Objetivo y alcance
+Servicio autónomo que centraliza:
+* Registro y login email/password (Argon2id).
+* Sesiones via cookie para flujos OIDC browser.
+* OAuth2 / OpenID Connect Authorization Code + PKCE S256.
+* Emisión de Access / ID / Refresh tokens firmados EdDSA (Ed25519) con rotación de claves.
+* Verificación de email y restablecimiento de contraseña (enlaces single‑use).
+* Social login (Google) con state firmado y provisión automática de identidad.
+* Rate limiting global y específico (login / forgot / email flows) usando Redis.
+* Hooks opcionales de claims (extensión futura: CEL / webhooks).
+
+Estado: funcional para los flujos listados; algunos archivos marcados TODO (p.ej. `oauth_start.go`, `oauth_callback.go`, `registry_clients.go`) indican futuras ampliaciones.
 
 ---
-## 1. Visión General
-HelloJohn provee un núcleo de autenticación multi‑tenant donde:
-- Usuarios se registran (email + password) y gestionan sesión.
-- Aplicaciones cliente (public/confidential) obtienen códigos y tokens vía Authorization Code + PKCE.
-- Se emiten Access Tokens (para APIs) e ID Tokens (para confianza del cliente) firmados EdDSA (Ed25519) y publicados vía JWKS.
-- Refresh tokens opacos con rotación y revocación.
-- Verificación de email y restablecimiento de contraseña: enlaces temporales enviados por SMTP.
-- Extensible: drivers de storage (actual Postgres; placeholders MySQL / Mongo), caché (memory/redis), hooks de claims.
+## 2. Arquitectura
+Organización de carpetas relevantes (solo lo esencial):
 
-## 2. Arquitectura Lógica
-Componentes principales:
-- HTTP Layer: `net/http` con middlewares (CORS, Security Headers, Logging, Rate Limit, Recover, RequestID).
-- Handlers: /v1/auth/*, /oauth2/*, /userinfo, JWKS, email flows.
-- Store: abstracciones + implementación Postgres (usuarios, identidades, clientes, refresh, tokens email).
-- Cache: memoria (go-cache) o Redis (para sesiones, rate, lookups).
-- JWT: emisión y rotación (clave actual en memoria - TODO persistir/rotar multi‑KID).
-- Seguridad: Argon2id para password, políticas configurables, headers estrictos (CSP, HSTS condicional, Frame / MIME / Permissions Policy).
-- Email: SMTP + plantillas (HTML/TXT); en entornos no prod se exponen links debug vía headers opcionales.
-- Rate Limiting: ventana fija Redis configurable.
+| Carpeta | Rol | Notas |
+|---------|-----|-------|
+| `cmd/service` | Entrada principal HTTP | Lee config, migra opcional, arma middlewares y rutas. |
+| `cmd/migrate` | Runner simple de migraciones up/down | Ordena y aplica archivos SQL. |
+| `cmd/seed` | Creación de tenant, usuario admin, client y versión | Usa variables `SEED_*`. |
+| `cmd/keys` | Rotación / listado / retiro de signing keys | Puede cifrar privada con `SIGNING_MASTER_KEY`. |
+| `internal/http` | Middleware, routing y handlers | CORS, security headers, rate limit, logging, recover. |
+| `internal/http/handlers` | Endpoints REST & OAuth/OIDC | Password, refresh, authorize, token, email flows, social. |
+| `internal/jwt` | Emisión y keystore persistente | Ed25519, JWKS, cache local, descifrado GCMV1. |
+| `internal/store/pg` | Implementación Postgres | Usuarios, identidades, refresh, signing keys, clients. |
+| `internal/security/password` | Hash y política | Argon2id + validación configurable. |
+| `internal/security/token` | Tokens opacos | generate + sha256 base64url. |
+| `internal/rate` | Limiter Redis & multi‑limiter | Fixed window con TTL y adaptador dinámico. |
+| `internal/cache/{memory,redis}` | Cache abstracta | Códigos auth, sesiones, tokens sociales. |
+| `internal/email` | SMTP + plantillas | Render HTML/TXT y diagnóstico errores. |
+| `templates` | Plantillas de email | verify / reset. |
+| `migrations/postgres` | SQL schema & evoluciones | Incluye signing_keys y refresh chain. |
+| `test` | Scripts E2E PowerShell / BAT | Validan flows completos. |
 
-Flujos soportados: Login/registro, refresh, revoke, userinfo, authorize/token, verificación email, reset password.
-
-## 3. Modelo de Datos (Postgres)
-Tablas clave (resumen):
-- tenant: organización / espacio lógico (multi‑tenant inicial).
-- client / client_version: aplicaciones y versiones de configuración de claims/crypto (versionado inicial).
-- app_user: usuarios (por tenant) con email y metadata JSON.
-- identity: credenciales / enlaces a proveedores (password, google, facebook).
-- refresh_token: tokens de refresco opacos (solo hash, rotación, revocación).
-- email_verification_token / password_reset_token: flujos temporales verificación y reset.
-
-Índices cuidan unicidad por tenant/email, búsqueda por user/provider, eficiencia en expiraciones y lookups activos.
-
-### Diagrama Entidad-Relación (simplificado)
+Diagrama alto nivel:
 ```mermaid
-erDiagram
-  TENANT ||--o{ CLIENT : has
-  CLIENT ||--o{ CLIENT_VERSION : versions
-  TENANT ||--o{ APP_USER : has
-  APP_USER ||--o{ IDENTITY : has
-  APP_USER ||--o{ REFRESH_TOKEN : issues
-  CLIENT ||--o{ REFRESH_TOKEN : for
-  APP_USER ||--o{ EMAIL_VERIFICATION_TOKEN : verifies
-  APP_USER ||--o{ PASSWORD_RESET_TOKEN : resets
+flowchart LR
+Client[Browser / SPA / Backend] -->|HTTP / OAuth2| API[HelloJohn HTTP]
+API --> AuthH[Handlers /v1/* /oauth2/*]
+API --> MW[Middlewares]
+AuthH --> Issuer[JWT Issuer]
+Issuer --> Keystore[(Signing Keys)]
+AuthH --> Store[(Postgres)]
+AuthH --> Cache[(Redis / Memory)]
+AuthH --> SMTP[SMTP]
+AuthH --> Rate[Redis Limiter]
+Keystore --> Store
 ```
 
-## 4. Endpoints y Flujos Principales
-Base: `http://host:port`
+---
+## 3. Comandos CLI
+| Comando | Uso principal | Flags / Ejemplos |
+|---------|---------------|------------------|
+| `cmd/service` | Levantar API | `-config` `-env` `-env-file` `-print-config` `-migrate` |
+| `cmd/migrate` | Ejecutar migraciones SQL (up/down) | `go run ./cmd/migrate -dir migrations/postgres up` / `down 1` |
+| `cmd/seed` | Seed inicial (tenant, admin, client) | Variables `SEED_TENANT_NAME`, `SEED_ADMIN_EMAIL`, etc. |
+| `cmd/keys` | Rotar / listar / retirar claves | `-list`, `-rotate`, `-retire -retire-after=168h` |
 
-Salud:
-- GET `/healthz` (liveness)
-- GET `/readyz` (dependencias OK)
+Ejemplos rápidos:
+```bash
+# Servicio con migraciones y .env
+FLAGS_MIGRATE=true go run ./cmd/service -env-file .env.dev
 
-JWKS / Discovery:
-- GET `/.well-known/jwks.json`
-- GET `/.well-known/openid-configuration`
+# Solo listar claves
+go run ./cmd/keys -list
+
+# Rotar y cifrar privada (exportá SIGNING_MASTER_KEY antes)
+SIGNING_MASTER_KEY=... go run ./cmd/keys -rotate
+```
+
+---
+## 4. Catálogo de Endpoints
+Leyenda: (A) Autenticación requerida (B) Bearer Access Token, (C) Cookie de sesión, (RL) sujeto a rate limit semántico.
+
+Autenticación clásica:
+| Método | Path | Descripción | Auth | RL |
+|--------|------|-------------|------|----|
+| POST | `/v1/auth/register` | Crea usuario (+auto-login opcional) | No | Global |
+| POST | `/v1/auth/login` | Login email/password (access+refresh) | No | Login específico |
+| POST | `/v1/auth/refresh` | Rotación refresh → nuevos tokens | No (usa refresh) | Global |
+| POST | `/v1/auth/logout` | Revoca refresh actual (best effort) | No (usa refresh) | Global |
+| GET  | `/v1/me` | Decodifica bearer y devuelve claims básicos | B | Global |
+
+Sesiones navegador:
+| POST `/v1/session/login` | Crea cookie `sid` (para `/oauth2/authorize`). |
+| POST `/v1/session/logout` | Elimina cookie y borra sesión en cache. |
 
 OAuth2 / OIDC:
-- GET `/oauth2/authorize` (Authorization Code + PKCE S256, sesión por cookie)
-- POST `/oauth2/token` (code -> tokens; refresh -> tokens)
-- POST `/oauth2/revoke` (RFC7009 refresh revocation)
-- GET `/userinfo` (OIDC user claims, bearer access token)
+| GET  | `/oauth2/authorize` | Authorization Code + PKCE S256 | C (o Bearer si `allow_bearer_session`) | Global |
+| POST | `/oauth2/token` | Intercambio code / refresh | No (secret-less: PKCE) | Global |
+| POST | `/oauth2/revoke` | RFC7009 revocación refresh (idempotente) | No | Global |
+| GET/POST | `/userinfo` | Claims OIDC (scope email opcional) | B | Global |
+| GET  | `/.well-known/openid-configuration` | Discovery | No | Cacheable |
+| GET  | `/.well-known/jwks.json` | JWKS activo + retiring | No | Cacheable |
 
-Autenticación clásica (JSON):
-- POST `/v1/auth/register` (email, password) -> crea usuario (+ auto-login opcional)
-- POST `/v1/auth/login` (email, password) -> access + refresh
-- POST `/v1/auth/refresh` (refresh token) -> rotate + nuevos tokens
-- POST `/v1/auth/logout` (revoca refresh asociado; cleanup sesión)
-- GET  `/v1/me` (datos usuario autenticado)
+Email flows:
+| POST | `/v1/auth/verify-email/start` | Enviar link verificación | B | Forgot/verify RL |
+| GET  | `/v1/auth/verify-email` | Marca email verificado | Token link | - |
+| POST | `/v1/auth/forgot` | Genera token reset + email | No (oculta existencia) | Forgot RL |
+| POST | `/v1/auth/reset` | Aplica nuevo password (opcional auto-login) | Token link | Reset RL |
 
-Sesiones (para navegador / authorize):
-- POST `/v1/session/login` (crea cookie sid)
-- POST `/v1/session/logout` (borra cookie)
+Social (Google) – si habilitado:
+| GET | `/v1/auth/social/google/start` | Redirige a Google con state firmado | No | Global |
+| GET | `/v1/auth/social/google/callback` | Intercambio code → user provisioning + tokens | No | Global |
+Nota: si se pasa `redirect_uri` de la app cliente, se devuelve `302` con `code=<login_code>` (cache 1 uso). Endpoint de canje del `login_code` aún no implementado (pendiente).
 
-Email Flows:
-- POST `/v1/auth/verify-email/start` (genera token + email)
-- GET  `/v1/auth/verify-email?token=...` (consume token)
-- POST `/v1/auth/forgot` (genera token reset + email)
-- POST `/v1/auth/reset` (consume reset con nuevo password)
+Salud:
+| GET `/healthz` | Liveness simple |
+| GET `/readyz`  | DB + keystore + firma/verify + Redis opcional |
 
-## 5. Diagramas de Secuencia (Mermaid)
-### 5.1 Authorization Code + PKCE
-```mermaid
-sequenceDiagram
-  participant U as User Browser
-  participant C as Client App
-  participant S as HelloJohn
-  U->>C: Navega /login
-  C->>S: GET /oauth2/authorize?client_id&code_challenge&redirect_uri
-  S-->>U: Form (si sin sesión) / consentimiento (futuro)
-  U->>S: Credenciales (o cookie existente)
-  S->>S: Valida PKCE, client, redir
-  S-->>C: 302 redirect_uri?code=XYZ&state
-  C->>S: POST /oauth2/token (code + code_verifier)
-  S->>S: Valida code, PKCE, expira code
-  S-->>C: access_token + id_token + refresh_token
-  C->>S: (Opcional) /userinfo con access_token
-```
-
-### 5.2 Refresh Token Rotación
-```mermaid
-sequenceDiagram
-  participant C as Client
-  participant S as HelloJohn
-  C->>S: POST /v1/auth/refresh (refresh_token R1)
-  S->>S: Valida hash(R1), verifica no revocado
-  S->>S: Crea R2 (registra rotated_from=R1), marca R1 revoked
-  S-->>C: access_token nuevo + refresh_token R2
-```
-
-### 5.3 Reset Password
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant S as HelloJohn
-  U->>S: POST /v1/auth/forgot (email)
-  S->>S: Genera token T (hash guarda)
-  S-->>U: Email con link /v1/auth/reset?token=T
-  U->>S: POST /v1/auth/reset (token T + new password)
-  S->>S: Valida hash(T), marca usado, actualiza password
-  S-->>U: OK (auto_login si config)
-```
-
-### 5.4 Verificación de Email
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant S as HelloJohn
-  U->>S: POST /v1/auth/verify-email/start
-  S->>S: Crea token EV, guarda hash
-  S-->>U: Email con link /v1/auth/verify-email?token=EV
-  U->>S: GET /v1/auth/verify-email?token=EV
-  S->>S: Valida, marca email_verified
-  S-->>U: Redirección / confirmación
-```
-
-## 6. Configuración y Variables de Entorno
-Se carga YAML (`configs/config.example.yaml`) y luego overrides por entorno. Campos principales:
-
-App:
-- `APP_ENV` (dev|staging|prod) controla headers debug email.
-
-Servidor:
-- `SERVER_ADDR` (default :8080)
-- `SERVER_CORS_ALLOWED_ORIGINS` (CSV)
-
-Storage:
-- `STORAGE_DRIVER` (postgres|mysql|mongo) actual implementado: postgres
-- `STORAGE_DSN` (si se usa directo) Ej: `postgres://user:pass@host:5432/db?sslmode=disable`
-- Postgres pool: `POSTGRES_MAX_OPEN_CONNS`, `POSTGRES_MAX_IDLE_CONNS`, `POSTGRES_CONN_MAX_LIFETIME`
-- MySQL: `MYSQL_DSN` (placeholder), Mongo: `MONGO_URI`, `MONGO_DATABASE`
-
-Cache:
-- `CACHE_KIND` (memory|redis)
-- Redis: `REDIS_ADDR`, `REDIS_DB`, `REDIS_PREFIX`
-- Memory: `MEMORY_DEFAULT_TTL`
-
-JWT:
-- `JWT_ISSUER` (URL base)
-- `JWT_ACCESS_TTL` (duración Access/ID) default 15m
-- `JWT_REFRESH_TTL` (default 720h = 30d)
-
-Registro / Auth:
-- `REGISTER_AUTO_LOGIN` (bool)
-- `AUTH_ALLOW_BEARER_SESSION` (true en dev para flexibilidad)
-- Sesión cookie: `AUTH_SESSION_COOKIE_NAME`, `AUTH_SESSION_DOMAIN`, `AUTH_SESSION_SAMESITE`, `AUTH_SESSION_SECURE`, `AUTH_SESSION_TTL`
-- Reset: `AUTH_RESET_TTL`, `AUTH_RESET_AUTO_LOGIN`
-- Verify: `AUTH_VERIFY_TTL`
-
-Rate Limit:
-- `RATE_ENABLED`, `RATE_WINDOW`, `RATE_MAX_REQUESTS`
-
-Flags:
-- `FLAGS_MIGRATE` (ejecuta migraciones al iniciar)
-
-SMTP:
-- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_TLS` (auto|starttls|ssl|none), `SMTP_INSECURE_SKIP_VERIFY`
-
-Email:
-- `EMAIL_BASE_URL`, `EMAIL_TEMPLATES_DIR`, `EMAIL_DEBUG_LINKS` (forzado a false en prod)
-
-Seguridad:
-- Password policy: `SECURITY_PASSWORD_POLICY_MIN_LENGTH`, `SECURITY_PASSWORD_POLICY_REQUIRE_UPPER|LOWER|DIGIT|SYMBOL`
-
-### Ejemplo rápido (.env)
-```
-APP_ENV=dev
-SERVER_ADDR=:8080
-STORAGE_DRIVER=postgres
-STORAGE_DSN=postgres://user:pass@localhost:5432/login?sslmode=disable
-FLAGS_MIGRATE=true
-JWT_ISSUER=http://localhost:8080
-JWT_ACCESS_TTL=15m
-JWT_REFRESH_TTL=720h
-CACHE_KIND=redis
-REDIS_ADDR=localhost:6379
-EMAIL_BASE_URL=http://localhost:8080
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USERNAME=you@example.com
-SMTP_PASSWORD=app-password
-SMTP_FROM=you@example.com
-SMTP_TLS=starttls
-EMAIL_DEBUG_LINKS=true
-```
-
-## 7. Ciclo de Vida de Tokens
-- Access Token: JWT EdDSA (headers: kid, typ). TTL corto (15m). Scope / AMR / custom claims soportados.
-- ID Token: Igual TTL que Access por ahora; estándar OIDC (iss, sub, aud, iat, exp) + extras.
-- Refresh Token: Opaque; solo se guarda hash (sha256). Rotación en cada uso; chain via `rotated_from`.
-- Email Verif / Reset: Tokens aleatorios base64url; se almacena sha256 (BYTEA). TTL configurable; un solo uso.
-- Revocación: refresh revocado al rotar o logout; endpoints de revoke manejan estado.
-
-## 8. Seguridad
-- Hash de contraseñas: Argon2id (parámetros configurados en código; TODO exponer ajustes).
-- Política: requerimientos mínimos y composición configurables.
-- Cabeceras: CSP estricta (sin inline), HSTS solo si secure, X-Frame-Options DENY, X-Content-Type-Options nosniff, Permissions-Policy mínima.
-- PKCE S256 obligatorio en `/oauth2/authorize`.
-- En prod se fuerza `EMAIL_DEBUG_LINKS=false`.
-- Sesiones: cookie HttpOnly, SameSite configurable, Secure opcional (recomendado true en prod), TTL configurable.
-- Rotación de refresh y almacenamiento hashed evita replay persistente.
-- TODO: Rotación/persistencia de claves (actualmente en memoria), MFA, device management, detección anomalías.
-
-## 9. Ejecución y Flags
-Compilación local:
-```bash
-go run ./cmd/service
-```
-O con migraciones forzadas:
-```bash
-go run ./cmd/service -migrate
-```
-Flags actuales:
-- `-config=path` (si se implementa lectura alternativa; revisar main)
-- `-migrate` (equivalente a `FLAGS_MIGRATE=true`)
-
-Docker (ejemplo simplificado): ver `deployments/docker-compose.yml` y `Dockerfile`.
-
-## 10. Roadmap Breve
-- Persistencia/rotación de claves + JWKS multi-KID.
-- OAuth social callbacks y linking identities.
-- MFA (TOTP / WebAuthn).
-- Admin UI + panel multi-tenant.
-- Auditoría granular y logs estructurados centralizados.
-- Metrics / tracing (OpenTelemetry).
-- Gestión de scopes dinámica y consent screen.
-- Introspección de tokens / revocation lists caché.
-- Hardening de sesión (SameSite=strict + CSRF tokens en formularios).
-- Pruebas unitarias y contract tests (ahora scripts E2E PowerShell).
-
-## 11. Contribuir
-1. Fork & branch.
-2. Agrega tests (o scripts) representativos.
-3. Sigue estilo Go estándar, evita dependencias innecesarias.
-4. Documenta nuevas variables en este README y en `config.example.yaml`.
-5. Abre PR describiendo cambios, migraciones y riesgos.
+Respuestas de error siguen patrón JSON `{ "error": <code>, "error_description": <texto> }` + códigos específicos internos (no expuestos públicamente).
 
 ---
-© 2025 HelloJohn (Proyecto en desarrollo).
+## 5. Flujos (diagramas)
+### Authorization Code + PKCE
+```mermaid
+sequenceDiagram
+autonumber
+participant B as Browser
+participant S as HelloJohn
+participant C as Client App
+B->>C: Inicia login
+C->>S: GET /oauth2/authorize (code_challenge S256)
+S-->>B: 302 redirect (si cookie no válida → requerir sesión)
+B->>S: (sesión ya creada) repite authorize
+S-->>C: 302 redirect_uri?code=CODE&state
+C->>S: POST /oauth2/token (code_verifier)
+S-->>C: access + id + refresh
+C->>S: GET /userinfo (Bearer)
+S-->>C: sub + (email si scope)
+```
+
+### Refresh rotativo
+```mermaid
+sequenceDiagram
+participant C as Client
+participant S as HelloJohn
+C->>S: refresh R1
+S->>S: valida hash(R1) & no revoked
+S->>S: crea R2(rotated_from=R1), revoca R1
+S-->>C: nuevo access + R2
+```
+
+### Reset password
+```mermaid
+sequenceDiagram
+participant U as User
+participant S as HelloJohn
+U->>S: POST /v1/auth/forgot
+S-->>U: (email con link token T)
+U->>S: POST /v1/auth/reset (T,new pwd)
+S->>S: invalida tokens previos
+S-->>U: 204 (ó tokens si auto-login)
+```
+
+### Verificación email
+```mermaid
+sequenceDiagram
+U->>S: POST verify-email/start
+S-->>U: link
+U->>S: GET verify-email?token
+S-->>U: 200/302 status=verified
+```
+
+### Social Google
+```mermaid
+sequenceDiagram
+Browser->>S: /social/google/start (tenant_id, client_id, redirect_uri?)
+S-->>Browser: 302 Google (state JWT)
+Browser->>Google: Auth + consent
+Google-->>Browser: 302 callback?state&code
+Browser->>S: callback
+S->>S: Exchange + verify id_token + upsert user/identity
+alt redirect_uri provisto
+  S-->>Browser: 302 redirect_uri?code=login_code
+else
+  S-->>Browser: JSON tokens
+end
+```
+
+---
+## 6. Ciclo de vida de tokens y claves
+| Tipo | Formato | Almacenamiento | Rotación | Revocación |
+|------|---------|----------------|----------|------------|
+| Access | JWT EdDSA | No persistido | TTL (≈15m) | Al expirar / invalidar refresh chain |
+| ID | JWT EdDSA | No | Igual Access | Igual |
+| Refresh | Opaque (hash sha256) | Tabla `refresh_token` | Cada uso (rotated_from) | Flag `revoked_at` |
+| Email verify | Opaque (hash) | Tabla específica (migraciones) | N/A | Uso único / TTL |
+| Password reset | Igual verify | Igual | N/A | Uso único / TTL |
+| Social login_code | Cache (Redis/memory) | Clave `social:code:<id>` | 1 uso | Auto-expira |
+
+Firmado JWT:
+* Algoritmo: EdDSA (Ed25519) – header: `{alg:EdDSA, kid:<KID>, typ:JWT}`.
+* Claves en tabla `signing_keys` con estados: `active` → `retiring` → `retired`.
+* Rotación: `cmd/keys -rotate` inserta nueva `active` y mueve anterior a `retiring`.
+* Retiro: `cmd/keys -retire -retire-after=168h` marca `retiring` antiguas como `retired` (dejando margen para validaciones en clientes).
+* Cifrado opcional de la clave privada: `SIGNING_MASTER_KEY` (hex 64) → AES‑GCM con header `GCMV1`.
+
+Claims destacados:
+* `tid` (tenant), `amr` (Authentication Methods References: pwd|refresh|google|reset), `scp`/`scope`.
+* ID Token agrega `at_hash`, `azp` (authorized party), `nonce` (si se envió en authorize).
+
+---
+## 7. Configuración (resumen agrupado)
+Variables más usadas (todas soportan YAML + env override):
+
+Servidor: `SERVER_ADDR`, `SERVER_CORS_ALLOWED_ORIGINS`
+JWT: `JWT_ISSUER`, `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL`
+Storage: `STORAGE_DSN`, pool (`POSTGRES_*`)
+Cache: `CACHE_KIND`, `REDIS_ADDR`, `REDIS_DB`, `REDIS_PREFIX`, `MEMORY_DEFAULT_TTL`
+Auth / Registro: `REGISTER_AUTO_LOGIN`, `AUTH_ALLOW_BEARER_SESSION`
+Sesión cookie: `AUTH_SESSION_COOKIE_NAME`, `AUTH_SESSION_DOMAIN`, `AUTH_SESSION_SAMESITE`, `AUTH_SESSION_SECURE`, `AUTH_SESSION_TTL`
+Email flows: `AUTH_VERIFY_TTL`, `AUTH_RESET_TTL`, `AUTH_RESET_AUTO_LOGIN`, `EMAIL_BASE_URL`, `EMAIL_TEMPLATES_DIR`, `EMAIL_DEBUG_LINKS`
+SMTP: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_TLS`, `SMTP_INSECURE_SKIP_VERIFY`
+Rate: global (`RATE_ENABLED`, `RATE_WINDOW`, `RATE_MAX_REQUESTS`) + específicos `RATE_LOGIN_LIMIT`, `RATE_LOGIN_WINDOW`, `RATE_FORGOT_LIMIT`, `RATE_FORGOT_WINDOW`
+Seguridad password: `SECURITY_PASSWORD_POLICY_*`
+Social Google: `GOOGLE_ENABLED`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URL`, `GOOGLE_SCOPES`, `GOOGLE_ALLOWED_TENANTS`, `GOOGLE_ALLOWED_CLIENTS`, `SOCIAL_LOGIN_CODE_TTL`
+Claves: `SIGNING_MASTER_KEY` (cifrado privadas), rotación vía CLI.
+
+---
+## 8. Rate limiting semántico
+Capas:
+1. Global (middleware): clave = IP|path|client_id → cabeceras `X-RateLimit-*` + `Retry-After`.
+2. Específico login: clave `login:<tenant>:<email>` con ventana y límite propios (evita enumeración).
+3. Email flows (verify / forgot / reset): usa adaptador con prefijo `mailflows:` para aislar métricas.
+Fail‑open: ante error Redis se permite la petición (log nivel warn).
+
+---
+## 9. Seguridad
+* Argon2id con parámetros fuertes (64MiB memoria, t=3).
+* Política de password configurable (mínimo, upper, lower, digit, symbol).
+* PKCE S256 obligatorio → evita interceptación del code.
+* Cabeceras defensivas: CSP estricta (`default-src 'none'`), X-Frame-Options DENY, Referrer-Policy no-referrer, HSTS (solo si HTTPS detectado), Permissions-Policy mínima.
+* Respuestas con tokens: `Cache-Control: no-store` y `Pragma: no-cache`.
+* Refresh rotativo + hashing evita reutilización masiva y exfiltración útil.
+* Claves privadas opcionalmente cifradas (AES-GCM) reposando en DB.
+* `readyz` firma y valida un JWT efímero para asegurar keystore operativo.
+* `EMAIL_DEBUG_LINKS` forzado a false en `APP_ENV=prod` (evita filtración de enlaces de verificación / reset).
+
+---
+## 10. Tests (scripts E2E)
+Ver `test/test.md` para guía extensa. Resumen:
+| Script | Propósito |
+|--------|-----------|
+| `test.ps1` / `test.bat` | Suite integral (auth, OIDC, email, rotación refresh, errores). |
+| `test_emailflows_e2e.ps1` | Verificación + reset password end‑to‑end. |
+| `test_cors_cookie.ps1` | Preflight + flags cookie sesión. |
+| `test_rate_emailflows.ps1` | Límite sobre forgot/reset. |
+| `test_no_debug_headers.ps1` | Garantiza ausencia de headers debug en prod. |
+| `test_social_google.ps1` | Flujo Google (si habilitado). |
+
+Ejemplo ejecución (PowerShell):
+```powershell
+pwsh -File .\test\test.ps1 -AutoMail
+```
+
+---
+## 11. Glosario
+| Término | Definición breve |
+|---------|------------------|
+| OIDC Discovery | Documento JSON estándar con endpoints y capacidades (`/.well-known/openid-configuration`). |
+| JWKS | Set de claves públicas actuales (active + retiring) para verificar firmas JWT. |
+| PKCE S256 | Mecanismo que agrega `code_challenge` / `code_verifier` asegurando el Authorization Code contra interceptación. |
+| AMR | Authentication Methods References: lista de métodos usados (pwd, refresh, google, reset). |
+| `at_hash` | Mitad izquierda de SHA-256(access_token) base64url; permite al cliente validar que el access recibido corresponde a su ID Token. |
+| Key Rotation | Proceso de introducir una nueva clave `active`, moviendo la anterior a `retiring` y luego `retired`. |
+| AES-GCM (GCMV1) | Modo autenticado de cifrado simétrico usado para proteger claves privadas en reposo. Prefijo `GCMV1` identifica blob cifrado. |
+| Refresh Rotation | Patrón donde cada uso de refresh invalida el anterior, limitando replay. |
+| Nonce | Valor aleatorio que el cliente envía en authorize y recibe en ID Token para mitigar replay. |
+| `azp` | Authorized Party: identifica el cliente final destinatario del ID Token. |
+| Login Code Social | Código efímero (cache) devuelto tras social callback para intercambio futuro (endpoint pendiente). |
+
+---
+## 12. Roadmap / TODO visibles
+* Endpoint canje `login_code` social.
+* Administración dinámica de scopes y consent screen.
+* MFA (TOTP / WebAuthn) + AMR enriquecido.
+* Auditoría detallada (tabla events/audit).
+* Introspección / revocación centralizada (OAuth2 introspection endpoint).
+* Support MySQL & Mongo implementaciones completas (placeholders presentes).
+* Hook de claims CEL / webhooks (estructura ya prevista en `Container.ClaimsHook`).
+* Métricas Prometheus / OpenTelemetry tracing.
+* UI de administración multi‑tenant.
+
+---
+## Inicio rápido mínimo
+```bash
+cp configs/config.example.yaml configs/config.yaml
+export STORAGE_DSN=postgres://user:pass@localhost:5432/login?sslmode=disable
+export JWT_ISSUER=http://localhost:8080
+export FLAGS_MIGRATE=true
+go run ./cmd/service -env
+```
+
+---
+© 2025 HelloJohn – Documento vivo.

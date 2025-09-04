@@ -7,9 +7,12 @@ import (
 	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
+	"github.com/dropDatabas3/hellojohn/internal/config"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
+	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	"github.com/dropDatabas3/hellojohn/internal/util"
 )
 
 type AuthLoginRequest struct {
@@ -26,7 +29,7 @@ type AuthLoginResponse struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-func NewAuthLoginHandler(c *app.Container, refreshTTL time.Duration) http.HandlerFunc {
+func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo POST", 1000)
@@ -44,6 +47,25 @@ func NewAuthLoginHandler(c *app.Container, refreshTTL time.Duration) http.Handle
 			return
 		}
 
+		// Rate limiting específico para login (endpoint semántico)
+		if c.MultiLimiter != nil {
+			// Parseamos la configuración específica para login
+			loginWindow, err := time.ParseDuration(cfg.Rate.Login.Window)
+			if err != nil {
+				loginWindow = time.Minute // fallback
+			}
+
+			loginCfg := helpers.LoginRateConfig{
+				Limit:  cfg.Rate.Login.Limit,
+				Window: loginWindow,
+			}
+
+			if !helpers.EnforceLoginLimit(w, r, c.MultiLimiter, loginCfg, req.TenantID, req.Email) {
+				// Rate limited - la función ya escribió la respuesta 429
+				return
+			}
+		}
+
 		ctx := r.Context()
 
 		u, id, err := c.Store.GetUserByEmail(ctx, req.TenantID, req.Email)
@@ -52,12 +74,12 @@ func NewAuthLoginHandler(c *app.Container, refreshTTL time.Duration) http.Handle
 			if err == core.ErrNotFound {
 				status = http.StatusUnauthorized
 			}
-			log.Printf("auth login: user not found or err: %v (tenant=%s email=%s)", err, req.TenantID, req.Email)
+			log.Printf("auth login: user not found or err: %v (tenant=%s email=%s)", err, req.TenantID, util.MaskEmail(req.Email))
 			httpx.WriteError(w, status, "invalid_credentials", "usuario o password inválidos", 1201)
 			return
 		}
 		if id == nil || id.PasswordHash == nil || *id.PasswordHash == "" || !c.Store.CheckPassword(id.PasswordHash, req.Password) {
-			log.Printf("auth login: verify=false (tenant=%s email=%s)", req.TenantID, req.Email)
+			log.Printf("auth login: verify=false (tenant=%s email=%s)", req.TenantID, util.MaskEmail(req.Email))
 			httpx.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "usuario o password inválidos", 1202)
 			return
 		}

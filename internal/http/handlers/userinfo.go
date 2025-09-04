@@ -68,6 +68,9 @@ func NewUserInfoHandler(c *app.Container) http.HandlerFunc {
 		}
 
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Add("Vary", "Authorization")
 		_ = json.NewEncoder(w).Encode(resp)
 	}
 }

@@ -45,10 +45,11 @@ func WithCORS(next http.Handler, allowed []string) http.Handler {
 			h := w.Header()
 			h.Set("Access-Control-Allow-Origin", allowedOrigin)
 			h.Set("Access-Control-Allow-Credentials", "true")
-			h.Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+			h.Set("Access-Control-Allow-Methods", "GET,POST,HEAD,OPTIONS")
 			h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
-			// Exponemos también Retry-After para clientes browser
-			h.Set("Access-Control-Expose-Headers", "X-Request-ID, X-RateLimit-Remaining, Retry-After")
+			// DX: permitir leer desafios 401/redirects desde fetch()
+			// Exponemos también Retry-After para clientes browser y headers de rate limiting
+			h.Set("Access-Control-Expose-Headers", "X-Request-ID, X-RateLimit-Remaining, X-RateLimit-Limit, X-RateLimit-Reset, Retry-After, WWW-Authenticate, Location")
 			h.Set("Access-Control-Max-Age", "600") // preflight 10m
 		}
 
@@ -81,6 +82,10 @@ func WithSecurityHeaders(next http.Handler) http.Handler {
 		// Referrer y MIME sniffing
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+
+		w.Header().Set("X-DNS-Prefetch-Control", "off")
+		w.Header().Set("X-Permitted-Cross-Domain-Policies", "none")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-site")
 
 		// Clickjacking
 		w.Header().Set("X-Frame-Options", "DENY")
@@ -248,10 +253,18 @@ func WithRateLimit(next http.Handler, limiter RateLimiter) http.Handler {
 			if res.RetryAfter > 0 {
 				w.Header().Set("Retry-After", strconv.Itoa(int(res.RetryAfter.Seconds())))
 			}
+			if res.WindowTTL > 0 {
+				resetAt := time.Now().Add(res.WindowTTL).Unix()
+				w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetAt, 10))
+			}
 			WriteError(w, http.StatusTooManyRequests, "rate_limited", "demasiadas solicitudes", 1401)
 			return
 		}
 		w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", res.Remaining))
+		if res.WindowTTL > 0 {
+			resetAt := time.Now().Add(res.WindowTTL).Unix()
+			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetAt, 10))
+		}
 		next.ServeHTTP(w, r)
 	})
 }

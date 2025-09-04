@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/dropDatabas3/hellojohn/internal/cache"
+	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
 )
@@ -13,6 +14,9 @@ type Container struct {
 	Store  core.Repository
 	Issuer *jwtx.Issuer
 	Cache  cache.Cache
+
+	// MultiLimiter para rate limits específicos por endpoint
+	MultiLimiter helpers.MultiLimiter
 
 	// ClaimsHook es opcional. Si está seteado, permite inyectar/alterar claims
 	// de Access/ID Tokens a partir de una policy (CEL, webhooks, reglas estáticas, etc).

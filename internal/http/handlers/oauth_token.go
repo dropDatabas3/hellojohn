@@ -28,6 +28,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			return
 		}
 		// OAuth2: application/x-www-form-urlencoded
+		r.Body = http.MaxBytesReader(w, r.Body, 64<<10) // 64KB
 		if err := r.ParseForm(); err != nil {
 			httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "form inválido", 2201)
 			return

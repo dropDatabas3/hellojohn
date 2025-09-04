@@ -35,13 +35,13 @@ func generate() (plaintext string, hash []byte, err error) {
 	return plaintext, h[:], nil
 }
 
-// Guardamos el hash como base64url (TEXT) y usamos NULLIF para IP/UA
+// Guardamos el hash SHA-256 crudo (BYTEA); ip/ua usan NULLIF para evitar ""
 func (s *TokenStore) CreateEmailVerification(ctx context.Context, tenantID, userID uuid.UUID, sentTo string, ttl time.Duration, ip, ua *string) (string, error) {
 	pt, h, err := generate()
 	if err != nil {
 		return "", err
 	}
-	hashText := base64.RawURLEncoding.EncodeToString(h)
+	hashBytes := h
 	exp := time.Now().Add(ttl)
 
 	log.Printf(`{"level":"debug","msg":"db_insert_email_verif_token_try","tenant_id":"%s","user_id":"%s","sent_to":"%s","exp":"%s"}`, tenantID, userID, sentTo, exp.Format(time.RFC3339))
@@ -49,7 +49,7 @@ func (s *TokenStore) CreateEmailVerification(ctx context.Context, tenantID, user
 		INSERT INTO email_verification_token
 		    (tenant_id, user_id, token_hash, sent_to, ip, user_agent, expires_at)
 		VALUES ($1,       $2,      $3,         $4,  NULLIF($5,'')::inet, NULLIF($6,'')::text, $7)`,
-		tenantID, userID, hashText, sentTo, ip, ua, exp,
+		tenantID, userID, hashBytes, sentTo, ip, ua, exp,
 	)
 	if err != nil {
 		log.Printf(`{"level":"error","msg":"db_insert_email_verif_token_err","err":"%v"}`, err)
@@ -61,7 +61,7 @@ func (s *TokenStore) CreateEmailVerification(ctx context.Context, tenantID, user
 
 func (s *TokenStore) UseEmailVerification(ctx context.Context, plaintext string) (tenantID, userID uuid.UUID, err error) {
 	h := sha256.Sum256([]byte(plaintext))
-	hashText := base64.RawURLEncoding.EncodeToString(h[:])
+	hashBytes := h[:]
 
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
@@ -76,7 +76,7 @@ func (s *TokenStore) UseEmailVerification(ctx context.Context, plaintext string)
 		 WHERE token_hash = $1
 		   AND used_at IS NULL
 		   AND expires_at > now()
-		RETURNING tenant_id, user_id`, hashText,
+		RETURNING tenant_id, user_id`, hashBytes,
 	)
 	if err = row.Scan(&tenantID, &userID); err != nil {
 		log.Printf(`{"level":"warn","msg":"db_use_email_verif_not_found","err":"%v"}`, err)
@@ -95,7 +95,7 @@ func (s *TokenStore) CreatePasswordReset(ctx context.Context, tenantID, userID u
 	if err != nil {
 		return "", err
 	}
-	hashText := base64.RawURLEncoding.EncodeToString(h)
+	hashBytes := h
 	exp := time.Now().Add(ttl)
 
 	log.Printf(`{"level":"debug","msg":"db_insert_pwd_reset_try","tenant_id":"%s","user_id":"%s","sent_to":"%s","exp":"%s"}`, tenantID, userID, sentTo, exp.Format(time.RFC3339))
@@ -103,7 +103,7 @@ func (s *TokenStore) CreatePasswordReset(ctx context.Context, tenantID, userID u
 		INSERT INTO password_reset_token
 		    (tenant_id, user_id, token_hash, sent_to, ip, user_agent, expires_at)
 		VALUES ($1,       $2,      $3,         $4,  NULLIF($5,'')::inet, NULLIF($6,'')::text, $7)`,
-		tenantID, userID, hashText, sentTo, ip, ua, exp,
+		tenantID, userID, hashBytes, sentTo, ip, ua, exp,
 	)
 	if err != nil {
 		log.Printf(`{"level":"error","msg":"db_insert_pwd_reset_err","err":"%v"}`, err)
@@ -115,7 +115,7 @@ func (s *TokenStore) CreatePasswordReset(ctx context.Context, tenantID, userID u
 
 func (s *TokenStore) UsePasswordReset(ctx context.Context, plaintext string) (tenantID, userID uuid.UUID, err error) {
 	h := sha256.Sum256([]byte(plaintext))
-	hashText := base64.RawURLEncoding.EncodeToString(h[:])
+	hashBytes := h[:]
 
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
@@ -130,7 +130,7 @@ func (s *TokenStore) UsePasswordReset(ctx context.Context, plaintext string) (te
 		 WHERE token_hash = $1
 		   AND used_at IS NULL
 		   AND expires_at > now()
-		RETURNING tenant_id, user_id`, hashText,
+		RETURNING tenant_id, user_id`, hashBytes,
 	)
 	if err = row.Scan(&tenantID, &userID); err != nil {
 		log.Printf(`{"level":"warn","msg":"db_use_pwd_reset_not_found","err":"%v"}`, err)

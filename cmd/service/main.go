@@ -191,6 +191,41 @@ func loadConfigFromEnv() *config.Config {
 	c.Security.PasswordPolicy.RequireDigit = getenvBool("SECURITY_PASSWORD_POLICY_REQUIRE_DIGIT", true)
 	c.Security.PasswordPolicy.RequireSymbol = getenvBool("SECURITY_PASSWORD_POLICY_REQUIRE_SYMBOL", false)
 
+	// --- Providers / Social (ENV-only mode) ---
+	// Login code TTL
+	if d, err := time.ParseDuration(getenv("SOCIAL_LOGIN_CODE_TTL", "60s")); err == nil {
+		c.Providers.LoginCodeTTL = d
+	} else {
+		c.Providers.LoginCodeTTL = 60 * time.Second
+	}
+
+	// Google
+	c.Providers.Google.Enabled = getenvBool("GOOGLE_ENABLED", false)
+	c.Providers.Google.ClientID = getenv("GOOGLE_CLIENT_ID", c.Providers.Google.ClientID)
+	c.Providers.Google.ClientSecret = getenv("GOOGLE_CLIENT_SECRET", c.Providers.Google.ClientSecret)
+	c.Providers.Google.RedirectURL = getenv("GOOGLE_REDIRECT_URL", c.Providers.Google.RedirectURL)
+
+	if scopes := splitCSVEnv(getenv("GOOGLE_SCOPES", "")); len(scopes) > 0 {
+		c.Providers.Google.Scopes = scopes
+	} else if len(c.Providers.Google.Scopes) == 0 {
+		// default scopes if none provided
+		c.Providers.Google.Scopes = []string{"openid", "email", "profile"}
+	}
+
+	if v := splitCSVEnv(getenv("GOOGLE_ALLOWED_TENANTS", "")); v != nil {
+		c.Providers.Google.AllowedTenants = v
+	}
+	if v := splitCSVEnv(getenv("GOOGLE_ALLOWED_CLIENTS", "")); v != nil {
+		c.Providers.Google.AllowedClients = v
+	}
+
+	// Derivar redirect si está habilitado Google y no se especificó
+	if c.Providers.Google.Enabled && strings.TrimSpace(c.Providers.Google.RedirectURL) == "" && strings.TrimSpace(c.JWT.Issuer) != "" {
+		base := strings.TrimRight(c.JWT.Issuer, "/")
+		c.Providers.Google.RedirectURL = base + "/v1/auth/social/google/callback"
+	}
+
+	// Prod: nunca echo links de debug
 	if strings.EqualFold(getenv("APP_ENV", "dev"), "prod") {
 		c.Email.DebugEchoLinks = false
 	}
@@ -220,6 +255,8 @@ func printConfigSummary(c *config.Config) {
 
   email(base_url=%s, templates=%s, debug_echo_links=%t)
 
+  providers(login_code_ttl=%s)   // NUEVO
+
   pwd_policy(min=%d, upper=%t, lower=%t, digit=%t, symbol=%t)
 `,
 		c.Server.Addr, c.Server.CORSAllowedOrigins,
@@ -231,6 +268,7 @@ func printConfigSummary(c *config.Config) {
 		c.Rate.Enabled, c.Rate.Window, c.Rate.MaxRequests,
 		c.SMTP.Host, c.SMTP.Port, c.SMTP.Username, c.SMTP.From, c.SMTP.TLS, c.SMTP.InsecureSkipVerify,
 		c.Email.BaseURL, c.Email.TemplatesDir, c.Email.DebugEchoLinks,
+		c.Providers.LoginCodeTTL,
 		c.Security.PasswordPolicy.MinLength, c.Security.PasswordPolicy.RequireUpper, c.Security.PasswordPolicy.RequireLower, c.Security.PasswordPolicy.RequireDigit, c.Security.PasswordPolicy.RequireSymbol,
 	)
 }
@@ -373,25 +411,34 @@ func main() {
 	}
 
 	jwksHandler := handlers.NewJWKSHandler(&container)
-	authLoginHandler := handlers.NewAuthLoginHandler(&container, refreshTTL)
+	authLoginHandler := handlers.NewAuthLoginHandler(&container, cfg, refreshTTL)
 	authRegisterHandler := handlers.NewAuthRegisterHandler(&container, cfg.Register.AutoLogin, refreshTTL)
 	authRefreshHandler := handlers.NewAuthRefreshHandler(&container, refreshTTL)
 	authLogoutHandler := handlers.NewAuthLogoutHandler(&container)
 	meHandler := handlers.NewMeHandler(&container)
 
 	var limiter httpserver.RateLimiter
+	var multiLimiter *rate.LimiterPoolAdapter // Nuevo: para rate limits específicos
 	var redisPing func(context.Context) error
 	if cfg.Rate.Enabled && strings.EqualFold(cfg.Cache.Kind, "redis") {
 		rc := rdb.NewClient(&rdb.Options{
 			Addr: cfg.Cache.Redis.Addr,
 			DB:   cfg.Cache.Redis.DB,
 		})
+
+		// MultiLimiter para endpoints específicos
+		multiLimiter = rate.NewLimiterPoolAdapter(rc, cfg.Cache.Redis.Prefix+"rl:")
+
+		// Mantener limiter global para middleware existente (backward compatibility)
 		if win, err := time.ParseDuration(cfg.Rate.Window); err == nil {
 			rl := rate.NewRedisLimiter(rc, cfg.Cache.Redis.Prefix+"rl:", cfg.Rate.MaxRequests, win)
 			limiter = redisLimiterAdapter{inner: rl}
 		}
 		redisPing = func(ctx context.Context) error { return rc.Ping(ctx).Err() }
 	}
+
+	// Añadir multiLimiter al container para que los handlers lo puedan usar
+	container.MultiLimiter = multiLimiter
 
 	readyzHandler := handlers.NewReadyzHandler(&container, redisPing)
 
@@ -463,6 +510,16 @@ func main() {
 	}
 	if googleCallback != nil {
 		mux.Handle("/v1/auth/social/google/callback", googleCallback)
+	}
+
+	// Discovery de providers (siempre expuesto, sólo devuelve estado/URLs)
+	providersHandler := handlers.NewProvidersHandler(&container, cfg)
+	mux.Handle("/v1/auth/providers", providersHandler)
+
+	// social/result: montarlo solo si algún provider social lo usa (por ahora: Google)
+	if cfg.Providers.Google.Enabled {
+		socialResultHandler := handlers.NewSocialResultHandler(&container)
+		mux.Handle("/v1/auth/social/result", socialResultHandler)
 	}
 
 	handler := httpserver.WithLogging(

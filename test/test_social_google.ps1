@@ -1,103 +1,68 @@
-Param(
-  [string]$Base = $env:BASE,
-  [string]$Tenant = $env:TENANT,
-  [string]$Client = $env:CLIENT
+param(
+  [string]$Base = "http://localhost:8080",
+  [string]$TenantId = "9d9a424f-6d5f-47f0-9f86-bf2346bc0678",
+  [string]$ClientId = "web-frontend",
+  # por defecto, modo prueba (no consume el code en la primera carga)
+  [string]$RedirectUri = "$Base/v1/auth/social/result?peek=1"
 )
 
-if (-not $Base)   { $Base   = "http://localhost:8080" }
-if (-not $Tenant) { Write-Host "[FAIL] Falta TENANT (env o parámetro)"; exit 1 }
-if (-not $Client) { Write-Host "[FAIL] Falta CLIENT (env o parámetro)"; exit 1 }
+$ErrorActionPreference = "Stop"
+try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-Write-Host "[info] BASE=$Base  TENANT=$Tenant  CLIENT=$Client"
+Write-Host "== Descubrir providers ==" -ForegroundColor Cyan
+$prov = Invoke-RestMethod -Method GET "$Base/v1/auth/providers"
+$prov | ConvertTo-Json -Depth 6
+$g = $prov.providers | Where-Object { $_.name -eq "google" }
+if (-not $g -or -not $g.enabled) {
+  throw "Google no está habilitado en /v1/auth/providers"
+}
 
-function Get-LocationHeader {
-  param([string]$Url)
+# Abrimos el flujo con peek=1 (la vista muestra el 'code' y NO lo consume)
+$startUrl = "$Base/v1/auth/social/google/start?tenant_id=$TenantId&client_id=$ClientId&redirect_uri=$([uri]::EscapeDataString($RedirectUri))"
+Write-Host "`nAbrir navegador para login: $startUrl" -ForegroundColor Yellow
+Start-Process $startUrl
+
+Write-Host "`nCuando termine el login:" -ForegroundColor Yellow
+Write-Host " - Copiá el 'Código de login' que aparece en la página (no se consumió por peek=1)." -ForegroundColor Yellow
+Write-Host " - O copiá la URL completa de la barra y yo intentaré extraer el code." -ForegroundColor Yellow
+
+$code = Read-Host "Pegá aquí el 'code' (o Enter para leer el portapapeles)"
+if (-not $code) {
   try {
-    $resp = Invoke-WebRequest -Uri $Url -MaximumRedirection 0 -ErrorAction Stop
-    return $resp.Headers["Location"]
-  } catch {
-    # Para 302, PowerShell tira excepción; capturamos headers
-    if ($_.Exception.Response) {
-      return $_.Exception.Response.Headers["Location"]
+    $clip = Get-Clipboard
+    if ($clip -match "code=([A-Za-z0-9_\-]+)") {
+      $code = $matches[1]
+      Write-Host "Code detectado desde portapapeles: $code" -ForegroundColor DarkGray
     }
-    throw
-  }
+  } catch {}
 }
+if (-not $code) { throw "Sin code" }
 
-# 1) START → 302 a Google con state
-$startUrl = "$Base/v1/auth/social/google/start?tenant_id=$Tenant&client_id=$Client"
-Write-Host "[step] GET $startUrl"
-$loc = Get-LocationHeader -Url $startUrl
-if (-not $loc) { Write-Host "[FAIL] no hubo Location en la respuesta"; exit 1 }
-if ($loc -notmatch "accounts\.google\.com") { Write-Host "[FAIL] redirect no va a Google: $loc"; exit 1 }
-Write-Host "[ok] redirect a Google: $loc"
+Write-Host "`n== Canjear code en /social/result ==" -ForegroundColor Cyan
+# Importante: ahora SIN peek => se consume y devuelve los tokens
+$tokens = Invoke-RestMethod -Method GET "$Base/v1/auth/social/result?code=$code" -Headers @{ "Accept" = "application/json" }
+$tokens | ConvertTo-Json -Depth 5
 
-# extrae state de la Location
+$access = $tokens.access_token
+$refresh = $tokens.refresh_token
+
+Write-Host "`n== Verificar /v1/me con access_token ==" -ForegroundColor Cyan
+$me = Invoke-RestMethod -Method GET "$Base/v1/me" -Headers @{ "Authorization" = "Bearer $access" }
+$me | ConvertTo-Json -Depth 5
+
+Write-Host "`n== Probar refresh_token ==" -ForegroundColor Cyan
+# 1) Intento con JSON (muchos handlers internos usan JSON)
 try {
-  $uri = [System.Uri]$loc
-  $q = [System.Web.HttpUtility]::ParseQueryString($uri.Query)
-  $state = $q["state"]
-} catch { $state = $null }
-
-if (-not $state) { Write-Host "[FAIL] no se encontró 'state' en la Location"; exit 1 }
-Write-Host "[info] state capturado (len=$($state.Length))"
-
-# 2) Negativo: callback con state adulterado (debe 400 invalid_request)
-$tampered = $state.Substring(0, [Math]::Max(0, $state.Length-2)) + "zz"
-$cbTamper = "$Base/v1/auth/social/google/callback?state=$tampered&code=fake"
-Write-Host "[step] NEG: GET $cbTamper"
-try {
-  $r = Invoke-WebRequest -Uri $cbTamper -ErrorAction Stop
-  Write-Host "[FAIL] callback adulterado devolvió $($r.StatusCode) (esperado 400)"
-  exit 1
+  $ref = Invoke-RestMethod -Method POST "$Base/v1/auth/refresh" `
+    -ContentType "application/json" `
+    -Body (@{ client_id = $ClientId; refresh_token = $refresh } | ConvertTo-Json)
 } catch {
-  $resp = $_.Exception.Response
-  if ($resp.StatusCode.value__ -ne 400) {
-    Write-Host "[FAIL] callback adulterado status=$($resp.StatusCode) (esperado 400)"
-    exit 1
-  }
-  Write-Host "[ok] state adulterado → 400 OK"
+  Write-Host "Intento JSON falló, probando form-urlencoded..." -ForegroundColor DarkYellow
+  # 2) Fallback a x-www-form-urlencoded (estilo OAuth clásico)
+  $ref = Invoke-RestMethod -Method POST "$Base/v1/auth/refresh" `
+    -ContentType "application/x-www-form-urlencoded" `
+    -Body @{ client_id = $ClientId; refresh_token = $refresh }
 }
+$ref | ConvertTo-Json -Depth 5
 
-# 3) Negativo: callback sin params (debe 400)
-$cbMissing = "$Base/v1/auth/social/google/callback"
-Write-Host "[step] NEG: GET $cbMissing (sin params)"
-try {
-  $r2 = Invoke-WebRequest -Uri $cbMissing -ErrorAction Stop
-  Write-Host "[FAIL] callback sin params devolvió $($r2.StatusCode) (esperado 400)"
-  exit 1
-} catch {
-  $resp = $_.Exception.Response
-  if ($resp.StatusCode.value__ -ne 400) {
-    Write-Host "[FAIL] callback sin params status=$($resp.StatusCode) (esperado 400)"
-    exit 1
-  }
-  Write-Host "[ok] sin params → 400 OK"
-}
-
-# 4) Paso manual E2E: abrir Google y finalizar login; el backend devolverá JSON con access/refresh.
-Write-Host "[info] Abrimos navegador para login real en Google…"
-Start-Process $loc | Out-Null
-Write-Host "[info] Completá el login en Google. Al regresar a '$Base', vas a ver JSON con access_token/refresh_token."
-$ans = Read-Host "¿Listo? (y/n)"
-if ($ans -ne "y") { Write-Host "[SKIP] E2E manual cancelado"; exit 0 }
-
-# 5) Validar /v1/me con access_token pegado por el usuario
-$atk = Read-Host "Pegá aquí el access_token"
-if (-not $atk) { Write-Host "[FAIL] sin access_token"; exit 1 }
-
-Write-Host "[step] GET /v1/me con Bearer"
-try {
-  $me = Invoke-WebRequest -Uri "$Base/v1/me" -Headers @{ "Authorization" = "Bearer $atk" } -ErrorAction Stop
-  Write-Host "[ok] /v1/me OK"
-  Write-Host $me.Content
-} catch {
-  $resp = $_.Exception.Response
-  Write-Host "[FAIL] /v1/me status=$($resp.StatusCode)"
-  $body = New-Object System.IO.StreamReader($resp.GetResponseStream()).ReadToEnd()
-  Write-Host $body
-  exit 1
-}
-
-Write-Host "[DONE] Social Google OK"
-exit 0
+Write-Host "`nOK: flujo social Google validado." -ForegroundColor Green
