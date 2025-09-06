@@ -29,6 +29,19 @@ func NewMux(
 	verifyEmailConfirmHandler stdhttp.Handler, // GET  /v1/auth/verify-email
 	forgotHandler stdhttp.Handler, // POST /v1/auth/forgot
 	resetHandler stdhttp.Handler, // POST /v1/auth/reset
+
+	// Sprint 5 (nuevos)
+	oauthIntrospect stdhttp.Handler, // POST /oauth2/introspect
+	authLogoutAll stdhttp.Handler, // POST /v1/auth/logout-all
+
+	// MFA TOTP
+	mfaEnroll stdhttp.Handler, // POST /v1/mfa/totp/enroll
+	mfaVerify stdhttp.Handler, // POST /v1/mfa/totp/verify
+	mfaChallenge stdhttp.Handler, // POST /v1/mfa/totp/challenge
+	mfaDisable stdhttp.Handler, // POST /v1/mfa/totp/disable
+
+	// Social exchange
+	socialExchange stdhttp.Handler, // POST /v1/auth/social/exchange
 ) *stdhttp.ServeMux {
 	mux := stdhttp.NewServeMux()
 
@@ -46,6 +59,7 @@ func NewMux(
 	mux.Handle("/oauth2/authorize", oauthAuthorize)
 	mux.Handle("/oauth2/token", oauthToken)
 	mux.Handle("/oauth2/revoke", oauthRevoke)
+	mux.Handle("/oauth2/introspect", oauthIntrospect) // NUEVO
 	mux.Handle("/userinfo", userInfo)
 
 	// Autenticación clásica
@@ -54,6 +68,9 @@ func NewMux(
 	mux.Handle("/v1/auth/refresh", authRefreshHandler)
 	mux.Handle("/v1/auth/logout", authLogoutHandler)
 	mux.Handle("/v1/me", meHandler)
+
+	// Logout all (revocación masiva)
+	mux.Handle("/v1/auth/logout-all", authLogoutAll) // NUEVO
 
 	// Sesión por cookie (para /oauth2/authorize)
 	mux.Handle("/v1/session/login", sessionLogin)
@@ -64,6 +81,15 @@ func NewMux(
 	mux.Handle("/v1/auth/verify-email", verifyEmailConfirmHandler)     // GET
 	mux.Handle("/v1/auth/forgot", forgotHandler)                       // POST
 	mux.Handle("/v1/auth/reset", resetHandler)                         // POST
+
+	// MFA TOTP
+	mux.Handle("/v1/mfa/totp/enroll", mfaEnroll)
+	mux.Handle("/v1/mfa/totp/verify", mfaVerify)
+	mux.Handle("/v1/mfa/totp/challenge", mfaChallenge)
+	mux.Handle("/v1/mfa/totp/disable", mfaDisable)
+
+	// Social exchange
+	mux.Handle("/v1/auth/social/exchange", socialExchange)
 
 	return mux
 }

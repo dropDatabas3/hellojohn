@@ -18,7 +18,7 @@ import (
 
 func main() {
 	var (
-		configPath = flag.String("config", "configs/config.example.yaml", "Path to YAML config")
+		configPath = flag.String("config", "configs/config.yaml", "Path to YAML config")
 		dir        = flag.String("dir", "migrations/postgres", "Migrations directory (contains *_up.sql and *_down.sql)")
 	)
 	flag.Parse()

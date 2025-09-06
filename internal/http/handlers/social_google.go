@@ -291,7 +291,59 @@ func (h *googleHandler) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Emitir access
+	// MFA hook (social): si usuario tiene MFA confirmada y no hay trusted device, bifurcamos antes de emitir tokens
+	type mfaChallenge struct {
+		UserID   string   `json:"user_id"`
+		TenantID string   `json:"tenant_id"`
+		ClientID string   `json:"client_id"`
+		AMRBase  []string `json:"amr_base"`
+		Scope    []string `json:"scope"`
+	}
+	// Interfaces opcionales para MFA (evita romper compilación si aún no están implementadas en Store)
+	type mfaGetter interface {
+		GetMFATOTP(ctx context.Context, userID string) (*struct{ ConfirmedAt *time.Time }, error)
+	}
+	type trustedChecker interface {
+		IsTrustedDevice(ctx context.Context, userID, deviceHash string, now time.Time) (bool, error)
+	}
+	if mg, ok := h.c.Store.(mfaGetter); ok {
+		if m, _ := mg.GetMFATOTP(r.Context(), uid.String()); m != nil && m.ConfirmedAt != nil {
+			trusted := false
+			if devCookie, err := r.Cookie("mfa_trust"); err == nil && devCookie != nil {
+				if tc, ok2 := h.c.Store.(trustedChecker); ok2 {
+					dh := tokens.SHA256Base64URL(devCookie.Value)
+					if ok3, _ := tc.IsTrustedDevice(r.Context(), uid.String(), dh, time.Now()); ok3 {
+						trusted = true
+					}
+				}
+			}
+			if !trusted {
+				ch := mfaChallenge{
+					UserID:   uid.String(),
+					TenantID: tid.String(),
+					ClientID: cid,
+					AMRBase:  []string{"google"},
+					Scope:    []string{},
+				}
+				mid, _ := tokens.GenerateOpaqueToken(24)
+				key := "mfa:token:" + mid
+				buf, _ := json.Marshal(ch)
+				h.c.Cache.Set(key, buf, 5*time.Minute)
+
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set("Pragma", "no-cache")
+				w.Header().Set("Content-Type", "application/json; charset=utf-8")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"mfa_required": true,
+					"mfa_token":    mid,
+					"amr":          []string{"google"},
+				})
+				return
+			}
+		}
+	}
+
+	// Emitir access (flujo normal)
 	std := map[string]any{"tid": tid.String(), "amr": []string{"google"}}
 	access, exp, err := h.c.Issuer.IssueAccess(uid.String(), cid, std, nil)
 	if err != nil {

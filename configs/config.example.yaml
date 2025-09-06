@@ -1,9 +1,9 @@
 ###############################################
-# Example configuration file (config.example.yaml)
+# Example configuration file (config.yaml)
 # -------------------------------------------------
 # Objetivo: plantilla segura SIN credenciales reales.
-# Copia este archivo a config.yaml y ajusta lo necesario.
-# Cada clave puede sobre‑escribirse con variables de entorno.
+# Renombrar a config.yaml y ajustar lo necesario.
+# Cada clave puede sobre-escribirse con variables de entorno.
 # Precedencia: defaults código < config.yaml < variables entorno < flags CLI.
 #
 # NO coloques aquí secretos productivos (SMTP password, Google client_secret, etc.).
@@ -13,91 +13,110 @@
 #
 # Duraciones: formato Go (15m, 1h, 48h, 30s, 10m15s).
 #
-# SIGNING_MASTER_KEY (para cifrar claves privadas) NO va en este YAML.
-# Debe exportarse (hex 64 chars / 32 bytes):
+# SIGNING_MASTER_KEY (para cifrar secretos MFA y llaves privadas) NO va en este YAML.
+# Debe exportarse por ENV (64 hex/32 bytes recomendado):
 #   export SIGNING_MASTER_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+#
+# MFA (ENV-ONLY):
+#   MFA_TOTP_WINDOW=1
+#   MFA_TOTP_ISSUER=HelloJohn
+#   MFA_REMEMBER_TTL=720h
 ###############################################
 
 app:
   app_env: "dev"        # dev | staging | prod (en prod se deshabilitan links debug)
 
 server:
-  addr: ":8080"         # Dirección y puerto HTTP
-  cors_allowed_origins:  # Orígenes permitidos (CORS). Vacío = restringe según navegador.
+  addr: ":8080"
+  cors_allowed_origins:
     - "http://localhost:3000"
     - "http://127.0.0.1:5173"
 
 storage:
-  driver: "postgres"     # Implementado: postgres (mysql/mongo placeholders)
-  dsn: "postgres://dev_user:dev_pass@localhost:5432/hellojohn?sslmode=disable"  # Cambia user/pass
+  driver: "postgres"
+  dsn: "postgres://dev_user:dev_pass@localhost:5432/hellojohn?sslmode=disable"
   postgres:
     max_open_conns: 30
     max_idle_conns: 5
-    conn_max_lifetime: "30m"   # Reciclado de conexiones
-  mysql:                      # (Futuro) Placeholder NO usar aún
+    conn_max_lifetime: "30m"
+  mysql:
     dsn: "user:pass@tcp(localhost:3306)/hellojohn?parseTime=true&charset=utf8mb4"
-  mongo:                      # (Futuro) Placeholder
+  mongo:
     uri: "mongodb://user:pass@localhost:27017"
     database: "hellojohn"
 
 cache:
-  kind: "memory"         # memory | redis  (usar redis en multi‑instancia/prod)
+  kind: "memory"         # memory | redis
   redis:
     addr: "localhost:6379"
     db: 0
     prefix: "hj:"
   memory:
-    default_ttl: "2m"    # TTL por defecto para entradas volátiles
+    default_ttl: "2m"
 
 jwt:
-  issuer: "http://localhost:8080"  # URL base pública (usar https en prod)
-  access_ttl: "15m"                 # Vida Access & ID tokens
-  refresh_ttl: "720h"               # 30 días
+  issuer: "http://localhost:8080"
+  access_ttl: "15m"
+  refresh_ttl: "720h"    # 30 días
 
 register:
-  auto_login: true       # Emite tokens tras registro
+  auto_login: true
 
 auth:
-  allow_bearer_session: true   # Permite usar bearer en /oauth2/authorize (útil dev)
+  allow_bearer_session: true
   session:
     cookie_name: "sid"
-    domain: ""                 # Opcional (p.ej. .example.com)
-    samesite: "Lax"            # Lax | Strict | None (None requiere secure=true)
-    secure: false               # true en prod (HTTPS)
+    domain: ""                 # p.ej. .example.com
+    samesite: "Lax"            # Lax | Strict | None
+    secure: false              # true en prod (HTTPS)
     ttl: "12h"
   reset:
-    ttl: "60m"                 # Vigencia token reset password
-    auto_login: true            # Emite tokens después de reset exitoso
+    ttl: "60m"
+    auto_login: true
   verify:
-    ttl: "48h"                 # Vigencia token verificación email
+    ttl: "48h"
 
 rate:
   enabled: true
-  window: "1m"          # Ventana global
-  max_requests: 60       # Peticiones globales por IP+path
-  login:                 # Rate específico login (semántico)
+  window: "1m"
+  max_requests: 60
+  # Límites por endpoint (los handlers pueden usar un pool de limiters):
+  login:
     limit: 10
     window: "1m"
-  forgot:                # Rate específico forgot password
+  forgot:
     limit: 5
     window: "10m"
+  mfa:
+    enroll:
+      limit: 3
+      window: "10m"
+    verify:
+      limit: 10
+      window: "1m"
+    challenge:
+      limit: 10
+      window: "1m"
+    disable:
+      limit: 3
+      window: "10m"
 
 flags:
-  migrate: true          # Ejecuta migraciones al iniciar (desactiva en despliegues controlados)
+  migrate: true
 
-smtp:                     # NO poner contraseña real aquí
+smtp:
   host: "smtp.example.com"
   port: 587
   username: "no-reply@example.com"   # PLACEHOLDER
-  password: "CHANGE_ME_LOCAL_DEV"    # PLACEHOLDER (en prod usar variable entorno)
+  password: "CHANGE_ME_LOCAL_DEV"    # PLACEHOLDER
   from: "no-reply@example.com"
   tls: "starttls"                    # auto | starttls | ssl | none
-  insecure_skip_verify: false         # true sólo si TLS self-signed (dev)
+  insecure_skip_verify: false
 
 email:
-  base_url: "http://localhost:8080"  # Prefijo de links en emails
+  base_url: "http://localhost:8080"
   templates_dir: "./templates"
-  debug_echo_links: true              # Se fuerza false en prod automáticamente
+  debug_echo_links: true             # se fuerza a false si app_env=prod
 
 security:
   password_policy:
@@ -105,24 +124,25 @@ security:
     require_upper: true
     require_lower: true
     require_digit: true
-    require_symbol: false            # Ajusta según riesgo
+    require_symbol: false
 
-providers:              # Social login
-  login_code_ttl: "60s"  # TTL del login_code efímero
+providers:
+  # TTL del code efímero que devuelve /v1/auth/social/result
+  login_code_ttl: "60s"
   google:
     enabled: false
-    client_id: "YOUR_GOOGLE_OAUTH_CLIENT_ID"          # Usa variable entorno para real
-    client_secret: "YOUR_GOOGLE_OAUTH_CLIENT_SECRET"  # NO subir secretos
-    redirect_url: ""   # Si vacío => <issuer>/v1/auth/social/google/callback
-    scopes: ["openid", "email", "profile"]
-    allowed_tenants: [] # Vacío = todos permitidos
-    allowed_clients: [] # Vacío = todos permitidos
+    client_id: "YOUR_GOOGLE_OAUTH_CLIENT_ID"
+    client_secret: "YOUR_GOOGLE_OAUTH_CLIENT_SECRET"
+    redirect_url: ""   # si vacío => <jwt.issuer>/v1/auth/social/google/callback
+    scopes: ["openid","email","profile"]
+    allowed_tenants: []   # vacío = todos
+    allowed_clients: []   # vacío = todos
 
 ###############################################
 # Notas producción:
-# - Usa CACHE_KIND=redis y configura REDIS_ADDR.
-# - Exporta SIGNING_MASTER_KEY para cifrar claves (cmd/keys -rotate).
+# - CACHE_KIND=redis y config de REDIS_*.
+# - Exporta SIGNING_MASTER_KEY (32 bytes).
 # - AUTH_SESSION_SECURE=true detrás de HTTPS.
-# - EMAIL_DEBUG_LINKS debe ser false en prod (se fuerza por APP_ENV=prod).
-# - Monitorea /readyz en health checks.
+# - EMAIL_DEBUG_LINKS=false en prod (se fuerza por APP_ENV=prod).
+# - Health checks en /readyz.
 ###############################################

@@ -3,6 +3,7 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -75,6 +76,14 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 		if !contains(cl.Providers, "password") {
 			httpx.WriteError(w, http.StatusForbidden, "password_disabled_for_client", "el client no permite login por password", 1104)
 			return
+		}
+
+		// Blacklist opcional (SECURITY_PASSWORD_BLACKLIST_PATH)
+		if p := strings.TrimSpace(os.Getenv("SECURITY_PASSWORD_BLACKLIST_PATH")); p != "" {
+			if bl, err := password.LoadBlacklist(p); err == nil && bl.Contains(req.Password) {
+				httpx.WriteError(w, http.StatusBadRequest, "policy_violation", "password no permitido por política", 2401)
+				return
+			}
 		}
 
 		phc, err := password.Hash(password.Default, req.Password)

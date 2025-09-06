@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -90,7 +92,58 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			return
 		}
 
-		// Base claims
+		// MFA (pre-issue) hook: si el usuario tiene MFA TOTP confirmada y no se detecta trusted device => bifurca flujo.
+		// Requiere métodos stub en Store: GetMFATOTP, IsTrustedDevice. Si no existen aún, este bloque no compilará hasta implementarlos.
+		type mfaChallenge struct {
+			UserID   string   `json:"user_id"`
+			TenantID string   `json:"tenant_id"`
+			ClientID string   `json:"client_id"`
+			AMRBase  []string `json:"amr_base"`
+			Scope    []string `json:"scope"`
+		}
+		type mfaGetter interface {
+			GetMFATOTP(ctx context.Context, userID string) (*struct{ ConfirmedAt *time.Time }, error)
+		}
+		type trustedChecker interface {
+			IsTrustedDevice(ctx context.Context, userID, deviceHash string, now time.Time) (bool, error)
+		}
+		if mg, ok := c.Store.(mfaGetter); ok {
+			if m, _ := mg.GetMFATOTP(ctx, u.ID); m != nil && m.ConfirmedAt != nil { // usuario tiene MFA configurada
+				trusted := false
+				if devCookie, err := r.Cookie("mfa_trust"); err == nil && devCookie != nil {
+					if tc, ok2 := c.Store.(trustedChecker); ok2 {
+						dh := tokens.SHA256Base64URL(devCookie.Value)
+						if ok3, _ := tc.IsTrustedDevice(ctx, u.ID, dh, time.Now()); ok3 {
+							trusted = true
+						}
+					}
+				}
+				if !trusted { // pedir MFA
+					ch := mfaChallenge{
+						UserID:   u.ID,
+						TenantID: req.TenantID,
+						ClientID: req.ClientID,
+						AMRBase:  []string{"pwd"},
+						Scope:    []string{},
+					}
+					mid, _ := tokens.GenerateOpaqueToken(24)
+					key := "mfa:token:" + mid
+					buf, _ := json.Marshal(ch)
+					c.Cache.Set(key, buf, 5*time.Minute) // TTL 5m
+
+					w.Header().Set("Cache-Control", "no-store")
+					w.Header().Set("Pragma", "no-cache")
+					httpx.WriteJSON(w, http.StatusOK, map[string]any{
+						"mfa_required": true,
+						"mfa_token":    mid,
+						"amr":          []string{"pwd"},
+					})
+					return
+				}
+			}
+		}
+
+		// Base claims (normal path)
 		std := map[string]any{
 			"tid": req.TenantID,
 			"amr": []string{"pwd"},
