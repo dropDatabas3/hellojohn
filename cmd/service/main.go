@@ -412,11 +412,13 @@ func main() {
 	cc, err := cachefactory.Open(cachefactory.Config{
 		Kind: cfg.Cache.Kind,
 		Redis: struct {
-			Addr string
-			DB   int
+			Addr   string
+			DB     int
+			Prefix string
 		}{
-			Addr: cfg.Cache.Redis.Addr,
-			DB:   cfg.Cache.Redis.DB,
+			Addr:   cfg.Cache.Redis.Addr,
+			DB:     cfg.Cache.Redis.DB,
+			Prefix: cfg.Cache.Redis.Prefix,
 		},
 		Memory: struct{ DefaultTTL string }{
 			DefaultTTL: cfg.Cache.Memory.DefaultTTL,

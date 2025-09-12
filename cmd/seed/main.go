@@ -106,10 +106,16 @@ func mustWriteFile(path, content string) {
 	}
 }
 
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // ---------- main ----------
 func main() {
-	// .env (opcional)
-	_ = godotenv.Load(".env")
+	// .env (opcional) - prioridad .env.dev > .env
+	_ = godotenv.Load(".env")        // base
+	_ = godotenv.Load(".env.dev")    // dev overrides
 
 	// config.yaml (si está)
 	cfg, err := config.Load("configs/config.yaml")
@@ -161,7 +167,6 @@ func main() {
 	redirectURIs := csvEnv("SEED_REDIRECT_URIS",
 		[]string{
 			"http://localhost:3000/callback",
-			"http://localhost:8080/v1/auth/social/result",
 		},
 	)
 	providers := csvEnv("SEED_PROVIDERS",
@@ -171,10 +176,19 @@ func main() {
 		[]string{"openid", "email", "profile", "offline_access"},
 	)
 
-	emailBase := "http://localhost:8080"
-	if cfg != nil && strings.TrimSpace(cfg.Email.BaseURL) != "" {
+	// emailBase: prioridad ENV > config.yaml > default
+	emailBase := strEnv("EMAIL_BASE_URL", "")
+	if emailBase == "" && cfg != nil && strings.TrimSpace(cfg.Email.BaseURL) != "" {
 		emailBase = strings.TrimRight(cfg.Email.BaseURL, "/")
 	}
+	if emailBase == "" {
+		emailBase = strEnv("JWT_ISSUER", "http://localhost:8081")
+	}
+	emailBase = strings.TrimRight(emailBase, "/")
+
+	// Social result URL usa la misma base
+	socialResultURL := emailBase + "/v1/auth/social/result"
+	redirectURIs = append(redirectURIs, socialResultURL)
 	// ---------------------------------------------------------------------
 
 	// 1) Tenant (upsert por slug)
@@ -441,34 +455,34 @@ func main() {
 
 	yaml := fmt.Sprintf(`generated: %q
 tenant:
-	id: %q
-	slug: %q
+  id: %q
+  slug: %q
 clients:
-	web:
-		name: %q
-		client_id: %q
-		type: %q
-	backend:
-		name: %q
-		client_id: %q
-		type: %q
+  web:
+    name: %q
+    client_id: %q
+    type: %q
+  backend:
+    name: %q
+    client_id: %q
+    type: %q
 users:
-	admin:
-		email: %q
-		password: %q
-	mfa:
-		email: %q
-		password: %q
-		totp_secret_base32: %q
-		otpauth_url: %q
-		recovery_codes: [%s]
-		trusted_device_token: %q
-	unverified:
-		email: %q
-		password: %q
+  admin:
+    email: %q
+    password: %q
+  mfa:
+    email: %q
+    password: %q
+    totp_secret_base32: %q
+    otpauth_url: %q
+    recovery_codes: [%s]
+    trusted_device_token: %q
+  unverified:
+    email: %q
+    password: %q
 email_flows:
-	verify_url: %q
-	reset_url: %q
+  verify_url: %q
+  reset_url: %q
 `,
 		time.Now().Format(time.RFC3339),
 		tenantID, tenantSlug,
@@ -480,12 +494,33 @@ email_flows:
 		verifyURL, resetURL,
 	)
 
-	mustWriteFile("cmd/seed/seed_data.md", md)
-	mustWriteFile("cmd/seed/seed_data.yaml", yaml)
+	// Detectar si los archivos ya existen
+	mdPath := "cmd/seed/seed_data.md"
+	yamlPath := "cmd/seed/seed_data.yaml"
 
-	fmt.Println("Archivos generados:")
-	fmt.Println(" - cmd/seed/seed_data.md")
-	fmt.Println(" - cmd/seed/seed_data.yaml")
+	mdExists := fileExists(mdPath)
+	yamlExists := fileExists(yamlPath)
+
+	mustWriteFile(mdPath, md)
+	mustWriteFile(yamlPath, yaml)
+
+	if mdExists || yamlExists {
+		fmt.Println("Archivos actualizados:")
+	} else {
+		fmt.Println("Archivos generados:")
+	}
+
+	if mdExists {
+		fmt.Println(" - cmd/seed/seed_data.md (actualizado)")
+	} else {
+		fmt.Println(" - cmd/seed/seed_data.md (creado)")
+	}
+
+	if yamlExists {
+		fmt.Println(" - cmd/seed/seed_data.yaml (actualizado)")
+	} else {
+		fmt.Println(" - cmd/seed/seed_data.yaml (creado)")
+	}
 }
 
 func quoteAll(v []string) []string {

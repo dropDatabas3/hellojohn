@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -40,10 +41,67 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 
 		var req AuthLoginRequest
-		if !httpx.ReadJSON(w, r, &req) {
+		ct := strings.ToLower(r.Header.Get("Content-Type"))
+		switch {
+		case strings.Contains(ct, "application/json"):
+			// Leemos el body con límite (igual que ReadJSON) y soportamos claves alternativas
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+			defer r.Body.Close()
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "json inválido", 1102)
+				return
+			}
+
+			// Intento 1: snake_case estándar
+			_ = json.Unmarshal(body, &req)
+
+			// Fallback: PascalCase (compat con tests que no ponen tags)
+			if req.TenantID == "" || req.ClientID == "" || req.Email == "" || req.Password == "" {
+				var alt struct {
+					TenantID string `json:"TenantID"`
+					ClientID string `json:"ClientID"`
+					Email    string `json:"Email"`
+					Password string `json:"Password"`
+				}
+				if err := json.Unmarshal(body, &alt); err == nil {
+					if req.TenantID == "" {
+						req.TenantID = strings.TrimSpace(alt.TenantID)
+					}
+					if req.ClientID == "" {
+						req.ClientID = strings.TrimSpace(alt.ClientID)
+					}
+					if req.Email == "" {
+						req.Email = strings.TrimSpace(alt.Email)
+					}
+					if req.Password == "" {
+						req.Password = alt.Password
+					}
+				}
+			}
+
+		case strings.Contains(ct, "application/x-www-form-urlencoded"):
+			if err := r.ParseForm(); err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "invalid_form", "form inválido", 1001)
+				return
+			}
+			req.TenantID = strings.TrimSpace(r.FormValue("tenant_id"))
+			req.ClientID = strings.TrimSpace(r.FormValue("client_id"))
+			req.Email = strings.TrimSpace(strings.ToLower(r.FormValue("email")))
+			req.Password = r.FormValue("password")
+
+		default:
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "Content-Type debe ser application/json", 1102)
 			return
 		}
+
+		// normalización consistente
 		req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+
+		if req.TenantID == "" || req.ClientID == "" || req.Email == "" || req.Password == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "tenant_id, client_id, email y password son obligatorios", 1002)
+			return
+		}
 		if req.TenantID == "" || req.ClientID == "" || req.Email == "" || req.Password == "" {
 			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "tenant_id, client_id, email y password son obligatorios", 1002)
 			return
@@ -94,15 +152,8 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 
 		// MFA (pre-issue) hook: si el usuario tiene MFA TOTP confirmada y no se detecta trusted device => bifurca flujo.
 		// Requiere métodos stub en Store: GetMFATOTP, IsTrustedDevice. Si no existen aún, este bloque no compilará hasta implementarlos.
-		type mfaChallenge struct {
-			UserID   string   `json:"user_id"`
-			TenantID string   `json:"tenant_id"`
-			ClientID string   `json:"client_id"`
-			AMRBase  []string `json:"amr_base"`
-			Scope    []string `json:"scope"`
-		}
 		type mfaGetter interface {
-			GetMFATOTP(ctx context.Context, userID string) (*struct{ ConfirmedAt *time.Time }, error)
+			GetMFATOTP(ctx context.Context, userID string) (*core.MFATOTP, error)
 		}
 		type trustedChecker interface {
 			IsTrustedDevice(ctx context.Context, userID, deviceHash string, now time.Time) (bool, error)

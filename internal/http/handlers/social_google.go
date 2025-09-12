@@ -22,6 +22,7 @@ import (
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/oauth/google"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
+	"github.com/dropDatabas3/hellojohn/internal/store/core"
 	"github.com/dropDatabas3/hellojohn/internal/util"
 )
 
@@ -292,16 +293,9 @@ func (h *googleHandler) callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// MFA hook (social): si usuario tiene MFA confirmada y no hay trusted device, bifurcamos antes de emitir tokens
-	type mfaChallenge struct {
-		UserID   string   `json:"user_id"`
-		TenantID string   `json:"tenant_id"`
-		ClientID string   `json:"client_id"`
-		AMRBase  []string `json:"amr_base"`
-		Scope    []string `json:"scope"`
-	}
 	// Interfaces opcionales para MFA (evita romper compilación si aún no están implementadas en Store)
 	type mfaGetter interface {
-		GetMFATOTP(ctx context.Context, userID string) (*struct{ ConfirmedAt *time.Time }, error)
+		GetMFATOTP(ctx context.Context, userID string) (*core.MFATOTP, error)
 	}
 	type trustedChecker interface {
 		IsTrustedDevice(ctx context.Context, userID, deviceHash string, now time.Time) (bool, error)

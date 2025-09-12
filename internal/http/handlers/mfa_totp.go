@@ -60,8 +60,8 @@ func mfaconfigRememberTTL() time.Duration {
 // --- cifrado GCM (reusa esquema GCMV1) ---
 func aesgcmEncrypt(plain []byte) (string, error) {
 	k := []byte(os.Getenv("SIGNING_MASTER_KEY"))
-	if len(k) < 16 {
-		return "", errors.New("missing SIGNING_MASTER_KEY")
+	if len(k) < 32 {
+		return "", errors.New("missing or short SIGNING_MASTER_KEY (need 32 bytes)")
 	}
 	block, err := aes.NewCipher(k[:32])
 	if err != nil {
@@ -89,8 +89,8 @@ func aesgcmDecrypt(enc string) ([]byte, error) {
 		return nil, err
 	}
 	k := []byte(os.Getenv("SIGNING_MASTER_KEY"))
-	if len(k) < 16 {
-		return nil, errors.New("missing SIGNING_MASTER_KEY")
+	if len(k) < 32 {
+		return nil, errors.New("missing or short SIGNING_MASTER_KEY (need 32 bytes)")
 	}
 	block, err := aes.NewCipher(k[:32])
 	if err != nil {
@@ -107,15 +107,6 @@ func aesgcmDecrypt(enc string) ([]byte, error) {
 	nonce := raw[:ns]
 	ct := raw[ns:]
 	return gcm.Open(nil, nonce, ct, nil)
-}
-
-// payload efímero para challenge (mfa:token)
-type mfaChallenge struct {
-	UserID   string   `json:"uid"`
-	TenantID string   `json:"tid"`
-	ClientID string   `json:"cid"`
-	AMRBase  []string `json:"amr"`
-	Scope    []string `json:"scp"`
 }
 
 type mfaHandler struct {
@@ -137,10 +128,10 @@ func NewMFAHandler(c *app.Container, cfg *config.Config, refreshTTL time.Duratio
 	}
 
 	h := &mfaHandler{c: c, refreshTTL: refreshTTL}
-	h.rl.enroll = helpers.MFARateConfig{Limit: cfg.Rate.MFA.Enroll.Limit, Window: parseWin(cfg.Rate.MFA.Enroll.Window, 10 * time.Minute)}
+	h.rl.enroll = helpers.MFARateConfig{Limit: cfg.Rate.MFA.Enroll.Limit, Window: parseWin(cfg.Rate.MFA.Enroll.Window, 10*time.Minute)}
 	h.rl.verify = helpers.MFARateConfig{Limit: cfg.Rate.MFA.Verify.Limit, Window: parseWin(cfg.Rate.MFA.Verify.Window, time.Minute)}
 	h.rl.challenge = helpers.MFARateConfig{Limit: cfg.Rate.MFA.Challenge.Limit, Window: parseWin(cfg.Rate.MFA.Challenge.Window, time.Minute)}
-	h.rl.disable = helpers.MFARateConfig{Limit: cfg.Rate.MFA.Disable.Limit, Window: parseWin(cfg.Rate.MFA.Disable.Window, 10 * time.Minute)}
+	h.rl.disable = helpers.MFARateConfig{Limit: cfg.Rate.MFA.Disable.Limit, Window: parseWin(cfg.Rate.MFA.Disable.Window, 10*time.Minute)}
 	return h
 }
 
@@ -287,13 +278,19 @@ func (h *mfaHandler) challenge(w http.ResponseWriter, r *http.Request) {
 	}
 	req.MFAToken = strings.TrimSpace(req.MFAToken)
 
-	key := "mfa:token:" + req.MFAToken
+	// 🔴 Validación primero: falta code/recovery -> 400
+	if strings.TrimSpace(req.Code) == "" && strings.TrimSpace(req.Recovery) == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "missing_mfa_credential", "se requiere code o recovery", 1720)
+		return
+	}
+
+	key := "mfa:token:" + req.MFAToken // Declarar al principio para que esté en scope
 	payload, ok := h.c.Cache.Get(key)
 	if !ok || len(payload) == 0 {
 		httpx.WriteError(w, http.StatusNotFound, "mfa_token_not_found", "token inválido o expirado", 1721)
 		return
 	}
-	h.c.Cache.Delete(key)
+	// No eliminar aquí - solo después de validación exitosa
 
 	var ch mfaChallenge
 	if err := json.Unmarshal(payload, &ch); err != nil {
@@ -395,6 +392,9 @@ func (h *mfaHandler) challenge(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1732)
 		return
 	}
+
+	// Eliminar el token MFA solo después de éxito
+	h.c.Cache.Delete(key)
 
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
