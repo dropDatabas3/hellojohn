@@ -114,8 +114,8 @@ func fileExists(path string) bool {
 // ---------- main ----------
 func main() {
 	// .env (opcional) - prioridad .env.dev > .env
-	_ = godotenv.Load(".env")        // base
-	_ = godotenv.Load(".env.dev")    // dev overrides
+	_ = godotenv.Load(".env")     // base
+	_ = godotenv.Load(".env.dev") // dev overrides
 
 	// config.yaml (si está)
 	cfg, err := config.Load("configs/config.yaml")
@@ -182,7 +182,7 @@ func main() {
 		emailBase = strings.TrimRight(cfg.Email.BaseURL, "/")
 	}
 	if emailBase == "" {
-		emailBase = strEnv("JWT_ISSUER", "http://localhost:8081")
+		emailBase = strEnv("JWT_ISSUER", "http://localhost:8080")
 	}
 	emailBase = strings.TrimRight(emailBase, "/")
 

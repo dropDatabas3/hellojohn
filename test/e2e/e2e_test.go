@@ -22,7 +22,7 @@ func getBaseURL() string {
 		return baseURL
 	}
 	// Fallback to default
-	return "http://localhost:8081"
+	return "http://localhost:8080"
 }
 
 func Test_Discovery_JWKS(t *testing.T) {

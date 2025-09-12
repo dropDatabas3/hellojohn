@@ -57,6 +57,12 @@ func TestMain(m *testing.M) {
 			if err := godotenv.Load(filepath.Join(root, ".env.dev")); err != nil {
 				panic(err)
 			}
+			// Recalcular baseURL ahora que las env están cargadas
+			if issuer := os.Getenv("JWT_ISSUER"); issuer != "" {
+				baseURL = issuer
+			} else if e := os.Getenv("EMAIL_BASE_URL"); e != "" {
+				baseURL = e
+			}
 		}
 	}
 

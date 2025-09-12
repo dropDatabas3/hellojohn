@@ -148,6 +148,8 @@ func TestEmailFlowsE2E(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Forgot/reset recovery failed: %v", err)
 			}
+			 // Persistir nueva password global para siguientes tests
+			 seed.Users.Admin.Password = newPassword
 
 			// Retry login with new password
 			t.Log("== Login with new password ==")
@@ -240,6 +242,8 @@ func TestEmailFlowsE2E(t *testing.T) {
 		if err != nil {
 			t.Logf("Skipping second reset cycle: %v", err)
 		} else {
+			// Actualizar password en seed global para tests posteriores (p.ej. Test_Login_And_UserInfo)
+			seed.Users.Admin.Password = finalPassword
 			// Final login test
 			t.Log("== Final Login Test ==")
 			finalLoginPayload := map[string]interface{}{

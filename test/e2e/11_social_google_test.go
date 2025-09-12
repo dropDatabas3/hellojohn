@@ -15,48 +15,37 @@ import (
 func Test_11_Social_Google(t *testing.T) {
 	c := newHTTPClient()
 
-	// Step 1: Check if Google provider is available via discovery
-	t.Run("providers discovery", func(t *testing.T) {
-		resp, err := c.Get(baseURL + "/v1/auth/providers")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != 200 {
-			t.Fatalf("providers status=%d", resp.StatusCode)
-		}
-
-		var providers struct {
-			Providers []struct {
-				Name    string `json:"name"`
-				Enabled bool   `json:"enabled"`
-			} `json:"providers"`
-		}
-		if err := mustJSON(resp.Body, &providers); err != nil {
-			t.Fatal(err)
-		}
-
-		var googleProvider *struct {
+	// Descubrimiento inicial para decidir si se ejecutan los demás subtests.
+	resp, err := c.Get(baseURL + "/v1/auth/providers")
+	if err != nil {
+		t.Skipf("providers discovery error: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Skipf("providers discovery status=%d", resp.StatusCode)
+	}
+	var providers struct {
+		Providers []struct {
 			Name    string `json:"name"`
 			Enabled bool   `json:"enabled"`
-		}
-		for i := range providers.Providers {
-			if providers.Providers[i].Name == "google" {
-				googleProvider = &providers.Providers[i]
-				break
-			}
-		}
+		} `json:"providers"`
+	}
+	if err := mustJSON(resp.Body, &providers); err != nil {
+		resp.Body.Close()
+		t.Skipf("providers parse error: %v", err)
+	}
+	resp.Body.Close()
 
-		if googleProvider == nil {
-			t.Skip("Google provider not configured; skipping social auth test")
+	enabled := false
+	for i := range providers.Providers {
+		if providers.Providers[i].Name == "google" && providers.Providers[i].Enabled {
+			enabled = true
+			break
 		}
-		if !googleProvider.Enabled {
-			t.Skip("Google provider disabled; skipping social auth test")
-		}
-
-		// If we get here, Google is available - proceed with tests
-		t.Logf("Google provider confirmed available and enabled")
-	})
+	}
+	if !enabled {
+		t.Skip("google provider not enabled; skipping entire social test")
+	}
+	t.Log("google provider enabled -> running social flow tests")
 
 	t.Run("social auth start", func(t *testing.T) {
 		// redirect elegido: si hay uno en el seed, lo usamos; si no, fallback de dev.

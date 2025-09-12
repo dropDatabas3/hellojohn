@@ -61,9 +61,9 @@ test/
 
 **Variables de entorno primarias** (`.env.dev`):
 ```bash
-SERVER_ADDR=:8081
-JWT_ISSUER=http://localhost:8081
-EMAIL_BASE_URL=http://localhost:8081
+SERVER_ADDR=:8080
+JWT_ISSUER=http://localhost:8080
+EMAIL_BASE_URL=http://localhost:8080
 STORAGE_DSN=postgres://user:password@localhost:5432/login
 SIGNING_MASTER_KEY=0123456789abcdef...  # 64 hex chars
 ```
@@ -84,7 +84,7 @@ El `TestMain` ejecuta setup completo antes de cualquier test:
 2. ✅ **Run migrations** (`go run ./cmd/migrate`)
 3. ✅ **Generate JWT keys** (`go run ./cmd/keys -rotate`)
 4. ✅ **Seed database** (`go run ./cmd/seed`)
-5. ✅ **Start service** (puerto 8081 con `.env.dev`)
+5. ✅ **Start service** (puerto 8080 con `.env.dev`)
 6. ✅ **Health check** (wait for readyz)
 7. ✅ **Run tests**
 8. ✅ **Cleanup**
@@ -210,7 +210,7 @@ El servicio debe pasar todas las validaciones antes de tests:
 
 ### Endpoint: `GET /readyz`
 ```bash
-curl http://localhost:8081/readyz
+curl http://localhost:8080/readyz
 # Response: 200 OK + "OK"
 ```
 
@@ -221,7 +221,7 @@ curl http://localhost:8081/readyz
 ### Tests fallan con "connection refused"
 ```bash
 # Verificar que el servicio esté corriendo
-curl http://localhost:8081/readyz
+curl http://localhost:8080/readyz
 
 # Si no responde, revisar logs del TestMain
 go test -v  # Logs completos del bootstrap
@@ -240,10 +240,10 @@ go run ./cmd/keys -rotate
 STORAGE_DSN=postgres://user:password@localhost:5432/login?sslmode=disable
 ```
 
-### Port conflicts (8081 en uso)
+### Port conflicts (8080 en uso)
 ```bash
-# Matar procesos en puerto 8081
-netstat -ano | findstr :8081
+# Matar procesos en puerto 8080
+netstat -ano | findstr :8080
 taskkill /PID <PID> /F
 ```
 
