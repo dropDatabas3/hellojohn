@@ -93,11 +93,19 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 
 			// Access Token (std/custom + hook)
 			reqScopes := strings.Fields(ac.Scope)
+			accessAMR := ac.AMR
+			acrVal := "urn:hellojohn:loa:1"
+			for _, v := range accessAMR {
+				if v == "mfa" {
+					acrVal = "urn:hellojohn:loa:2"
+					break
+				}
+			}
 			std := map[string]any{
 				"tid":   ac.TenantID,
-				"amr":   ac.AMR,
-				"scp":   reqScopes,
-				"scope": ac.Scope, // compat
+				"amr":   accessAMR,
+				"acr":   acrVal,
+				"scope": strings.Join(reqScopes, " "),
 			}
 			custom := map[string]any{}
 
@@ -123,10 +131,12 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			}
 
 			// ID Token: std/extra (top-level). El at_hash depende del access recién emitido.
+			// Añadimos acr para consistencia con access token.
 			idStd := map[string]any{
 				"tid":     ac.TenantID,
 				"at_hash": atHash(access),
 				"azp":     clientID, // OIDC recomendado
+				"acr":     acrVal,
 			}
 			idExtra := map[string]any{}
 			if ac.Nonce != "" {
@@ -197,6 +207,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			std := map[string]any{
 				"tid": cl.TenantID,
 				"amr": []string{"refresh"},
+				"acr": "urn:hellojohn:loa:1",
 			}
 			custom := map[string]any{}
 

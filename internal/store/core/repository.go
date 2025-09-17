@@ -51,6 +51,7 @@ type Repository interface {
 	UpdateMFAUsedAt(ctx context.Context, userID string, at time.Time) error
 	DisableMFATOTP(ctx context.Context, userID string) error
 	InsertRecoveryCodes(ctx context.Context, userID string, hashes []string) error
+	DeleteRecoveryCodes(ctx context.Context, userID string) error
 	UseRecoveryCode(ctx context.Context, userID string, hash string, at time.Time) (bool, error)
 	AddTrustedDevice(ctx context.Context, userID string, deviceHash string, exp time.Time) error
 	IsTrustedDevice(ctx context.Context, userID string, deviceHash string, now time.Time) (bool, error)

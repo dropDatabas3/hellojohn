@@ -9,6 +9,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +23,7 @@ import (
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/oauth/google"
+	"github.com/dropDatabas3/hellojohn/internal/rate"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
 	"github.com/dropDatabas3/hellojohn/internal/util"
@@ -36,6 +39,70 @@ type googleHandler struct {
 	// utils/adapters (ya existen en el proyecto)
 	validator redirectValidatorAdapter
 	issuerTok tokenIssuerAdapter
+}
+
+// issueSocialTokens centraliza la emisión de access/refresh y el flujo opcional de login_code.
+// Siempre escribe la respuesta (redirect o JSON). Devuelve inmediatamente true para permitir return rápido.
+func (h *googleHandler) issueSocialTokens(w http.ResponseWriter, r *http.Request, uid uuid.UUID, tid uuid.UUID, cid string, clientRedirect string, amr []string) bool {
+	std := map[string]any{"tid": tid.String(), "amr": amr, "acr": "urn:hellojohn:loa:1"}
+	access, exp, err := h.c.Issuer.IssueAccess(uid.String(), cid, std, nil)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir access", 1621)
+		return true
+	}
+	cl, _, e2 := h.c.Store.GetClientByClientID(r.Context(), cid)
+	if e2 != nil || cl == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1623)
+		return true
+	}
+	rawRT, err := tokens.GenerateOpaqueToken(32)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 1622)
+		return true
+	}
+	hash := tokens.SHA256Base64URL(rawRT)
+	if _, err := h.c.Store.CreateRefreshToken(r.Context(), uid.String(), cl.ID, hash, time.Now().Add(h.issuerTok.refreshTTL), nil); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1624)
+		return true
+	}
+	respAuth := AuthLoginResponse{AccessToken: access, TokenType: "Bearer", ExpiresIn: int64(time.Until(exp).Seconds()), RefreshToken: rawRT}
+	if clientRedirect != "" { // login_code flow
+		loginCode := randB64(32)
+		cacheKey := "social:code:" + loginCode
+		payload, _ := json.Marshal(struct {
+			ClientID string            `json:"client_id"`
+			TenantID string            `json:"tenant_id"`
+			Response AuthLoginResponse `json:"response"`
+		}{ClientID: cid, TenantID: tid.String(), Response: respAuth})
+		ttl := h.cfg.Providers.LoginCodeTTL
+		if ttl <= 0 {
+			ttl = 60 * time.Second
+		}
+		h.c.Cache.Set(cacheKey, payload, ttl)
+		if os.Getenv("SOCIAL_DEBUG_LOG") == "1" {
+			log.Printf(`{"level":"debug","msg":"social_login_code_store","code":"%s","client_id":"%s","tenant_id":"%s","ttl_sec":%d}`, loginCode, cid, tid.String(), int(ttl.Seconds()))
+		}
+		target := clientRedirect
+		if u, err := url.Parse(clientRedirect); err == nil {
+			q := u.Query()
+			q.Set("code", loginCode)
+			u.RawQuery = q.Encode()
+			target = u.String()
+		} else {
+			sep := "?"
+			if strings.Contains(clientRedirect, "?") {
+				sep = "&"
+			}
+			target = clientRedirect + sep + "code=" + loginCode
+		}
+		http.Redirect(w, r, target, http.StatusFound)
+		return true
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(respAuth)
+	return true
 }
 
 func BuildGoogleSocialHandlers(
@@ -126,6 +193,46 @@ func (h *googleHandler) isAllowed(tid uuid.UUID, cid string) bool {
 	return okT && okC
 }
 
+// socialEnforce: rate limit simple por IP para endpoints sociales.
+// keyPrefix distingue start / callback. Devuelve true si se permite continuar.
+func socialEnforce(w http.ResponseWriter, r *http.Request, lim interface{}, limit int, window time.Duration, keyPrefix string) bool {
+	type multi interface {
+		AllowWithLimits(ctx context.Context, key string, limit int, window time.Duration) (rate.Result, error)
+	}
+	m, ok := lim.(multi)
+	if !ok || limit <= 0 || window <= 0 {
+		return true
+	}
+	ip := r.RemoteAddr
+	if hf := r.Header.Get("X-Forwarded-For"); hf != "" {
+		ip = strings.TrimSpace(strings.Split(hf, ",")[0])
+	}
+	key := keyPrefix + ip
+	res, err := m.AllowWithLimits(r.Context(), key, limit, window)
+	if err != nil {
+		return true
+	}
+	now := time.Now().UTC()
+	windowStart := now.Truncate(window)
+	resetAt := windowStart.Add(window)
+	if res.Allowed {
+		w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limit))
+		w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(int(res.Remaining)))
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetAt.Unix(), 10))
+		return true
+	}
+	retryAfter := time.Until(resetAt)
+	if retryAfter < 0 {
+		retryAfter = window
+	}
+	w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limit))
+	w.Header().Set("X-RateLimit-Remaining", "0")
+	w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetAt.Unix(), 10))
+	w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
+	httpx.WriteError(w, http.StatusTooManyRequests, "rate_limited", "demasiadas solicitudes", 1401)
+	return false
+}
+
 // state JWT firmado con EdDSA usando Issuer.SignRaw
 func (h *googleHandler) signState(tid uuid.UUID, cid, clientRedirect, nonce string) (string, error) {
 	now := time.Now().UTC()
@@ -173,6 +280,17 @@ func (h *googleHandler) start(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo GET", 1601)
 		return
+	}
+	// Rate limit básico por IP para start (ej: 15 req / 1 min) si MultiLimiter disponible
+	if h.c.MultiLimiter != nil {
+		// usamos enforceWithKey directamente mediante wrapper ligero
+		ipKey := r.RemoteAddr
+		_ = ipKey
+		// Reutilizamos función interna vía helpers.enforceWithKey: no exportada, así que implementamos local
+		// Simplificado: key = social:start:<ip>
+		if ok := socialEnforce(w, r, h.c.MultiLimiter, 15, time.Minute, "social:start:"); !ok {
+			return
+		}
 	}
 	q := r.URL.Query()
 	tidStr := strings.TrimSpace(q.Get("tenant_id"))
@@ -229,6 +347,11 @@ func (h *googleHandler) callback(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo GET", 1611)
 		return
 	}
+	if h.c.MultiLimiter != nil {
+		if ok := socialEnforce(w, r, h.c.MultiLimiter, 30, time.Minute, "social:cb:"); !ok {
+			return
+		}
+	}
 	q := r.URL.Query()
 	if e := strings.TrimSpace(q.Get("error")); e != "" {
 		ed := strings.TrimSpace(q.Get("error_description"))
@@ -240,6 +363,102 @@ func (h *googleHandler) callback(w http.ResponseWriter, r *http.Request) {
 	if state == "" || code == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "state/code requeridos", 1613)
 		return
+	}
+
+	// ───────── DEBUG SHORTCUT (solo dev/testing) ─────────
+	// Activado sólo si SOCIAL_DEBUG_HEADERS=true en el entorno.
+	if os.Getenv("SOCIAL_DEBUG_HEADERS") == "true" {
+		log.Printf("DEBUG social_google: debug mode active code=%s hdr_email=%s", code, r.Header.Get("X-Debug-Google-Email"))
+		// Fallback prioritario: si code tiene prefijo debug- simulamos directamente.
+		if strings.HasPrefix(code, "debug-") {
+			st, err := h.parseState(state)
+			if err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "state inválido", 1614)
+				return
+			}
+			get := func(k string) string {
+				if s, _ := st[k].(string); s != "" { return s }
+				return ""
+			}
+			idTid := get("tid")
+			tid, err := uuid.Parse(idTid)
+			if err != nil { httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "tid inválido", 1615); return }
+			cid := get("cid")
+			clientRedirect := get("redir")
+			if !h.isAllowed(tid, cid) { httpx.WriteError(w, http.StatusForbidden, "access_denied", "no permitido para este tenant/cliente", 1616); return }
+			idc := &google.IDClaims{Email: "debug+" + code + "@example.test", EmailVerified: true, Sub: "sub-" + code}
+			uid, err := h.ensureUserAndIdentity(r.Context(), tid, idc)
+			if err != nil { httpx.WriteError(w, http.StatusInternalServerError, "provision_failed", "no se pudo crear/ligar usuario", 1620); return }
+			_ = h.issueSocialTokens(w, r, uid, tid, cid, clientRedirect, []string{"google"})
+			return
+		}
+		if dbgEmail := strings.TrimSpace(r.Header.Get("X-Debug-Google-Email")); dbgEmail != "" {
+			dbgSub := strings.TrimSpace(r.Header.Get("X-Debug-Google-Sub"))
+			dbgNonce := strings.TrimSpace(r.Header.Get("X-Debug-Google-Nonce"))
+			st, err := h.parseState(state)
+			if err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "state inválido", 1614)
+				return
+			}
+			get := func(k string) string {
+				if s, _ := st[k].(string); s != "" {
+					return s
+				}
+				return ""
+			}
+			tid, err := uuid.Parse(get("tid"))
+			if err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "tid inválido", 1615)
+				return
+			}
+			cid := get("cid")
+			clientRedirect := get("redir")
+			if hn := get("nonce"); hn != "" && dbgNonce != "" && hn != dbgNonce { /* ignore mismatch in debug */
+			}
+			if !h.isAllowed(tid, cid) {
+				httpx.WriteError(w, http.StatusForbidden, "access_denied", "no permitido para este tenant/cliente", 1616)
+				return
+			}
+			idc := &google.IDClaims{Email: dbgEmail, EmailVerified: true, Sub: dbgSub}
+			uid, err := h.ensureUserAndIdentity(r.Context(), tid, idc)
+			if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "provision_failed", "no se pudo crear/ligar usuario", 1620)
+				return
+			}
+			type mfaGetter interface {
+				GetMFATOTP(context.Context, string) (*core.MFATOTP, error)
+			}
+			type trustedChecker interface {
+				IsTrustedDevice(context.Context, string, string, time.Time) (bool, error)
+			}
+			if mg, ok := h.c.Store.(mfaGetter); ok {
+				if m, _ := mg.GetMFATOTP(r.Context(), uid.String()); m != nil && m.ConfirmedAt != nil {
+					trusted := false
+					if devCookie, err := r.Cookie("mfa_trust"); err == nil && devCookie != nil {
+						if tc, ok2 := h.c.Store.(trustedChecker); ok2 {
+							dh := tokens.SHA256Base64URL(devCookie.Value)
+							if ok3, _ := tc.IsTrustedDevice(r.Context(), uid.String(), dh, time.Now()); ok3 {
+								trusted = true
+							}
+						}
+					}
+					if !trusted {
+						ch := mfaChallenge{UserID: uid.String(), TenantID: tid.String(), ClientID: cid, AMRBase: []string{"google"}, Scope: []string{}}
+						mid, _ := tokens.GenerateOpaqueToken(24)
+						key := "mfa:token:" + mid
+						buf, _ := json.Marshal(ch)
+						h.c.Cache.Set(key, buf, 5*time.Minute)
+						w.Header().Set("Cache-Control", "no-store")
+						w.Header().Set("Pragma", "no-cache")
+						w.Header().Set("Content-Type", "application/json; charset=utf-8")
+						_ = json.NewEncoder(w).Encode(map[string]any{"mfa_required": true, "mfa_token": mid, "amr": []string{"google"}})
+						return
+					}
+				}
+			}
+			_ = h.issueSocialTokens(w, r, uid, tid, cid, clientRedirect, []string{"google"})
+			return
+		}
 	}
 
 	// validar state
@@ -337,78 +556,7 @@ func (h *googleHandler) callback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Emitir access (flujo normal)
-	std := map[string]any{"tid": tid.String(), "amr": []string{"google"}}
-	access, exp, err := h.c.Issuer.IssueAccess(uid.String(), cid, std, nil)
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir access", 1621)
-		return
-	}
-
-	// Generar refresh y persistirlo (requiere client UUID)
-	cl, _, e2 := h.c.Store.GetClientByClientID(r.Context(), cid)
-	if e2 != nil || cl == nil {
-		httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1623)
-		return
-	}
-	rawRT, err := tokens.GenerateOpaqueToken(32)
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 1622)
-		return
-	}
-	hash := tokens.SHA256Base64URL(rawRT)
-	if _, err := h.c.Store.CreateRefreshToken(r.Context(), uid.String(), cl.ID, hash, time.Now().Add(h.issuerTok.refreshTTL), nil); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1624)
-		return
-	}
-
-	resp := AuthLoginResponse{
-		AccessToken:  access,
-		TokenType:    "Bearer",
-		ExpiresIn:    int64(time.Until(exp).Seconds()),
-		RefreshToken: rawRT,
-	}
-
-	// ─────────────────────────────────────────────────────────────
-	// Si el cliente nos pasó un redirect, 302 con login_code efímero
-	if clientRedirect != "" {
-		loginCode := randB64(32)
-		cacheKey := "social:code:" + loginCode
-
-		// Guardamos el payload como JSON por 60s (single-use)
-		payload, _ := json.Marshal(resp)
-		ttl := h.cfg.Providers.LoginCodeTTL
-		if ttl <= 0 {
-			ttl = 60 * time.Second
-		}
-		h.c.Cache.Set(cacheKey, payload, ttl)
-
-		// Construir redirección robusta (mergea query existente y respeta fragment)
-		target := clientRedirect
-		if u, err := url.Parse(clientRedirect); err == nil {
-			q := u.Query()
-			q.Set("code", loginCode)
-			u.RawQuery = q.Encode()
-			target = u.String()
-		} else {
-			// Fallback simple
-			sep := "?"
-			if strings.Contains(clientRedirect, "?") {
-				sep = "&"
-			}
-			target = clientRedirect + sep + "code=" + loginCode
-		}
-
-		http.Redirect(w, r, target, http.StatusFound)
-		return
-	}
-	// ─────────────────────────────────────────────────────────────
-
-	// Fallback dev: JSON como /v1/auth/login
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Pragma", "no-cache")
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(resp)
+	_ = h.issueSocialTokens(w, r, uid, tid, cid, clientRedirect, []string{"google"})
 
 	// Log útil
 	rid := w.Header().Get("X-Request-ID")

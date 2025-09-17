@@ -104,6 +104,16 @@ func (s *Store) InsertRecoveryCodes(ctx context.Context, userID string, hashes [
 	return br.Close()
 }
 
+// DeleteRecoveryCodes elimina todos los recovery codes del usuario (para rotación segura)
+func (s *Store) DeleteRecoveryCodes(ctx context.Context, userID string) error {
+	uid, err := parseUUID(userID)
+	if err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, `DELETE FROM mfa_recovery_code WHERE user_id = $1`, uid)
+	return err
+}
+
 func (s *Store) UseRecoveryCode(ctx context.Context, userID string, hash string, at time.Time) (bool, error) {
 	uid, err := parseUUID(userID)
 	if err != nil {

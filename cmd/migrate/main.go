@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -36,7 +37,11 @@ func main() {
 		}
 	}
 
-	cfg, err := config.Load(*configPath)
+	// Resolve paths so this works from repo root or subfolders (e.g., cmd/migrate)
+	resolvedConfig := resolvePath(*configPath)
+	resolvedDir := resolvePath(*dir)
+
+	cfg, err := config.Load(resolvedConfig)
 	if err != nil {
 		log.Fatalf("config load: %v", err)
 	}
@@ -50,7 +55,7 @@ func main() {
 
 	switch action {
 	case "up":
-		upFiles, err := listSQL(*dir, "_up.sql")
+		upFiles, err := listSQL(resolvedDir, "_up.sql")
 		if err != nil {
 			log.Fatalf("list up: %v", err)
 		}
@@ -71,7 +76,7 @@ func main() {
 		log.Println("Up migrations completed.")
 
 	case "down":
-		downFiles, err := listSQL(*dir, "_down.sql")
+		downFiles, err := listSQL(resolvedDir, "_down.sql")
 		if err != nil {
 			log.Fatalf("list down: %v", err)
 		}
@@ -95,6 +100,55 @@ func main() {
 	default:
 		log.Fatalf("unknown action %q. Use: up | down [steps]", action)
 	}
+}
+
+// resolvePath attempts to make a provided path work regardless of current working directory.
+// If the path exists as-is, it is returned. Otherwise, it tries to locate the repository root
+// by finding a go.mod upwards and prepend that to the path. If still not found, the original path is returned.
+func resolvePath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return p
+	}
+	if fileExists(p) {
+		return p
+	}
+	if root, err := findRepoRoot(); err == nil {
+		alt := filepath.Join(root, filepath.FromSlash(p))
+		if fileExists(alt) {
+			return alt
+		}
+	}
+	return p
+}
+
+func fileExists(p string) bool {
+	if p == "" {
+		return false
+	}
+	if fi, err := os.Stat(p); err == nil {
+		return fi.Mode().IsRegular() || fi.IsDir()
+	}
+	return false
+}
+
+// findRepoRoot climbs directories from CWD to locate go.mod (max 8 levels).
+func findRepoRoot() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for i := 0; i < 8; i++ {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", errors.New("go.mod not found")
 }
 
 func listSQL(dir, suffix string) ([]string, error) {

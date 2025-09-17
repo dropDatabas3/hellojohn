@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -35,8 +36,36 @@ func (p *serverProc) stop() {
 	if p == nil || p.cmd == nil || p.cmd.Process == nil {
 		return
 	}
-	_ = p.cmd.Process.Kill()
-	_, _ = p.cmd.Process.Wait()
+	// Intento 1: señal controlada (Windows carece de SIGINT directa vía os.Process.Signal en go<1.21, hacemos Kill fallback)
+	// Para Linux/Mac se podría usar: p.cmd.Process.Signal(os.Interrupt)
+	// Aquí: intentamos Wait con timeout y luego Kill forzado.
+	done := make(chan struct{})
+	go func() {
+		_, _ = p.cmd.Process.Wait()
+		close(done)
+	}()
+	select {
+	case <-time.After(2 * time.Second):
+		_ = p.cmd.Process.Kill()
+		<-done
+	case <-done:
+	}
+	// Esperar liberación de puerto 8080/8081 (best-effort)
+	waitPortFreed("8080", 2*time.Second)
+	waitPortFreed("8081", 2*time.Second)
+}
+
+// waitPortFreed intenta conectar; cuando falla asume puerto liberado.
+func waitPortFreed(port string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 150*time.Millisecond)
+		if err != nil { // puerto cerrado
+			return
+		}
+		_ = conn.Close()
+		time.Sleep(150 * time.Millisecond)
+	}
 }
 
 // findRepoRoot: sube directorios hasta encontrar go.mod (máx 8 niveles)

@@ -158,18 +158,18 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		type trustedChecker interface {
 			IsTrustedDevice(ctx context.Context, userID, deviceHash string, now time.Time) (bool, error)
 		}
+		trustedByCookie := false
 		if mg, ok := c.Store.(mfaGetter); ok {
 			if m, _ := mg.GetMFATOTP(ctx, u.ID); m != nil && m.ConfirmedAt != nil { // usuario tiene MFA configurada
-				trusted := false
 				if devCookie, err := r.Cookie("mfa_trust"); err == nil && devCookie != nil {
 					if tc, ok2 := c.Store.(trustedChecker); ok2 {
 						dh := tokens.SHA256Base64URL(devCookie.Value)
 						if ok3, _ := tc.IsTrustedDevice(ctx, u.ID, dh, time.Now()); ok3 {
-							trusted = true
+							trustedByCookie = true
 						}
 					}
 				}
-				if !trusted { // pedir MFA
+				if !trustedByCookie { // pedir MFA interactiva
 					ch := mfaChallenge{
 						UserID:   u.ID,
 						TenantID: req.TenantID,
@@ -195,14 +195,21 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		}
 
 		// Base claims (normal path)
+		amrSlice := []string{"pwd"}
+		acrVal := "urn:hellojohn:loa:1"
+		if trustedByCookie { // Dispositivo previamente validado por MFA
+			amrSlice = []string{"pwd", "mfa"}
+			acrVal = "urn:hellojohn:loa:2"
+		}
 		std := map[string]any{
 			"tid": req.TenantID,
-			"amr": []string{"pwd"},
+			"amr": amrSlice,
+			"acr": acrVal,
 		}
 		custom := map[string]any{}
 
 		// Hook opcional (CEL/webhook/etc.)
-		std, custom = applyAccessClaimsHook(ctx, c, req.TenantID, req.ClientID, u.ID, []string{}, []string{"pwd"}, std, custom)
+		std, custom = applyAccessClaimsHook(ctx, c, req.TenantID, req.ClientID, u.ID, []string{}, amrSlice, std, custom)
 
 		token, exp, err := c.Issuer.IssueAccess(u.ID, req.ClientID, std, custom)
 		if err != nil {

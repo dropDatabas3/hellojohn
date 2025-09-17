@@ -524,6 +524,7 @@ func main() {
 	mfaVerifyHandler := mfa.HTTPVerify()
 	mfaChallengeHandler := mfa.HTTPChallenge()
 	mfaDisableHandler := mfa.HTTPDisable()
+	mfaRecoveryRotateHandler := mfa.HTTPRecoveryRotate()
 
 	// Social exchange (intercambio de código efímero -> tokens)
 	socialExchangeHandler := handlers.NewSocialExchangeHandler(&container)
@@ -556,6 +557,7 @@ func main() {
 		mfaVerifyHandler,
 		mfaChallengeHandler,
 		mfaDisableHandler,
+		mfaRecoveryRotateHandler,
 		// social exchange
 		socialExchangeHandler,
 	)

@@ -376,7 +376,7 @@ LIMIT 1`
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, core.ErrNotFound
 		}
-		log.Printf(`{"level":"error","msg":"pg_get_refresh_by_hash_err","err":"%v"}`)
+		log.Printf(`{"level":"error","msg":"pg_get_refresh_by_hash_err","err":"%v"}`, err)
 		return nil, err
 	}
 	return &rt, nil

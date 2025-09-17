@@ -386,7 +386,7 @@ func (h *EmailFlowsHandler) reset(w http.ResponseWriter, r *http.Request) {
 
 	// Blacklist opcional (SECURITY_PASSWORD_BLACKLIST_PATH)
 	if p := strings.TrimSpace(os.Getenv("SECURITY_PASSWORD_BLACKLIST_PATH")); p != "" {
-		if bl, err := password.LoadBlacklist(p); err == nil && bl.Contains(in.NewPassword) {
+		if bl, err := password.GetCachedBlacklist(p); err == nil && bl.Contains(in.NewPassword) {
 			writeErr(w, "policy_violation", "password no permitido por política", http.StatusBadRequest)
 			return
 		}

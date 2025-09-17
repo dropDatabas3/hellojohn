@@ -222,12 +222,15 @@ func main() {
 		`, tenantID, email, verified); err != nil {
 			return userOut{}, fmt.Errorf("insert user %s: %w", email, err)
 		}
-		// id
+		// identity: upsert y ACTUALIZAR password_hash para que sea idempotente entre corridas
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO identity (user_id, provider, email, email_verified, password_hash)
 			SELECT id, 'password', LOWER($1), $2, $3
 			FROM app_user WHERE tenant_id = $4 AND email = LOWER($1)
-			ON CONFLICT (user_id, provider) DO NOTHING
+			ON CONFLICT (user_id, provider)
+			DO UPDATE SET email = EXCLUDED.email,
+						  email_verified = EXCLUDED.email_verified,
+						  password_hash = EXCLUDED.password_hash
 		`, email, verified, phc, tenantID); err != nil {
 			return userOut{}, fmt.Errorf("insert identity %s: %w", email, err)
 		}

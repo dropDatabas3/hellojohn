@@ -148,8 +148,8 @@ func TestEmailFlowsE2E(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Forgot/reset recovery failed: %v", err)
 			}
-			 // Persistir nueva password global para siguientes tests
-			 seed.Users.Admin.Password = newPassword
+			// Persistir nueva password global para siguientes tests
+			seed.Users.Admin.Password = newPassword
 
 			// Retry login with new password
 			t.Log("== Login with new password ==")

@@ -75,6 +75,7 @@ func NewOAuthIntrospectHandler(c *app.Container, auth clientBasicAuth) http.Hand
 		clientID, _ := claims["aud"].(string)
 		scopeRaw, _ := claims["scope"].(string)
 		tid, _ := claims["tid"].(string)
+		acr, _ := claims["acr"].(string)
 		var scope []string
 		if scopeRaw != "" {
 			scope = strings.Fields(scopeRaw)
@@ -98,6 +99,9 @@ func NewOAuthIntrospectHandler(c *app.Container, auth clientBasicAuth) http.Hand
 			"iat":        int64(iatF),
 			"amr":        amrVals,
 			"tid":        tid,
+		}
+		if acr != "" {
+			resp["acr"] = acr
 		}
 		// Opcional: introspection puede incluir jti, iss, etc., si existen.
 		if jti, ok := claims["jti"].(string); ok {

@@ -22,3 +22,5 @@ Thumbs.db
 bin/
 dist/
 coverage/
+
+security_password_blacklist.txt

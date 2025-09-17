@@ -2,6 +2,7 @@ package http
 
 import (
 	stdhttp "net/http"
+	"os"
 )
 
 func NewMux(
@@ -39,6 +40,7 @@ func NewMux(
 	mfaVerify stdhttp.Handler, // POST /v1/mfa/totp/verify
 	mfaChallenge stdhttp.Handler, // POST /v1/mfa/totp/challenge
 	mfaDisable stdhttp.Handler, // POST /v1/mfa/totp/disable
+	mfaRecoveryRotate stdhttp.Handler, // POST /v1/mfa/recovery/rotate
 
 	// Social exchange
 	socialExchange stdhttp.Handler, // POST /v1/auth/social/exchange
@@ -87,9 +89,30 @@ func NewMux(
 	mux.Handle("/v1/mfa/totp/verify", mfaVerify)
 	mux.Handle("/v1/mfa/totp/challenge", mfaChallenge)
 	mux.Handle("/v1/mfa/totp/disable", mfaDisable)
+	mux.Handle("/v1/mfa/recovery/rotate", mfaRecoveryRotate)
 
 	// Social exchange
 	mux.Handle("/v1/auth/social/exchange", socialExchange)
+
+	// Debug: inspeccionar login_code almacenado (solo si SOCIAL_DEBUG_LOG=1)
+	mux.HandleFunc("/v1/auth/social/debug/code", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if os.Getenv("SOCIAL_DEBUG_LOG") != "1" {
+			w.WriteHeader(404)
+			return
+		}
+		if r.Method != stdhttp.MethodGet {
+			w.WriteHeader(405)
+			return
+		}
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			w.WriteHeader(400)
+			_, _ = w.Write([]byte("missing code"))
+			return
+		}
+		// Falta wiring del cache aquí; endpoint placeholder.
+		_, _ = w.Write([]byte("cache introspection no implementada en este scope"))
+	})
 
 	return mux
 }

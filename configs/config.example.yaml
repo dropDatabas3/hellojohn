@@ -125,6 +125,10 @@ security:
     require_lower: true
     require_digit: true
     require_symbol: false
+  # Ruta opcional a archivo de blacklist de contraseñas (una por línea, # comentarios). Se puede definir por ENV:
+  #   SECURITY_PASSWORD_BLACKLIST_PATH=./configs/password_blacklist.txt
+  # Si se establece, se carga una sola vez y se cachea en memoria.
+  password_blacklist_path: ""  # dejar vacío si no se usa
 
 providers:
   # TTL del code efímero que devuelve /v1/auth/social/result

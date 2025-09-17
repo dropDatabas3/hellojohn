@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"os"
 	"strings"
@@ -141,6 +142,7 @@ func (h *mfaHandler) Register(r chi.Router) {
 		r.Post("/v1/mfa/totp/verify", h.verify)
 		r.Post("/v1/mfa/totp/challenge", h.challenge)
 		r.Post("/v1/mfa/totp/disable", h.disable)
+		r.Post("/v1/mfa/recovery/rotate", h.rotateRecovery)
 	})
 }
 
@@ -149,6 +151,7 @@ func (h *mfaHandler) HTTPEnroll() http.Handler    { return http.HandlerFunc(h.en
 func (h *mfaHandler) HTTPVerify() http.Handler    { return http.HandlerFunc(h.verify) }
 func (h *mfaHandler) HTTPChallenge() http.Handler { return http.HandlerFunc(h.challenge) }
 func (h *mfaHandler) HTTPDisable() http.Handler   { return http.HandlerFunc(h.disable) }
+func (h *mfaHandler) HTTPRecoveryRotate() http.Handler { return http.HandlerFunc(h.rotateRecovery) }
 
 func currentUserFromHeader(r *http.Request) (string, error) {
 	uidStr := strings.TrimSpace(r.Header.Get("X-User-ID"))
@@ -259,7 +262,20 @@ func (h *mfaHandler) verify(w http.ResponseWriter, r *http.Request) {
 		return
 	} else {
 		_ = h.c.Store.UpdateMFAUsedAt(r.Context(), uid, time.Unix(counter*30, 0).UTC())
+		// Confirm y potencial generación de recovery codes si es primera vez
+		firstTime := m.ConfirmedAt == nil
 		_ = h.c.Store.ConfirmMFATOTP(r.Context(), uid, time.Now().UTC())
+		if firstTime {
+			if recPlain, recHashes, errGen := generateRecoveryCodes(10); errGen == nil {
+				if err := h.c.Store.InsertRecoveryCodes(r.Context(), uid, recHashes); err == nil {
+					// Respuesta con codes one-time
+					resp := map[string]any{"enabled": true, "recovery_codes": recPlain}
+					httpx.WriteJSON(w, http.StatusOK, resp)
+					return
+				}
+			}
+			// Si falla generación o inserción, devolvemos enabled sin codes (no bloquea MFA)
+		}
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"enabled": true})
 }
@@ -367,7 +383,7 @@ func (h *mfaHandler) challenge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Emitir tokens con amr=["pwd","mfa"]
-	std := map[string]any{"tid": ch.TenantID, "amr": append(ch.AMRBase, "mfa")}
+	std := map[string]any{"tid": ch.TenantID, "amr": append(ch.AMRBase, "mfa"), "acr": "urn:hellojohn:loa:2"}
 	custom := map[string]any{}
 	std, custom = applyAccessClaimsHook(r.Context(), h.c, ch.TenantID, ch.ClientID, uidStr, ch.Scope, append(ch.AMRBase, "mfa"), std, custom)
 	token, exp, err := h.c.Issuer.IssueAccess(uidStr, ch.ClientID, std, custom)
@@ -420,6 +436,7 @@ func (h *mfaHandler) disable(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var req struct {
+		Password string `json:"password"`
 		Code     string `json:"code"`
 		Recovery string `json:"recovery"`
 	}
@@ -427,30 +444,158 @@ func (h *mfaHandler) disable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.TrimSpace(req.Password) == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "missing_password", "password requerido", 1742)
+		return
+	}
 	if strings.TrimSpace(req.Recovery) == "" && strings.TrimSpace(req.Code) == "" {
-		httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "code o recovery requerido", 1742)
+		httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "code o recovery requerido", 1743)
+		return
+	}
+
+	// Validar password (obtener identity)
+	user, err := h.c.Store.GetUserByID(r.Context(), uid)
+	if err != nil || user == nil {
+		httpx.WriteError(w, http.StatusBadRequest, "user_not_found", "usuario inválido", 1744)
+		return
+	}
+	_, identity, err := h.c.Store.GetUserByEmail(r.Context(), user.TenantID, user.Email)
+	if err != nil || identity == nil || identity.PasswordHash == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "no_password_identity", "identity password no encontrada", 1745)
+		return
+	}
+	if ok := h.c.Store.CheckPassword(identity.PasswordHash, req.Password); !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "password inválido", 1746)
 		return
 	}
 
 	if strings.TrimSpace(req.Recovery) != "" {
 		hh := tokens.SHA256Base64URL(strings.TrimSpace(req.Recovery))
 		if ok, _ := h.c.Store.UseRecoveryCode(r.Context(), uid, hh, time.Now().UTC()); !ok {
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid_mfa_code", "recovery inválido", 1743)
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_mfa_code", "recovery inválido", 1747)
 			return
 		}
 	} else {
 		m, err := h.c.Store.GetMFATOTP(r.Context(), uid)
 		if err != nil || m == nil || m.ConfirmedAt == nil {
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid_mfa_state", "MFA no habilitado", 1744)
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_mfa_state", "MFA no habilitado", 1748)
 			return
 		}
 		plain, _ := aesgcmDecrypt(m.SecretEncrypted)
 		raw, _ := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(string(plain))
 		if ok, _ := totp.Verify(raw, strings.TrimSpace(req.Code), time.Now(), mfaconfigWindow(), nil); !ok {
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid_mfa_code", "código inválido", 1745)
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_mfa_code", "código inválido", 1749)
 			return
 		}
 	}
 	_ = h.c.Store.DisableMFATOTP(r.Context(), uid)
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"disabled": true})
+}
+
+// POST /v1/mfa/recovery/rotate {password, code|recovery}
+// Requiere: usuario logueado; password actual y un segundo factor (TOTP válido o recovery válido no usado)
+// Respuesta: {rotated: true, recovery_codes: []} (codes solo se devuelven una vez)
+func (h *mfaHandler) rotateRecovery(w http.ResponseWriter, r *http.Request) {
+	uid, err := currentUserFromHeader(r)
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "unauthorized", "login requerido", 1751)
+		return
+	}
+	var req struct {
+		Password string `json:"password"`
+		Code     string `json:"code"`
+		Recovery string `json:"recovery"`
+	}
+	if !httpx.ReadJSON(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.Password) == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "missing_password", "password requerido", 1752)
+		return
+	}
+	if strings.TrimSpace(req.Code) == "" && strings.TrimSpace(req.Recovery) == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "missing_second_factor", "code o recovery requerido", 1753)
+		return
+	}
+	user, err := h.c.Store.GetUserByID(r.Context(), uid)
+	if err != nil || user == nil {
+		httpx.WriteError(w, http.StatusBadRequest, "user_not_found", "usuario inválido", 1754)
+		return
+	}
+	_, identity, err := h.c.Store.GetUserByEmail(r.Context(), user.TenantID, user.Email)
+	if err != nil || identity == nil || identity.PasswordHash == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "no_password_identity", "identity password no encontrada", 1755)
+		return
+	}
+	if ok := h.c.Store.CheckPassword(identity.PasswordHash, req.Password); !ok {
+		httpx.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "password inválido", 1756)
+		return
+	}
+	if strings.TrimSpace(req.Recovery) != "" {
+		hh := tokens.SHA256Base64URL(strings.TrimSpace(req.Recovery))
+		if ok, _ := h.c.Store.UseRecoveryCode(r.Context(), uid, hh, time.Now().UTC()); !ok {
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_mfa_code", "recovery inválido", 1757)
+			return
+		}
+	} else {
+		m, err := h.c.Store.GetMFATOTP(r.Context(), uid)
+		if err != nil || m == nil || m.ConfirmedAt == nil {
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_mfa_state", "MFA no habilitado", 1758)
+			return
+		}
+		plain, err := aesgcmDecrypt(m.SecretEncrypted)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "crypto_failed", "no se pudo descifrar", 1759)
+			return
+		}
+		raw, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(string(plain))
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "crypto_failed", "secreto inválido", 1760)
+			return
+		}
+		if ok, counter := totp.Verify(raw, strings.TrimSpace(req.Code), time.Now(), mfaconfigWindow(), nil); !ok {
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_mfa_code", "código inválido", 1761)
+			return
+		} else {
+			_ = h.c.Store.UpdateMFAUsedAt(r.Context(), uid, time.Unix(counter*30, 0).UTC())
+		}
+	}
+	_ = h.c.Store.DeleteRecoveryCodes(r.Context(), uid)
+	recPlain, recHashes, err := generateRecoveryCodes(10)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "gen_failed", "no se pudo generar", 1762)
+		return
+	}
+	if err := h.c.Store.InsertRecoveryCodes(r.Context(), uid, recHashes); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir", 1763)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"rotated": true, "recovery_codes": recPlain})
+}
+
+// generateRecoveryCodes genera n códigos de recuperación, devolviendo lista en claro y sus hashes.
+// Formato: 10 caracteres alfanuméricos (A-Z2-9 sin ILOU) para evitar confusiones.
+// Se devuelven en mayúsculas; el hash se calcula sobre la versión en minúsculas.
+func generateRecoveryCodes(n int) (plain []string, hashes []string, err error) {
+	if n <= 0 {
+		return []string{}, []string{}, nil
+	}
+	alphabet := []rune("ABCDEFGHJKMNPQRSTVWXYZ23456789")
+	plain = make([]string, 0, n)
+	hashes = make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		b := make([]rune, 10)
+		for j := 0; j < 10; j++ {
+			// crypto/rand via big.Int
+			r, e := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
+			if e != nil {
+				return nil, nil, e
+			}
+			b[j] = alphabet[r.Int64()]
+		}
+		code := string(b)
+		plain = append(plain, code)
+		hashes = append(hashes, tokens.SHA256Base64URL(strings.ToLower(code)))
+	}
+	return plain, hashes, nil
 }
