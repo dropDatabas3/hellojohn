@@ -76,6 +76,8 @@ type Config struct {
 		Verify struct {
 			TTL time.Duration `yaml:"ttl"`
 		} `yaml:"verify"`
+		IntrospectBasicUser string `yaml:"introspect_basic_user"`
+		IntrospectBasicPass string `yaml:"introspect_basic_pass"`
 	} `yaml:"auth"`
 
 	Rate struct {
@@ -93,6 +95,26 @@ type Config struct {
 			Limit  int    `yaml:"limit"`
 			Window string `yaml:"window"`
 		} `yaml:"forgot"`
+
+		// MFA endpoint configs (simple per-endpoint limits)
+		MFA struct {
+			Enroll struct {
+				Limit  int    `yaml:"limit"`
+				Window string `yaml:"window"`
+			} `yaml:"enroll"`
+			Verify struct {
+				Limit  int    `yaml:"limit"`
+				Window string `yaml:"window"`
+			} `yaml:"verify"`
+			Challenge struct {
+				Limit  int    `yaml:"limit"`
+				Window string `yaml:"window"`
+			} `yaml:"challenge"`
+			Disable struct {
+				Limit  int    `yaml:"limit"`
+				Window string `yaml:"window"`
+			} `yaml:"disable"`
+		} `yaml:"mfa"`
 	} `yaml:"rate"`
 
 	Flags struct {
@@ -182,6 +204,31 @@ func Load(path string) (*Config, error) {
 	if c.Rate.Forgot.Window == "" {
 		c.Rate.Forgot.Window = "10m"
 	}
+	// MFA defaults
+	if c.Rate.MFA.Enroll.Limit == 0 {
+		c.Rate.MFA.Enroll.Limit = 3
+	}
+	if c.Rate.MFA.Enroll.Window == "" {
+		c.Rate.MFA.Enroll.Window = "10m"
+	}
+	if c.Rate.MFA.Verify.Limit == 0 {
+		c.Rate.MFA.Verify.Limit = 10
+	}
+	if c.Rate.MFA.Verify.Window == "" {
+		c.Rate.MFA.Verify.Window = "1m"
+	}
+	if c.Rate.MFA.Challenge.Limit == 0 {
+		c.Rate.MFA.Challenge.Limit = 10
+	}
+	if c.Rate.MFA.Challenge.Window == "" {
+		c.Rate.MFA.Challenge.Window = "1m"
+	}
+	if c.Rate.MFA.Disable.Limit == 0 {
+		c.Rate.MFA.Disable.Limit = 3
+	}
+	if c.Rate.MFA.Disable.Window == "" {
+		c.Rate.MFA.Disable.Window = "10m"
+	}
 	// Auth/session defaults
 	if c.Auth.Session.CookieName == "" {
 		c.Auth.Session.CookieName = "sid"
@@ -238,6 +285,27 @@ func Load(path string) (*Config, error) {
 	}
 	if c.Rate.Window != "" {
 		if _, err := time.ParseDuration(c.Rate.Window); err != nil {
+			return nil, err
+		}
+	}
+	// validate MFA duration strings if present
+	if c.Rate.MFA.Enroll.Window != "" {
+		if _, err := time.ParseDuration(c.Rate.MFA.Enroll.Window); err != nil {
+			return nil, err
+		}
+	}
+	if c.Rate.MFA.Verify.Window != "" {
+		if _, err := time.ParseDuration(c.Rate.MFA.Verify.Window); err != nil {
+			return nil, err
+		}
+	}
+	if c.Rate.MFA.Challenge.Window != "" {
+		if _, err := time.ParseDuration(c.Rate.MFA.Challenge.Window); err != nil {
+			return nil, err
+		}
+	}
+	if c.Rate.MFA.Disable.Window != "" {
+		if _, err := time.ParseDuration(c.Rate.MFA.Disable.Window); err != nil {
 			return nil, err
 		}
 	}
@@ -430,6 +498,32 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v, ok := getEnvStr("RATE_FORGOT_WINDOW"); ok {
 		c.Rate.Forgot.Window = v
+	}
+
+	// Rate limit MFA endpoints específicos
+	if v, ok := getEnvInt("RATE_MFA_ENROLL_LIMIT"); ok {
+		c.Rate.MFA.Enroll.Limit = v
+	}
+	if v, ok := getEnvStr("RATE_MFA_ENROLL_WINDOW"); ok {
+		c.Rate.MFA.Enroll.Window = v
+	}
+	if v, ok := getEnvInt("RATE_MFA_VERIFY_LIMIT"); ok {
+		c.Rate.MFA.Verify.Limit = v
+	}
+	if v, ok := getEnvStr("RATE_MFA_VERIFY_WINDOW"); ok {
+		c.Rate.MFA.Verify.Window = v
+	}
+	if v, ok := getEnvInt("RATE_MFA_CHALLENGE_LIMIT"); ok {
+		c.Rate.MFA.Challenge.Limit = v
+	}
+	if v, ok := getEnvStr("RATE_MFA_CHALLENGE_WINDOW"); ok {
+		c.Rate.MFA.Challenge.Window = v
+	}
+	if v, ok := getEnvInt("RATE_MFA_DISABLE_LIMIT"); ok {
+		c.Rate.MFA.Disable.Limit = v
+	}
+	if v, ok := getEnvStr("RATE_MFA_DISABLE_WINDOW"); ok {
+		c.Rate.MFA.Disable.Window = v
 	}
 
 	// FLAGS

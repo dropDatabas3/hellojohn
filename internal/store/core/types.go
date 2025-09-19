@@ -48,3 +48,13 @@ type RefreshToken struct {
 	RotatedFrom *string
 	RevokedAt   *time.Time
 }
+
+// MFA / TOTP secret metadata
+type MFATOTP struct {
+	UserID          string
+	SecretEncrypted string
+	ConfirmedAt     *time.Time
+	LastUsedAt      *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}

@@ -376,7 +376,7 @@ LIMIT 1`
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, core.ErrNotFound
 		}
-		log.Printf(`{"level":"error","msg":"pg_get_refresh_by_hash_err","err":"%v"}`)
+		log.Printf(`{"level":"error","msg":"pg_get_refresh_by_hash_err","err":"%v"}`, err)
 		return nil, err
 	}
 	return &rt, nil
@@ -404,4 +404,22 @@ FROM app_user WHERE id = $1 LIMIT 1`
 	}
 	u.Metadata = meta
 	return &u, nil
+}
+
+// RevokeAllRefreshTokens revoca todos los refresh de un usuario (opcionalmente filtrado por client_id).
+func (s *Store) RevokeAllRefreshTokens(ctx context.Context, userID, clientID string) error {
+	if strings.TrimSpace(clientID) == "" {
+		_, err := s.pool.Exec(ctx, `
+			UPDATE refresh_token
+			SET revoked_at = NOW()
+			WHERE user_id = $1 AND revoked_at IS NULL
+		`, userID)
+		return err
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE refresh_token
+		SET revoked_at = NOW()
+		WHERE user_id = $1 AND client_id = $2 AND revoked_at IS NULL
+	`, userID, clientID)
+	return err
 }

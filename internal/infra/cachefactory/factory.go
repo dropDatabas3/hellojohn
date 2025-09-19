@@ -12,8 +12,9 @@ import (
 type Config struct {
 	Kind  string
 	Redis struct {
-		Addr string
-		DB   int
+		Addr   string
+		DB     int
+		Prefix string
 	}
 	Memory struct{ DefaultTTL string }
 }
@@ -21,7 +22,11 @@ type Config struct {
 func Open(cfg Config) (cache.Cache, error) {
 	switch strings.ToLower(cfg.Kind) {
 	case "redis":
-		return credis.New(cfg.Redis.Addr, cfg.Redis.DB), nil
+		if c, err := credis.New(cfg.Redis.Addr, cfg.Redis.DB, cfg.Redis.Prefix); err == nil {
+			return c, nil
+		}
+		// Fallback silencioso a memoria si Redis no está disponible
+		fallthrough
 	default:
 		d, _ := time.ParseDuration(cfg.Memory.DefaultTTL)
 		if d == 0 {

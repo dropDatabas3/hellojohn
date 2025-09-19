@@ -24,6 +24,12 @@ type ForgotRateConfig struct {
 	Window time.Duration `json:"window"`
 }
 
+// MFA endpoints share a simple rate config (per endpoint)
+type MFARateConfig struct {
+	Limit  int           `json:"limit"`
+	Window time.Duration `json:"window"`
+}
+
 // --- MultiLimiter Interface ---
 
 // MultiLimiter permite usar diferentes límites por endpoint
@@ -110,5 +116,33 @@ func EnforceForgotLimit(w http.ResponseWriter, r *http.Request, lim MultiLimiter
 	email = strings.ToLower(strings.TrimSpace(email))
 	key := fmt.Sprintf("forgot:%s:%s:%s", tenantID, ip, email)
 
+	return enforceWithKey(w, r, lim, cfg.Limit, cfg.Window, key)
+}
+
+// EnforceMFAVerifyLimit aplica rate limit por usuario+IP para verificación de código
+func EnforceMFAVerifyLimit(w http.ResponseWriter, r *http.Request, lim MultiLimiter, cfg MFARateConfig, userID string) bool {
+	ip := clientIP(r)
+	key := fmt.Sprintf("mfa:verify:%s:%s", userID, ip)
+	return enforceWithKey(w, r, lim, cfg.Limit, cfg.Window, key)
+}
+
+// EnforceMFAEnrollLimit aplica rate limit por usuario+IP para enrolamiento
+func EnforceMFAEnrollLimit(w http.ResponseWriter, r *http.Request, lim MultiLimiter, cfg MFARateConfig, userID string) bool {
+	ip := clientIP(r)
+	key := fmt.Sprintf("mfa:enroll:%s:%s", userID, ip)
+	return enforceWithKey(w, r, lim, cfg.Limit, cfg.Window, key)
+}
+
+// EnforceMFAChallengeLimit aplica rate limit por usuario+IP para el challenge (mfa_token)
+func EnforceMFAChallengeLimit(w http.ResponseWriter, r *http.Request, lim MultiLimiter, cfg MFARateConfig, userID string) bool {
+	ip := clientIP(r)
+	key := fmt.Sprintf("mfa:challenge:%s:%s", userID, ip)
+	return enforceWithKey(w, r, lim, cfg.Limit, cfg.Window, key)
+}
+
+// EnforceMFADisableLimit aplica rate limit por usuario+IP para deshabilitar MFA
+func EnforceMFADisableLimit(w http.ResponseWriter, r *http.Request, lim MultiLimiter, cfg MFARateConfig, userID string) bool {
+	ip := clientIP(r)
+	key := fmt.Sprintf("mfa:disable:%s:%s", userID, ip)
 	return enforceWithKey(w, r, lim, cfg.Limit, cfg.Window, key)
 }

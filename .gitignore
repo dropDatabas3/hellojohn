@@ -9,7 +9,7 @@ codeprinter.bat
 dump_code.ps1
 dump_code_*.txt
 code_dump_*.txt
-
+seed_data.*
 
 
 # ───────── OS / Tooling ─────────
@@ -22,3 +22,5 @@ Thumbs.db
 bin/
 dist/
 coverage/
+
+security_password_blacklist.txt

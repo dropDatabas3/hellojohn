@@ -2,16 +2,30 @@ package main
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 
 	"github.com/dropDatabas3/hellojohn/internal/config"
 	"github.com/dropDatabas3/hellojohn/internal/security/password"
-	"github.com/jackc/pgx/v5/pgxpool"
+	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
+	"github.com/dropDatabas3/hellojohn/internal/security/totp"
 )
 
+// ---------- helpers env ----------
 func csvEnv(key string, def []string) []string {
 	v := strings.TrimSpace(os.Getenv(key))
 	if v == "" {
@@ -20,34 +34,106 @@ func csvEnv(key string, def []string) []string {
 	parts := strings.Split(v, ",")
 	out := make([]string, 0, len(parts))
 	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
+		if s := strings.TrimSpace(p); s != "" {
+			out = append(out, s)
 		}
 	}
 	return out
 }
-
 func strEnv(key, def string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		return v
 	}
 	return def
 }
-
+func boolEnv(key string, def bool) bool {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	switch strings.ToLower(v) {
+	case "1", "t", "true", "y", "yes":
+		return true
+	case "0", "f", "false", "n", "no":
+		return false
+	default:
+		return def
+	}
+}
 func urlEncode(s string) string {
 	r := strings.NewReplacer(":", "%3A", "/", "%2F")
 	return r.Replace(s)
 }
 
-func main() {
-	cfg, err := config.Load("configs/config.example.yaml")
-	if err != nil {
-		log.Fatalf("config: %v", err)
+func mfaIssuer() string {
+	if s := strings.TrimSpace(os.Getenv("MFA_TOTP_ISSUER")); s != "" {
+		return s
 	}
-	ctx := context.Background()
+	return "HelloJohn"
+}
 
-	pool, err := pgxpool.New(ctx, cfg.Storage.DSN)
+// ---------- AES-GCM (mismo esquema que handlers MFA) ----------
+func aesgcmEncryptMFA(plainB32 string) (string, error) {
+	k := []byte(os.Getenv("SIGNING_MASTER_KEY"))
+	// Requerimos 32 bytes para usar AES-256 de forma segura como en los handlers.
+	if len(k) < 32 {
+		return "", errors.New("SIGNING_MASTER_KEY faltante o muy corta (min 32 bytes)")
+	}
+	block, err := aes.NewCipher(k[:32])
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+	ct := gcm.Seal(nil, nonce, []byte(plainB32), nil)
+	out := append(nonce, ct...)
+	return "GCMV1-MFA:" + hex.EncodeToString(out), nil
+}
+
+// ---------- files ----------
+func mustWriteFile(path, content string) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		log.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		log.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// ---------- main ----------
+func main() {
+	// .env (opcional) - prioridad .env.dev > .env
+	_ = godotenv.Load(".env")     // base
+	_ = godotenv.Load(".env.dev") // dev overrides
+
+	// config.yaml (si está)
+	cfg, err := config.Load("configs/config.yaml")
+	if err != nil {
+		log.Printf("config: %v (se intentará usar STORAGE_DSN de env)", err)
+	}
+
+	// DSN: env > config
+	dsn := strings.TrimSpace(os.Getenv("STORAGE_DSN"))
+	if dsn == "" && cfg != nil {
+		dsn = cfg.Storage.DSN
+	}
+	if dsn == "" {
+		log.Fatal("no hay DSN (STORAGE_DSN o configs/config.yaml)")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		log.Fatalf("pgxpool: %v", err)
 	}
@@ -58,11 +144,22 @@ func main() {
 	tenantName := strEnv("SEED_TENANT_NAME", "Local Tenant")
 
 	adminEmail := strEnv("SEED_ADMIN_EMAIL", "admin@local.test")
-	adminPass := strEnv("SEED_ADMIN_PASSWORD", "supersecreta")
+	adminPass := strEnv("SEED_ADMIN_PASSWORD", "SuperS3creta!")
+
+	mfaEmail := strEnv("SEED_MFA_EMAIL", "mfa@local.test")
+	mfaPass := strEnv("SEED_MFA_PASSWORD", "CorrectHorseBatteryStaple1!")
+
+	unvEmail := strEnv("SEED_UNVERIFIED_EMAIL", "new@local.test")
+	unvPass := strEnv("SEED_UNVERIFIED_PASSWORD", "Password.1234")
 
 	clientID := strEnv("SEED_CLIENT_ID", "web-frontend")
 	clientName := strEnv("SEED_CLIENT_NAME", "Web Frontend")
 	clientType := strEnv("SEED_CLIENT_TYPE", "public") // public|confidential
+
+	backendClientEnabled := boolEnv("SEED_BACKEND_CLIENT_ENABLED", true)
+	beClientID := strEnv("SEED_BACKEND_CLIENT_ID", "backend-api")
+	beClientName := strEnv("SEED_BACKEND_CLIENT_NAME", "Backend API")
+	beClientType := strEnv("SEED_BACKEND_CLIENT_TYPE", "confidential")
 
 	allowedOrigins := csvEnv("SEED_ALLOWED_ORIGINS",
 		[]string{"http://localhost:3000", "http://127.0.0.1:3000"},
@@ -70,121 +167,369 @@ func main() {
 	redirectURIs := csvEnv("SEED_REDIRECT_URIS",
 		[]string{
 			"http://localhost:3000/callback",
-			"http://localhost:8080/v1/auth/social/result",
 		},
 	)
 	providers := csvEnv("SEED_PROVIDERS",
 		[]string{"password", "google"},
 	)
 	scopes := csvEnv("SEED_SCOPES",
-		[]string{"openid", "email", "profile"},
+		[]string{"openid", "email", "profile", "offline_access"},
 	)
+
+	// emailBase: prioridad ENV > config.yaml > default
+	emailBase := strEnv("EMAIL_BASE_URL", "")
+	if emailBase == "" && cfg != nil && strings.TrimSpace(cfg.Email.BaseURL) != "" {
+		emailBase = strings.TrimRight(cfg.Email.BaseURL, "/")
+	}
+	if emailBase == "" {
+		emailBase = strEnv("JWT_ISSUER", "http://localhost:8080")
+	}
+	emailBase = strings.TrimRight(emailBase, "/")
+
+	// Social result URL usa la misma base
+	socialResultURL := emailBase + "/v1/auth/social/result"
+	redirectURIs = append(redirectURIs, socialResultURL)
 	// ---------------------------------------------------------------------
 
-	// 1) Upsert Tenant
+	// 1) Tenant (upsert por slug)
 	var tenantID string
-	err = pool.QueryRow(ctx, `
+	if err := pool.QueryRow(ctx, `
 		INSERT INTO tenant (name, slug, settings)
 		VALUES ($1, $2, '{}'::jsonb)
-		ON CONFLICT (slug) DO UPDATE
-		  SET name = EXCLUDED.name
+		ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
 		RETURNING id
-	`, tenantName, tenantSlug).Scan(&tenantID)
-	if err != nil {
+	`, tenantName, tenantSlug).Scan(&tenantID); err != nil {
 		log.Fatalf("upsert tenant: %v", err)
 	}
-	fmt.Println("TENANT_ID:", tenantID)
 
-	// 2) Admin user + identidad password
-	phc, _ := password.Hash(password.Default, adminPass)
+	// 2) Users + identities
+	type userOut struct {
+		ID       string
+		Email    string
+		Password string
+	}
+	var admin userOut
+	var mfa userOut
+	var unv userOut
 
-	_, err = pool.Exec(ctx, `
-		INSERT INTO app_user (tenant_id, email, email_verified, status, metadata)
-		VALUES ($1, $2, true, 'active', '{}'::jsonb)
-		ON CONFLICT (tenant_id, email) DO NOTHING
-	`, tenantID, adminEmail)
-	if err != nil {
-		log.Fatalf("insert user: %v", err)
+	insUser := func(email, pwd string, verified bool) (userOut, error) {
+		phc, _ := password.Hash(password.Default, pwd)
+		// user
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO app_user (tenant_id, email, email_verified, status, metadata)
+			VALUES ($1, LOWER($2), $3, 'active', '{}'::jsonb)
+			ON CONFLICT (tenant_id, email) DO NOTHING
+		`, tenantID, email, verified); err != nil {
+			return userOut{}, fmt.Errorf("insert user %s: %w", email, err)
+		}
+		// identity: upsert y ACTUALIZAR password_hash para que sea idempotente entre corridas
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO identity (user_id, provider, email, email_verified, password_hash)
+			SELECT id, 'password', LOWER($1), $2, $3
+			FROM app_user WHERE tenant_id = $4 AND email = LOWER($1)
+			ON CONFLICT (user_id, provider)
+			DO UPDATE SET email = EXCLUDED.email,
+						  email_verified = EXCLUDED.email_verified,
+						  password_hash = EXCLUDED.password_hash
+		`, email, verified, phc, tenantID); err != nil {
+			return userOut{}, fmt.Errorf("insert identity %s: %w", email, err)
+		}
+		// id back
+		var id string
+		if err := pool.QueryRow(ctx, `
+			SELECT id FROM app_user WHERE tenant_id = $1 AND email = LOWER($2) LIMIT 1
+		`, tenantID, email).Scan(&id); err != nil {
+			return userOut{}, fmt.Errorf("select user id %s: %w", email, err)
+		}
+		return userOut{ID: id, Email: email, Password: pwd}, nil
 	}
 
-	_, err = pool.Exec(ctx, `
-		INSERT INTO identity (user_id, provider, email, email_verified, password_hash)
-		SELECT id, 'password', $1, true, $2
-		FROM app_user
-		WHERE tenant_id = $3 AND email = $1
-		ON CONFLICT DO NOTHING
-	`, adminEmail, phc, tenantID)
-	if err != nil {
-		log.Fatalf("insert identity: %v", err)
+	var e error
+	admin, e = insUser(adminEmail, adminPass, true)
+	if e != nil {
+		log.Fatal(e)
+	}
+	mfa, e = insUser(mfaEmail, mfaPass, true)
+	if e != nil {
+		log.Fatal(e)
+	}
+	unv, e = insUser(unvEmail, unvPass, false)
+	if e != nil {
+		log.Fatal(e)
 	}
 
-	// 3) Upsert Client
-	var dbClientID string
-	err = pool.QueryRow(ctx, `
-		INSERT INTO client (
-			tenant_id, name, client_id, client_type,
-			redirect_uris, allowed_origins, providers, scopes
-		)
-		VALUES ($1, $2, $3, $4, $5::text[], $6::text[], $7::text[], $8::text[])
-		ON CONFLICT (client_id) DO UPDATE SET
-			tenant_id = EXCLUDED.tenant_id,
-			name      = EXCLUDED.name,
-			client_type = EXCLUDED.client_type,
-			redirect_uris = ARRAY(
-				SELECT DISTINCT x FROM unnest(client.redirect_uris || EXCLUDED.redirect_uris) AS x
-			),
-			allowed_origins = ARRAY(
-				SELECT DISTINCT x FROM unnest(client.allowed_origins || EXCLUDED.allowed_origins) AS x
-			),
-			providers = ARRAY(
-				SELECT DISTINCT x FROM unnest(client.providers || EXCLUDED.providers) AS x
-			),
-			scopes = ARRAY(
-				SELECT DISTINCT x FROM unnest(client.scopes || EXCLUDED.scopes) AS x
+	// 3) Clients (frontend y opcional backend)
+	upsertClient := func(name, cid, ctype string) (string, error) {
+		var id string
+		err := pool.QueryRow(ctx, `
+			INSERT INTO client (
+				tenant_id, name, client_id, client_type,
+				redirect_uris, allowed_origins, providers, scopes
 			)
-		RETURNING id
-	`, tenantID, clientName, clientID, clientType, redirectURIs, allowedOrigins, providers, scopes).Scan(&dbClientID)
+			VALUES ($1, $2, $3, $4, $5::text[], $6::text[], $7::text[], $8::text[])
+			ON CONFLICT (client_id) DO UPDATE SET
+				tenant_id = EXCLUDED.tenant_id,
+				name      = EXCLUDED.name,
+				client_type = EXCLUDED.client_type,
+				redirect_uris = ARRAY(SELECT DISTINCT x FROM unnest(client.redirect_uris || EXCLUDED.redirect_uris) AS x),
+				allowed_origins = ARRAY(SELECT DISTINCT x FROM unnest(client.allowed_origins || EXCLUDED.allowed_origins) AS x),
+				providers = ARRAY(SELECT DISTINCT x FROM unnest(client.providers || EXCLUDED.providers) AS x),
+				scopes = ARRAY(SELECT DISTINCT x FROM unnest(client.scopes || EXCLUDED.scopes) AS x)
+			RETURNING id
+		`, tenantID, name, cid, ctype, redirectURIs, allowedOrigins, providers, scopes).Scan(&id)
+		return id, err
+	}
+	clientUUID, err := upsertClient(clientName, clientID, clientType)
 	if err != nil {
 		log.Fatalf("upsert client: %v", err)
 	}
 
-	// 4) Versión activa (sin múltiples sentencias en un Exec)
-	var hasActive bool
-	if err := pool.QueryRow(ctx, `SELECT active_version_id IS NOT NULL FROM client WHERE id = $1`, dbClientID).Scan(&hasActive); err != nil {
-		log.Fatalf("check active version: %v", err)
-	}
-	if !hasActive {
-		var cvID string
-		// INSERT (una sola sentencia)
-		if err := pool.QueryRow(ctx, `
-			INSERT INTO client_version (client_id, version, claim_schema_json, claim_mapping_json, crypto_config_json, status)
-			VALUES ($1, 'v1', '{}'::jsonb, '{}'::jsonb, '{"alg":"EdDSA"}'::jsonb, 'active')
-			RETURNING id
-		`, dbClientID).Scan(&cvID); err != nil {
-			log.Fatalf("insert client_version: %v", err)
-		}
-		// UPDATE (otra sentencia independiente)
-		if _, err := pool.Exec(ctx, `
-			UPDATE client SET active_version_id = $2 WHERE id = $1
-		`, dbClientID, cvID); err != nil {
-			log.Fatalf("activate client_version: %v", err)
+	var beUUID string
+	if backendClientEnabled {
+		beUUID, err = upsertClient(beClientName, beClientID, beClientType)
+		if err != nil {
+			log.Fatalf("upsert backend client: %v", err)
 		}
 	}
+
+	// 4) client_version activa si falta
+	ensureActiveVersion := func(clientDBID string) {
+		var hasActive bool
+		if err := pool.QueryRow(ctx, `SELECT active_version_id IS NOT NULL FROM client WHERE id = $1`, clientDBID).Scan(&hasActive); err != nil {
+			log.Fatalf("check active version: %v", err)
+		}
+		if !hasActive {
+			var cvID string
+			if err := pool.QueryRow(ctx, `
+				INSERT INTO client_version (client_id, version, claim_schema_json, claim_mapping_json, crypto_config_json, status)
+				VALUES ($1, 'v1', '{}'::jsonb, '{}'::jsonb, '{"alg":"EdDSA"}'::jsonb, 'active')
+				RETURNING id
+			`, clientDBID).Scan(&cvID); err != nil {
+				log.Fatalf("insert client_version: %v", err)
+			}
+			if _, err := pool.Exec(ctx, `UPDATE client SET active_version_id = $2 WHERE id = $1`, clientDBID, cvID); err != nil {
+				log.Fatalf("activate client_version: %v", err)
+			}
+		}
+	}
+	ensureActiveVersion(clientUUID)
+	if beUUID != "" {
+		ensureActiveVersion(beUUID)
+	}
+
+	// 5) MFA para user mfa@
+	//    - secreto aleatorio base32
+	//    - cifrado AES-GCM (SIGNING_MASTER_KEY)
+	//    - confirmed_at = now()
+	//    - recovery codes (hash SHA256 base64url)
+	_, b32, err := totp.GenerateSecret()
+	if err != nil {
+		log.Fatalf("totp secret: %v", err)
+	}
+	enc, err := aesgcmEncryptMFA(b32)
+	if err != nil {
+		log.Fatalf("mfa encrypt: %v", err)
+	}
+	now := time.Now().UTC()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO user_mfa_totp (user_id, secret_encrypted, confirmed_at, last_used_at)
+		VALUES ($1, $2, $3, NULL)
+		ON CONFLICT (user_id) DO UPDATE SET
+		  secret_encrypted = EXCLUDED.secret_encrypted,
+		  confirmed_at = EXCLUDED.confirmed_at,
+		  last_used_at = NULL
+	`, mfa.ID, enc, now); err != nil {
+		log.Fatalf("upsert user_mfa_totp: %v", err)
+	}
+
+	// Recovery codes
+	var recovPlain []string
+	if true {
+		for i := 0; i < 8; i++ {
+			rc, _ := tokens.GenerateOpaqueToken(12) // ~16 chars
+			recovPlain = append(recovPlain, rc)
+			h := tokens.SHA256Base64URL(rc)
+			if _, err := pool.Exec(ctx, `
+				INSERT INTO mfa_recovery_code (user_id, code_hash, used_at)
+				VALUES ($1, $2, NULL)
+				ON CONFLICT DO NOTHING
+			`, mfa.ID, h); err != nil {
+				log.Fatalf("insert recovery code: %v", err)
+			}
+		}
+	}
+
+	// 6) Email flows seeds:
+	//    - verify email token (para user unverified)
+	//    - reset password token (para admin)
+	makeToken := func() (raw string, sha []byte) {
+		t, _ := tokens.GenerateOpaqueToken(32)
+		sum := sha256.Sum256([]byte(t))
+		return t, sum[:]
+	}
+	verTok, verHash := makeToken()
+	expVer := now.Add(48 * time.Hour)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO email_verification_token (tenant_id, user_id, token_hash, sent_to, ip, user_agent, created_at, expires_at, used_at)
+		VALUES ($1,$2,$3,$4,NULL,NULL,now(),$5,NULL)
+	`, tenantID, unv.ID, verHash, unv.Email, expVer); err != nil {
+		log.Fatalf("insert email_verification_token: %v", err)
+	}
+	resetTok, resetHash := makeToken()
+	expReset := now.Add(1 * time.Hour)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO password_reset_token (tenant_id, user_id, token_hash, sent_to, ip, user_agent, created_at, expires_at, used_at)
+		VALUES ($1,$2,$3,$4,NULL,NULL,now(),$5,NULL)
+	`, tenantID, admin.ID, resetHash, admin.Email, expReset); err != nil {
+		log.Fatalf("insert password_reset_token: %v", err)
+	}
+
+	// Trusted device (recuerda MFA) para usuario mfa@
+	devToken, _ := tokens.GenerateOpaqueToken(32)
+	devHash := tokens.SHA256Base64URL(devToken)
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO trusted_device (user_id, device_hash, expires_at)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (user_id, device_hash) DO UPDATE SET expires_at = EXCLUDED.expires_at
+	`, mfa.ID, devHash, now.Add(30*24*time.Hour)); err != nil {
+		log.Fatalf("insert trusted_device: %v", err)
+	}
+
+	// OTPAuth URL para fácil escaneo
+	otpURL := totp.OTPAuthURL(mfaIssuer(), mfa.Email, b32)
+
+	// 7) Output (consola + archivos)
+	verifyURL := fmt.Sprintf("%s/v1/auth/verify-email?token=%s", emailBase, urlEncode(verTok))
+	resetURL := fmt.Sprintf("%s/reset?token=%s", emailBase, urlEncode(resetTok))
 
 	fmt.Println()
 	fmt.Println("Seed listo ✅")
 	fmt.Println("--------------------------------------------------")
-	fmt.Printf("Tenant:    %s (slug=%s)\n", tenantID, tenantSlug)
-	fmt.Printf("Admin:     %s / %s\n", adminEmail, adminPass)
-	fmt.Printf("ClientID:  %s (type=%s)\n", clientID, clientType)
-	fmt.Printf("Origins:   %v\n", allowedOrigins)
-	fmt.Printf("Redirects: %v\n", redirectURIs)
-	fmt.Printf("Providers: %v\n", providers)
-	fmt.Printf("Scopes:    %v\n", scopes)
+	fmt.Printf("Tenant:     %s (slug=%s)\n", tenantID, tenantSlug)
+	fmt.Printf("Client web: %s (id=%s, type=%s)\n", clientName, clientID, clientType)
+	if beUUID != "" {
+		fmt.Printf("Client API: %s (id=%s, type=%s)\n", beClientName, beClientID, beClientType)
+	}
 	fmt.Println("--------------------------------------------------")
-	fmt.Println("URL de prueba:")
-	fmt.Printf(
-		"http://localhost:8080/v1/auth/social/google/start?tenant_id=%s&client_id=%s&redirect_uri=%s\n",
-		tenantID, clientID, urlEncode("http://localhost:8080/v1/auth/social/result"),
+	fmt.Printf("Admin:      %s / %s\n", admin.Email, admin.Password)
+	fmt.Printf("MFA user:   %s / %s\n", mfa.Email, mfa.Password)
+	fmt.Printf("Unverified: %s / %s\n", unv.Email, unv.Password)
+	fmt.Println("--------------------------------------------------")
+	fmt.Printf("MFA secret (base32): %s\n", b32)
+	fmt.Printf("Recovery codes (%d): %v\n", len(recovPlain), recovPlain)
+	fmt.Println("--------------------------------------------------")
+	fmt.Printf("Verify link (unverified): %s\n", verifyURL)
+	fmt.Printf("Reset  link (admin):      %s\n", resetURL)
+	fmt.Println("--------------------------------------------------")
+
+	md := fmt.Sprintf(
+		"# Seed Data\n\n"+
+			"**Generated:** %s\n\n"+
+			"## Tenant\n"+
+			"- id: `%s`\n"+
+			"- slug: `%s`\n\n"+
+			"## Clients\n"+
+			"- Web: **%s**\n"+
+			"  - client_id: `%s`\n"+
+			"  - type: `%s`\n"+
+			"- Backend: **%s**\n"+
+			"  - client_id: `%s`\n"+
+			"  - type: `%s`\n\n"+
+			"## Users\n"+
+			"- **Admin**: `%s` / `%s`\n"+
+			"- **MFA**  : `%s` / `%s`\n"+
+			"  - TOTP secret (base32): `%s`\n"+
+			"  - OTPAuth URL: %s\n"+
+			"  - Recovery codes: %v\n"+
+			"  - Trusted device token: `%s`\n"+
+			"- **Unverified**: `%s` / `%s`\n\n"+
+			"## Email Flows\n"+
+			"- Verify URL (unverified): %s\n"+
+			"- Reset  URL (admin):      %s\n",
+		time.Now().Format(time.RFC3339),
+		tenantID, tenantSlug,
+		clientName, clientID, clientType,
+		beClientName, beClientID, beClientType,
+		admin.Email, admin.Password,
+		mfa.Email, mfa.Password, b32, otpURL, recovPlain, devToken,
+		unv.Email, unv.Password,
+		verifyURL, resetURL,
 	)
+
+	yaml := fmt.Sprintf(`generated: %q
+tenant:
+  id: %q
+  slug: %q
+clients:
+  web:
+    name: %q
+    client_id: %q
+    type: %q
+  backend:
+    name: %q
+    client_id: %q
+    type: %q
+users:
+  admin:
+    email: %q
+    password: %q
+  mfa:
+    email: %q
+    password: %q
+    totp_secret_base32: %q
+    otpauth_url: %q
+    recovery_codes: [%s]
+    trusted_device_token: %q
+  unverified:
+    email: %q
+    password: %q
+email_flows:
+  verify_url: %q
+  reset_url: %q
+`,
+		time.Now().Format(time.RFC3339),
+		tenantID, tenantSlug,
+		clientName, clientID, clientType,
+		beClientName, beClientID, beClientType,
+		admin.Email, admin.Password,
+		mfa.Email, mfa.Password, b32, otpURL, strings.Join(quoteAll(recovPlain), ", "), devToken,
+		unv.Email, unv.Password,
+		verifyURL, resetURL,
+	)
+
+	// Detectar si los archivos ya existen
+	mdPath := "cmd/seed/seed_data.md"
+	yamlPath := "cmd/seed/seed_data.yaml"
+
+	mdExists := fileExists(mdPath)
+	yamlExists := fileExists(yamlPath)
+
+	mustWriteFile(mdPath, md)
+	mustWriteFile(yamlPath, yaml)
+
+	if mdExists || yamlExists {
+		fmt.Println("Archivos actualizados:")
+	} else {
+		fmt.Println("Archivos generados:")
+	}
+
+	if mdExists {
+		fmt.Println(" - cmd/seed/seed_data.md (actualizado)")
+	} else {
+		fmt.Println(" - cmd/seed/seed_data.md (creado)")
+	}
+
+	if yamlExists {
+		fmt.Println(" - cmd/seed/seed_data.yaml (actualizado)")
+	} else {
+		fmt.Println(" - cmd/seed/seed_data.yaml (creado)")
+	}
+}
+
+func quoteAll(v []string) []string {
+	out := make([]string, len(v))
+	for i, s := range v {
+		out[i] = fmt.Sprintf("%q", s)
+	}
+	return out
 }

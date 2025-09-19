@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"flag"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -25,6 +27,9 @@ import (
 
 // Adapter para que rate.Limiter cumpla con http.RateLimiter
 type redisLimiterAdapter struct{ inner rate.Limiter }
+
+// Basic auth mínimo para /oauth2/introspect (endurecido via ENV)
+type basicAuthCfg struct{ user, pass string }
 
 func (a redisLimiterAdapter) Allow(ctx context.Context, key string) (struct {
 	Allowed     bool
@@ -56,6 +61,19 @@ func (a redisLimiterAdapter) Allow(ctx context.Context, key string) (struct {
 		WindowTTL:   res.WindowTTL,
 		CurrentHits: res.CurrentHits,
 	}, nil
+}
+
+// allowAllClientAuth es un validador de cliente permisivo para /oauth2/introspect (solo dev/stub)
+func (a basicAuthCfg) ValidateClientAuth(r *http.Request) (string, string, bool) {
+	u, p, ok := r.BasicAuth()
+	if !ok {
+		return "", "", false
+	}
+	if subtle.ConstantTimeCompare([]byte(u), []byte(a.user)) == 1 &&
+		subtle.ConstantTimeCompare([]byte(p), []byte(a.pass)) == 1 {
+		return "", "", true
+	}
+	return "", "", false
 }
 
 func fileExists(p string) bool {
@@ -170,6 +188,10 @@ func loadConfigFromEnv() *config.Config {
 	// --- Flags ---
 	c.Flags.Migrate = getenvBool("FLAGS_MIGRATE", true)
 
+	// --- Introspection Basic Auth (mínimo endurecido) ---
+	c.Auth.IntrospectBasicUser = getenv("INTROSPECT_BASIC_USER", "")
+	c.Auth.IntrospectBasicPass = getenv("INTROSPECT_BASIC_PASS", "")
+
 	// --- SMTP ---
 	c.SMTP.Host = getenv("SMTP_HOST", "smtp.gmail.com")
 	c.SMTP.Port = getenvInt("SMTP_PORT", 587)
@@ -275,7 +297,7 @@ func printConfigSummary(c *config.Config) {
 
 func main() {
 	var (
-		flagConfigPath = flag.String("config", "", "ruta a config.yaml (fallback: $CONFIG_PATH o configs/config.example.yaml)")
+		flagConfigPath = flag.String("config", "", "ruta a config.yaml (fallback: $CONFIG_PATH o configs/config.yaml)")
 		flagEnvOnly    = flag.Bool("env", false, "usar SOLO env (y .env si se pasa -env-file)")
 		flagEnvFile    = flag.String("env-file", ".env", "ruta a .env (si existe, se carga)")
 		flagPrint      = flag.Bool("print-config", false, "imprime config efectiva y termina")
@@ -316,6 +338,11 @@ func main() {
 	if *flagPrint {
 		printConfigSummary(cfg)
 		return
+	}
+
+	// D) Hard check de SIGNING_MASTER_KEY (requerimos >=32 bytes para AES-256-GCM de secretos MFA y claves privadas opcionales)
+	if k := strings.TrimSpace(os.Getenv("SIGNING_MASTER_KEY")); len(k) < 32 {
+		log.Fatal("SIGNING_MASTER_KEY faltante o muy corta: se requieren >=32 bytes")
 	}
 
 	ctx := context.Background()
@@ -385,11 +412,13 @@ func main() {
 	cc, err := cachefactory.Open(cachefactory.Config{
 		Kind: cfg.Cache.Kind,
 		Redis: struct {
-			Addr string
-			DB   int
+			Addr   string
+			DB     int
+			Prefix string
 		}{
-			Addr: cfg.Cache.Redis.Addr,
-			DB:   cfg.Cache.Redis.DB,
+			Addr:   cfg.Cache.Redis.Addr,
+			DB:     cfg.Cache.Redis.DB,
+			Prefix: cfg.Cache.Redis.Prefix,
 		},
 		Memory: struct{ DefaultTTL string }{
 			DefaultTTL: cfg.Cache.Memory.DefaultTTL,
@@ -416,6 +445,13 @@ func main() {
 	authRefreshHandler := handlers.NewAuthRefreshHandler(&container, refreshTTL)
 	authLogoutHandler := handlers.NewAuthLogoutHandler(&container)
 	meHandler := handlers.NewMeHandler(&container)
+
+	// Sprint 5 nuevos handlers
+	authLogoutAllHandler := handlers.NewAuthLogoutAllHandler(&container)
+
+	// Introspect endurecido con basic auth (si user/pass vacíos ⇒ siempre 401)
+	introspectAuth := basicAuthCfg{user: strings.TrimSpace(cfg.Auth.IntrospectBasicUser), pass: strings.TrimSpace(cfg.Auth.IntrospectBasicPass)}
+	oauthIntrospectHandler := handlers.NewOAuthIntrospectHandler(&container, introspectAuth)
 
 	var limiter httpserver.RateLimiter
 	var multiLimiter *rate.LimiterPoolAdapter // Nuevo: para rate limits específicos
@@ -482,7 +518,18 @@ func main() {
 		defer googleCleanup()
 	}
 
-	// Mux base (función no-variádica)
+	// MFA TOTP handlers (si store soporta) – se registran siempre; retornarán 501 si no hay soporte
+	mfa := handlers.NewMFAHandler(&container, cfg, refreshTTL)
+	mfaEnrollHandler := mfa.HTTPEnroll()
+	mfaVerifyHandler := mfa.HTTPVerify()
+	mfaChallengeHandler := mfa.HTTPChallenge()
+	mfaDisableHandler := mfa.HTTPDisable()
+	mfaRecoveryRotateHandler := mfa.HTTPRecoveryRotate()
+
+	// Social exchange (intercambio de código efímero -> tokens)
+	socialExchangeHandler := handlers.NewSocialExchangeHandler(&container)
+
+	// Mux base ampliado (incluye sprint 5 + MFA + social exchange)
 	mux := httpserver.NewMux(
 		jwksHandler,
 		authLoginHandler,
@@ -502,6 +549,17 @@ func main() {
 		verifyEmailConfirmHandler,
 		forgotHandler,
 		resetHandler,
+		// sprint 5
+		oauthIntrospectHandler,
+		authLogoutAllHandler,
+		// mfa
+		mfaEnrollHandler,
+		mfaVerifyHandler,
+		mfaChallengeHandler,
+		mfaDisableHandler,
+		mfaRecoveryRotateHandler,
+		// social exchange
+		socialExchangeHandler,
 	)
 
 	// Rutas Google (solo si está habilitado)

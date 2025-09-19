@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -382,6 +383,14 @@ func (h *EmailFlowsHandler) reset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf(`{"level":"info","msg":"reset_token_ok","request_id":"%s","tenant_id":"%s","user_id":"%s"}`, rid, tenantID, userID)
+
+	// Blacklist opcional (SECURITY_PASSWORD_BLACKLIST_PATH)
+	if p := strings.TrimSpace(os.Getenv("SECURITY_PASSWORD_BLACKLIST_PATH")); p != "" {
+		if bl, err := password.GetCachedBlacklist(p); err == nil && bl.Contains(in.NewPassword) {
+			writeErr(w, "policy_violation", "password no permitido por política", http.StatusBadRequest)
+			return
+		}
+	}
 
 	phash, err := password.Hash(password.Default, in.NewPassword)
 	if err != nil {

@@ -1,0 +1,125 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>OAuth Callback Handler</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        pre {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 15px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .info {
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 4px;
+            color: #155724;
+        }
+        .warning {
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 4px;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>OAuth Callback Handler</h1>
+        <div id="info" class="info" style="display: none;">
+            This page captures OAuth callback parameters for testing and debugging purposes.
+        </div>
+        <div id="warning" class="warning" style="display: none;">
+            No OAuth parameters detected in the URL.
+        </div>
+        <h3>Captured Parameters:</h3>
+        <pre id="output"></pre>
+    </div>
+
+    <script>
+        try {
+            // Parse query parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const queryParams = Object.fromEntries(urlParams.entries());
+
+            // Parse hash parameters (for implicit flow)
+            const hashParams = new URLSearchParams(window.location.hash.slice(1));
+            const hashValues = Object.fromEntries(hashParams.entries());
+
+            // Collect all data
+            const callbackData = {
+                url: window.location.href,
+                timestamp: new Date().toISOString(),
+                query: queryParams,
+                hash: hashValues,
+                referrer: document.referrer || 'N/A'
+            };
+
+            // Display the data
+            document.getElementById('output').textContent = JSON.stringify(callbackData, null, 2);
+
+            // Show appropriate message
+            const hasParams = Object.keys(queryParams).length > 0 || Object.keys(hashValues).length > 0;
+            if (hasParams) {
+                document.getElementById('info').style.display = 'block';
+                
+                // Log important OAuth parameters
+                const importantParams = ['code', 'state', 'error', 'access_token', 'id_token'];
+                const foundParams = [];
+                
+                importantParams.forEach(param => {
+                    if (queryParams[param] || hashValues[param]) {
+                        foundParams.push(param);
+                    }
+                });
+
+                if (foundParams.length > 0) {
+                    console.log('OAuth callback detected with parameters:', foundParams);
+                }
+            } else {
+                document.getElementById('warning').style.display = 'block';
+            }
+
+            // Auto-copy code parameter if present (for testing convenience)
+            const code = queryParams.code || hashValues.code;
+            if (code && navigator.clipboard) {
+                navigator.clipboard.writeText(code).then(() => {
+                    console.log('Authorization code copied to clipboard:', code);
+                }).catch(err => {
+                    console.log('Could not copy to clipboard:', err);
+                });
+            }
+
+        } catch (error) {
+            document.getElementById('output').textContent = 'Error processing callback: ' + error.message;
+            document.getElementById('warning').style.display = 'block';
+            console.error('Callback processing error:', error);
+        }
+    </script>
+</body>
+</html>

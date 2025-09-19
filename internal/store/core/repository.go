@@ -38,7 +38,21 @@ type Repository interface {
 	CreateRefreshToken(ctx context.Context, userID, clientID, tokenHash string, expiresAt time.Time, rotatedFrom *string) (string, error)
 	GetRefreshTokenByHash(ctx context.Context, tokenHash string) (*RefreshToken, error)
 	RevokeRefreshToken(ctx context.Context, id string) error
+	// Revoke all refresh tokens for a user (optionally filtered by clientID when non-empty)
+	RevokeAllRefreshTokens(ctx context.Context, userID, clientID string) error
 
 	// Sprint 2: necesario para /userinfo
 	GetUserByID(ctx context.Context, userID string) (*User, error)
+
+	// --- MFA / TOTP & Trusted Devices ---
+	UpsertMFATOTP(ctx context.Context, userID string, secretEnc string) error
+	ConfirmMFATOTP(ctx context.Context, userID string, at time.Time) error
+	GetMFATOTP(ctx context.Context, userID string) (*MFATOTP, error)
+	UpdateMFAUsedAt(ctx context.Context, userID string, at time.Time) error
+	DisableMFATOTP(ctx context.Context, userID string) error
+	InsertRecoveryCodes(ctx context.Context, userID string, hashes []string) error
+	DeleteRecoveryCodes(ctx context.Context, userID string) error
+	UseRecoveryCode(ctx context.Context, userID string, hash string, at time.Time) (bool, error)
+	AddTrustedDevice(ctx context.Context, userID string, deviceHash string, exp time.Time) error
+	IsTrustedDevice(ctx context.Context, userID string, deviceHash string, now time.Time) (bool, error)
 }

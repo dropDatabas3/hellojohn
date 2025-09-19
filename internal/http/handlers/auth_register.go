@@ -3,6 +3,7 @@ package handlers
 import (
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -77,6 +78,14 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			return
 		}
 
+		// Blacklist opcional (SECURITY_PASSWORD_BLACKLIST_PATH) usando cache global
+		if p := strings.TrimSpace(os.Getenv("SECURITY_PASSWORD_BLACKLIST_PATH")); p != "" {
+			if bl, err := password.GetCachedBlacklist(p); err == nil && bl.Contains(req.Password) {
+				httpx.WriteError(w, http.StatusBadRequest, "policy_violation", "password no permitido por política", 2401)
+				return
+			}
+		}
+
 		phc, err := password.Hash(password.Default, req.Password)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "hash_failed", "no se pudo hashear el password", 1200)
@@ -116,6 +125,7 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 		std := map[string]any{
 			"tid": req.TenantID,
 			"amr": []string{"pwd"},
+			"acr": "urn:hellojohn:loa:1",
 		}
 		custom := map[string]any{}
 
