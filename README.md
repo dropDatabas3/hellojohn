@@ -82,7 +82,9 @@ flowchart LR
   API --> H[Handlers /v1/* /oauth2/*]
   H --> Issuer[JWT Issuer]
   H --> Store[(Postgres)]
-  H --> Cache[(Redis|Memory)]
+  H --> Cache[(Cache)]
+  Cache --- CNote
+  CNote["Redis o Memory (configurable)"]
   H --> Email[SMTP + Templates]
   H --> Rate[Redis Limiter]
   Issuer --> Keystore[(signing_keys)]
