@@ -82,7 +82,10 @@ func TestMain(m *testing.M) {
 	// 4.6) Password blacklist path (ensure we test rejection)
 	if os.Getenv("SECURITY_PASSWORD_BLACKLIST_PATH") == "" {
 		if root, err := findRepoRoot(); err == nil {
-			_ = os.Setenv("SECURITY_PASSWORD_BLACKLIST_PATH", root+"/security_password_blacklist.txt")
+			candidate := filepath.Join(root, "configs", "password_blacklist.txt")
+			if _, err := os.Stat(candidate); err == nil {
+				_ = os.Setenv("SECURITY_PASSWORD_BLACKLIST_PATH", candidate)
+			}
 		}
 	}
 

@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -145,6 +146,7 @@ type Config struct {
 			RequireDigit  bool `yaml:"require_digit"`
 			RequireSymbol bool `yaml:"require_symbol"`
 		} `yaml:"password_policy"`
+		PasswordBlacklistPath string `yaml:"password_blacklist_path"`
 	} `yaml:"security"`
 
 	// ───────── Social Login Providers ─────────
@@ -326,6 +328,14 @@ func Load(path string) (*Config, error) {
 	// Guardia dura: en prod NUNCA exponemos los links por headers.
 	if strings.EqualFold(c.App.Env, "prod") {
 		c.Email.DebugEchoLinks = false
+	}
+
+	// Normalizar ruta de blacklist (si relativa) respecto al directorio del YAML
+	if p := strings.TrimSpace(c.Security.PasswordBlacklistPath); p != "" {
+		if !filepath.IsAbs(p) {
+			base := filepath.Dir(path)
+			c.Security.PasswordBlacklistPath = filepath.Clean(filepath.Join(base, p))
+		}
 	}
 
 	return &c, nil
@@ -580,6 +590,9 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v, ok := getEnvBool("SECURITY_PASSWORD_POLICY_REQUIRE_SYMBOL"); ok {
 		c.Security.PasswordPolicy.RequireSymbol = v
+	}
+	if v, ok := getEnvStr("SECURITY_PASSWORD_BLACKLIST_PATH"); ok {
+		c.Security.PasswordBlacklistPath = strings.TrimSpace(v)
 	}
 
 	// ───── Providers (Social) ─────

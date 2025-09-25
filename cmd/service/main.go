@@ -212,6 +212,7 @@ func loadConfigFromEnv() *config.Config {
 	c.Security.PasswordPolicy.RequireLower = getenvBool("SECURITY_PASSWORD_POLICY_REQUIRE_LOWER", true)
 	c.Security.PasswordPolicy.RequireDigit = getenvBool("SECURITY_PASSWORD_POLICY_REQUIRE_DIGIT", true)
 	c.Security.PasswordPolicy.RequireSymbol = getenvBool("SECURITY_PASSWORD_POLICY_REQUIRE_SYMBOL", false)
+	c.Security.PasswordBlacklistPath = getenv("SECURITY_PASSWORD_BLACKLIST_PATH", c.Security.PasswordBlacklistPath)
 
 	// --- Providers / Social (ENV-only mode) ---
 	// Login code TTL
@@ -280,6 +281,7 @@ func printConfigSummary(c *config.Config) {
   providers(login_code_ttl=%s)   // NUEVO
 
   pwd_policy(min=%d, upper=%t, lower=%t, digit=%t, symbol=%t)
+	password_blacklist_path=%s
 `,
 		c.Server.Addr, c.Server.CORSAllowedOrigins,
 		c.Storage.Driver, c.Storage.DSN,
@@ -292,6 +294,7 @@ func printConfigSummary(c *config.Config) {
 		c.Email.BaseURL, c.Email.TemplatesDir, c.Email.DebugEchoLinks,
 		c.Providers.LoginCodeTTL,
 		c.Security.PasswordPolicy.MinLength, c.Security.PasswordPolicy.RequireUpper, c.Security.PasswordPolicy.RequireLower, c.Security.PasswordPolicy.RequireDigit, c.Security.PasswordPolicy.RequireSymbol,
+		c.Security.PasswordBlacklistPath,
 	)
 }
 
@@ -347,8 +350,8 @@ func main() {
 
 	ctx := context.Background()
 
-	// Store (multi-DB)
-	repo, err := store.Open(ctx, store.Config{
+	// ───── Store compuesto (repo principal + scopes/consents opcional) ─────
+	stores, err := store.OpenStores(ctx, store.Config{
 		Driver: cfg.Storage.Driver,
 		DSN:    cfg.Storage.DSN,
 		Postgres: struct {
@@ -365,6 +368,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("store open: %v", err)
 	}
+	// Para compatibilidad, usamos repo := stores.Repository
+	repo := stores.Repository
+	// Aseguramos cierre ordenado del pool extra (si existe)
+	defer func() {
+		// Si más adelante Container se crea antes, también se podría defer container.Close()
+		if stores.Close != nil {
+			_ = stores.Close()
+		}
+	}()
 
 	// Migraciones
 	if cfg.Flags.Migrate {
@@ -429,10 +441,14 @@ func main() {
 	}
 
 	container := app.Container{
-		Store:  repo,
-		Issuer: issuer,
-		Cache:  cc,
+		Store:          repo, // repo principal
+		Issuer:         issuer,
+		Cache:          cc,
+		Stores:         stores,                // wrapper (incluye Close opcional)
+		ScopesConsents: stores.ScopesConsents, // puede ser nil si driver != postgres
 	}
+	// Si preferís, podés delegar el cierre al contenedor:
+	// defer container.Close()
 
 	sessionTTL, _ := time.ParseDuration(cfg.Auth.Session.TTL)
 	if sessionTTL == 0 {
@@ -441,13 +457,38 @@ func main() {
 
 	jwksHandler := handlers.NewJWKSHandler(&container)
 	authLoginHandler := handlers.NewAuthLoginHandler(&container, cfg, refreshTTL)
-	authRegisterHandler := handlers.NewAuthRegisterHandler(&container, cfg.Register.AutoLogin, refreshTTL)
+	authRegisterHandler := handlers.NewAuthRegisterHandler(&container, cfg.Register.AutoLogin, refreshTTL, cfg.Security.PasswordBlacklistPath)
 	authRefreshHandler := handlers.NewAuthRefreshHandler(&container, refreshTTL)
 	authLogoutHandler := handlers.NewAuthLogoutHandler(&container)
 	meHandler := handlers.NewMeHandler(&container)
 
-	// Sprint 5 nuevos handlers
 	authLogoutAllHandler := handlers.NewAuthLogoutAllHandler(&container)
+
+	// Protegemos todas las rutas /v1/admin/* con RequireAuth + RequireSysAdmin
+
+	adminScopes := httpserver.Chain(
+		handlers.NewAdminScopesHandler(&container),
+		httpserver.RequireAuth(container.Issuer),
+		httpserver.RequireSysAdmin(container.Issuer))
+	adminConsents := httpserver.Chain(
+		handlers.NewAdminConsentsHandler(&container),
+		httpserver.RequireAuth(container.Issuer),
+		httpserver.RequireSysAdmin(container.Issuer))
+	adminClients := httpserver.Chain(
+		handlers.NewAdminClientsHandler(&container),
+		httpserver.RequireAuth(container.Issuer),
+		httpserver.RequireSysAdmin(container.Issuer))
+	// ─── RBAC Admin ───
+	adminRBACUsers := httpserver.Chain(
+		handlers.AdminRBACUsersRolesHandler(&container),
+		httpserver.RequireAuth(container.Issuer),
+		httpserver.RequireSysAdmin(container.Issuer),
+	)
+	adminRBACRoles := httpserver.Chain(
+		handlers.AdminRBACRolePermsHandler(&container),
+		httpserver.RequireAuth(container.Issuer),
+		httpserver.RequireSysAdmin(container.Issuer),
+	)
 
 	// Introspect endurecido con basic auth (si user/pass vacíos ⇒ siempre 401)
 	introspectAuth := basicAuthCfg{user: strings.TrimSpace(cfg.Auth.IntrospectBasicUser), pass: strings.TrimSpace(cfg.Auth.IntrospectBasicPass)}
@@ -482,6 +523,7 @@ func main() {
 	oauthAuthorizeHandler := handlers.NewOAuthAuthorizeHandler(&container, cfg.Auth.Session.CookieName, cfg.Auth.AllowBearerSession)
 	oauthTokenHandler := handlers.NewOAuthTokenHandler(&container, refreshTTL)
 	userInfoHandler := handlers.NewUserInfoHandler(&container)
+	consentAcceptHandler := handlers.NewConsentAcceptHandler(&container)
 
 	oauthRevokeHandler := handlers.NewOAuthRevokeHandler(&container)
 	sessionLoginHandler := handlers.NewSessionLoginHandler(
@@ -542,9 +584,12 @@ func main() {
 		oauthAuthorizeHandler,
 		oauthTokenHandler,
 		userInfoHandler,
+		// Adicionales (orden debe coincidir con firma NewMux: oauthRevoke, sessionLogin, sessionLogout, consentAccept)
 		oauthRevokeHandler,
 		sessionLoginHandler,
 		sessionLogoutHandler,
+		consentAcceptHandler,
+		// Email flows
 		verifyEmailStartHandler,
 		verifyEmailConfirmHandler,
 		forgotHandler,
@@ -560,6 +605,13 @@ func main() {
 		mfaRecoveryRotateHandler,
 		// social exchange
 		socialExchangeHandler,
+
+		// admin
+		adminScopes,
+		adminConsents,
+		adminClients,
+		adminRBACUsers,
+		adminRBACRoles,
 	)
 
 	// Rutas Google (solo si está habilitado)

@@ -16,6 +16,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/config"
 	"github.com/dropDatabas3/hellojohn/internal/email"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
+	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/rate"
 	"github.com/dropDatabas3/hellojohn/internal/security/password"
@@ -82,6 +83,20 @@ func (ti tokenIssuerAdapter) IssueTokens(w http.ResponseWriter, r *http.Request,
 
 	std := map[string]any{"tid": tenantID.String(), "amr": []string{"reset"}}
 	custom := map[string]any{}
+	// Hook + SYS namespace (Fase 2)
+	std, custom = applyAccessClaimsHook(r.Context(), ti.c, tenantID.String(), clientID, userID.String(), []string{}, []string{"reset"}, std, custom)
+	if u, err := ti.c.Store.GetUserByID(r.Context(), userID.String()); err == nil && u != nil {
+		type rbacReader interface {
+			GetUserRoles(ctx context.Context, userID string) ([]string, error)
+			GetUserPermissions(ctx context.Context, userID string) ([]string, error)
+		}
+		var roles, perms []string
+		if rr, ok := ti.c.Store.(rbacReader); ok {
+			roles, _ = rr.GetUserRoles(r.Context(), userID.String())
+			perms, _ = rr.GetUserPermissions(r.Context(), userID.String())
+		}
+		custom = helpers.PutSystemClaimsV2(custom, ti.c.Issuer.Iss, u.Metadata, roles, perms)
+	}
 
 	access, exp, err := ti.c.Issuer.IssueAccess(userID.String(), clientID, std, custom)
 	if err != nil {
@@ -258,6 +273,12 @@ func BuildEmailFlowHandlers(
 		ResetTTL:       cfg.Auth.Reset.TTL,
 		AutoLoginReset: cfg.Auth.Reset.AutoLogin,
 		DebugEchoLinks: cfg.Email.DebugEchoLinks,
+		BlacklistPath:  cfg.Security.PasswordBlacklistPath,
+	}
+	if strings.TrimSpace(cfg.Security.PasswordBlacklistPath) != "" {
+		log.Printf(`{"level":"info","msg":"email_wiring_blacklist","path":"%s"}`, cfg.Security.PasswordBlacklistPath)
+	} else {
+		log.Printf(`{"level":"info","msg":"email_wiring_blacklist","path":"(empty)"}`)
 	}
 	log.Printf(`{"level":"info","msg":"email_wiring_ready","base_url":"%s","verify_ttl":"%s","reset_ttl":"%s","autologin":%t,"debug_links":%t}`,
 		ef.BaseURL, ef.VerifyTTL, ef.ResetTTL, ef.AutoLoginReset, ef.DebugEchoLinks)

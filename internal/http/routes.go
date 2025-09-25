@@ -6,6 +6,7 @@ import (
 )
 
 func NewMux(
+	// Core / health
 	jwksHandler stdhttp.Handler,
 	authLoginHandler stdhttp.Handler,
 	authRegisterHandler stdhttp.Handler,
@@ -20,10 +21,11 @@ func NewMux(
 	oauthToken stdhttp.Handler,
 	userInfo stdhttp.Handler,
 
-	// NUEVOS
+	// Adicionales
 	oauthRevoke stdhttp.Handler,
 	sessionLogin stdhttp.Handler,
 	sessionLogout stdhttp.Handler,
+	consentAccept stdhttp.Handler, // POST /v1/auth/consent/accept
 
 	// Email Flows
 	verifyEmailStartHandler stdhttp.Handler, // POST /v1/auth/verify-email/start
@@ -31,7 +33,7 @@ func NewMux(
 	forgotHandler stdhttp.Handler, // POST /v1/auth/forgot
 	resetHandler stdhttp.Handler, // POST /v1/auth/reset
 
-	// Sprint 5 (nuevos)
+	// OAuth2 introspection
 	oauthIntrospect stdhttp.Handler, // POST /oauth2/introspect
 	authLogoutAll stdhttp.Handler, // POST /v1/auth/logout-all
 
@@ -44,14 +46,26 @@ func NewMux(
 
 	// Social exchange
 	socialExchange stdhttp.Handler, // POST /v1/auth/social/exchange
+
+	// ─── Admin clásicos ───
+	adminScopes stdhttp.Handler,
+	adminConsents stdhttp.Handler,
+	adminClients stdhttp.Handler,
+
+	// ─── Admin RBAC (NEW) ───
+	adminRBACUsers stdhttp.Handler, // /v1/admin/rbac/users/{userID}/roles (GET/POST)
+	adminRBACRoles stdhttp.Handler, // /v1/admin/rbac/roles/{role}/perms (GET/POST)
 ) *stdhttp.ServeMux {
 	mux := stdhttp.NewServeMux()
 
+	// Health
 	mux.HandleFunc("/healthz", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		w.WriteHeader(200)
 		_, _ = w.Write([]byte("ok"))
 	})
 	mux.Handle("/readyz", readyz)
+
+	// JWKS
 	mux.Handle("/.well-known/jwks.json", jwksHandler)
 
 	// OIDC Discovery
@@ -61,24 +75,27 @@ func NewMux(
 	mux.Handle("/oauth2/authorize", oauthAuthorize)
 	mux.Handle("/oauth2/token", oauthToken)
 	mux.Handle("/oauth2/revoke", oauthRevoke)
-	mux.Handle("/oauth2/introspect", oauthIntrospect) // NUEVO
+	mux.Handle("/oauth2/introspect", oauthIntrospect)
 	mux.Handle("/userinfo", userInfo)
 
-	// Autenticación clásica
+	// Auth “clásica”
 	mux.Handle("/v1/auth/login", authLoginHandler)
 	mux.Handle("/v1/auth/register", authRegisterHandler)
 	mux.Handle("/v1/auth/refresh", authRefreshHandler)
 	mux.Handle("/v1/auth/logout", authLogoutHandler)
 	mux.Handle("/v1/me", meHandler)
 
-	// Logout all (revocación masiva)
-	mux.Handle("/v1/auth/logout-all", authLogoutAll) // NUEVO
+	// Logout all
+	mux.Handle("/v1/auth/logout-all", authLogoutAll)
 
-	// Sesión por cookie (para /oauth2/authorize)
+	// Cookie session para /oauth2/authorize
 	mux.Handle("/v1/session/login", sessionLogin)
 	mux.Handle("/v1/session/logout", sessionLogout)
 
-	// Email Flows
+	// Consent (SPA/automatizable; sin rol admin)
+	mux.Handle("/v1/auth/consent/accept", consentAccept)
+
+	// Email flows
 	mux.Handle("/v1/auth/verify-email/start", verifyEmailStartHandler) // POST
 	mux.Handle("/v1/auth/verify-email", verifyEmailConfirmHandler)     // GET
 	mux.Handle("/v1/auth/forgot", forgotHandler)                       // POST
@@ -94,7 +111,27 @@ func NewMux(
 	// Social exchange
 	mux.Handle("/v1/auth/social/exchange", socialExchange)
 
-	// Debug: inspeccionar login_code almacenado (solo si SOCIAL_DEBUG_LOG=1)
+	// ─── Admin Scopes ───
+	mux.Handle("/v1/admin/scopes", adminScopes)
+	mux.Handle("/v1/admin/scopes/", adminScopes) // para DELETE con path param
+
+	// ─── Admin Consents ───
+	mux.Handle("/v1/admin/consents", adminConsents)
+	mux.Handle("/v1/admin/consents/", adminConsents)
+	mux.Handle("/v1/admin/consents/by-user", adminConsents)
+	mux.Handle("/v1/admin/consents/by-user/", adminConsents)
+
+	// ─── Admin Clients ───
+	mux.Handle("/v1/admin/clients", adminClients)
+	mux.Handle("/v1/admin/clients/", adminClients)
+
+	// ─── Admin RBAC (NEW) ───
+	// GET/POST /v1/admin/rbac/users/{userID}/roles
+	mux.Handle("/v1/admin/rbac/users/", adminRBACUsers)
+	// GET/POST /v1/admin/rbac/roles/{role}/perms
+	mux.Handle("/v1/admin/rbac/roles/", adminRBACRoles)
+
+	// Debug social (sólo si SOCIAL_DEBUG_LOG=1)
 	mux.HandleFunc("/v1/auth/social/debug/code", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		if os.Getenv("SOCIAL_DEBUG_LOG") != "1" {
 			w.WriteHeader(404)
@@ -110,7 +147,6 @@ func NewMux(
 			_, _ = w.Write([]byte("missing code"))
 			return
 		}
-		// Falta wiring del cache aquí; endpoint placeholder.
 		_, _ = w.Write([]byte("cache introspection no implementada en este scope"))
 	})
 

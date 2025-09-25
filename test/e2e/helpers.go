@@ -147,6 +147,11 @@ func mustLoadSeedYAML() (*seedData, error) {
 	if err := yaml.Unmarshal(b, &s); err != nil {
 		return nil, err
 	}
+	// Backward compatibility: some seed files used 'sub' instead of 'id' for admin user
+	if s.Users.Admin.ID == "" && s.Users.Admin.Sub != "" {
+		// normalize
+		s.Users.Admin.ID = s.Users.Admin.Sub
+	}
 	return &s, nil
 }
 

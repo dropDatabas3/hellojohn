@@ -2,13 +2,13 @@ package helpers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 
-	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/rate"
 )
 
@@ -38,7 +38,7 @@ type MultiLimiter interface {
 	AllowWithLimits(ctx context.Context, key string, limit int, window time.Duration) (rate.Result, error)
 }
 
-// --- IP Extraction (reutiliza lógica de middleware.go) ---
+// --- IP Extraction (igual que en middleware) ---
 
 func clientIP(r *http.Request) string {
 	if xf := r.Header.Get("X-Forwarded-For"); xf != "" {
@@ -50,6 +50,23 @@ func clientIP(r *http.Request) string {
 		return host
 	}
 	return r.RemoteAddr
+}
+
+// --- Respuesta de error JSON mínima (para evitar importar internal/http) ---
+
+func writeJSONError(w http.ResponseWriter, status int, code, desc string, appCode int) {
+	type payload struct {
+		Error            string `json:"error"`
+		ErrorDescription string `json:"error_description,omitempty"`
+		ErrorCode        int    `json:"error_code,omitempty"`
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload{
+		Error:            code,
+		ErrorDescription: desc,
+		ErrorCode:        appCode,
+	})
 }
 
 // --- Headers estándar completos ---
@@ -78,7 +95,7 @@ func enforceWithKey(w http.ResponseWriter, r *http.Request, lim MultiLimiter, li
 		return true
 	}
 
-	// Calcular resetAt basado en window truncation (misma lógica que RedisLimiter)
+	// Calcular resetAt basado en window truncation
 	now := time.Now().UTC()
 	windowStart := now.Truncate(window)
 	resetAt := windowStart.Add(window)
@@ -95,7 +112,7 @@ func enforceWithKey(w http.ResponseWriter, r *http.Request, lim MultiLimiter, li
 	}
 
 	setRateHeaders(w, limit, 0, resetAt, &retryAfter)
-	httpx.WriteError(w, http.StatusTooManyRequests, "rate_limited", "demasiadas solicitudes", 1401)
+	writeJSONError(w, http.StatusTooManyRequests, "rate_limited", "demasiadas solicitudes", 1401)
 	return false
 }
 

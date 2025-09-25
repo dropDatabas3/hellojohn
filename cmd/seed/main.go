@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,10 +61,8 @@ func boolEnv(key string, def bool) bool {
 		return def
 	}
 }
-func urlEncode(s string) string {
-	r := strings.NewReplacer(":", "%3A", "/", "%2F")
-	return r.Replace(s)
-}
+
+// urlEncode removido: se usa url.QueryEscape directamente
 
 func mfaIssuer() string {
 	if s := strings.TrimSpace(os.Getenv("MFA_TOTP_ISSUER")); s != "" {
@@ -74,10 +73,14 @@ func mfaIssuer() string {
 
 // ---------- AES-GCM (mismo esquema que handlers MFA) ----------
 func aesgcmEncryptMFA(plainB32 string) (string, error) {
-	k := []byte(os.Getenv("SIGNING_MASTER_KEY"))
-	// Requerimos 32 bytes para usar AES-256 de forma segura como en los handlers.
+	// Preferir clave dedicada; fallback a SIGNING_MASTER_KEY por compat retro.
+	k := []byte(os.Getenv("MFA_ENC_KEY"))
 	if len(k) < 32 {
-		return "", errors.New("SIGNING_MASTER_KEY faltante o muy corta (min 32 bytes)")
+		k = []byte(os.Getenv("SIGNING_MASTER_KEY"))
+	}
+	// Requerimos 32 bytes (AES-256) siempre.
+	if len(k) < 32 {
+		return "", errors.New("MFA_ENC_KEY (o SIGNING_MASTER_KEY) faltante o muy corta (min 32 bytes)")
 	}
 	block, err := aes.NewCipher(k[:32])
 	if err != nil {
@@ -398,9 +401,131 @@ func main() {
 	// OTPAuth URL para fácil escaneo
 	otpURL := totp.OTPAuthURL(mfaIssuer(), mfa.Email, b32)
 
+	// ───────────────────────── RBAC (seed) ─────────────────────────
+	rbacRoles := map[string][]string{
+		"sys:admin": {"rbac:read", "rbac:write", "clients:read", "clients:write", "scopes:read", "scopes:write", "consents:read", "consents:write"},
+		"admin":     {"rbac:read", "rbac:write"},
+		"viewer":    {"rbac:read"},
+	}
+	roleDesc := map[string]string{
+		"sys:admin": "System administrator",
+		"admin":     "Tenant administrator",
+		"viewer":    "Read only",
+	}
+	permDesc := map[string]string{
+		"rbac:read":      "Read RBAC resources",
+		"rbac:write":     "Write RBAC resources",
+		"clients:read":   "Read clients",
+		"clients:write":  "Write clients",
+		"scopes:read":    "Read scopes",
+		"scopes:write":   "Write scopes",
+		"consents:read":  "Read consents",
+		"consents:write": "Write consents",
+	}
+
+	norm := func(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+
+	upsertRole := func(role, desc string) error {
+		_, err := pool.Exec(ctx, `
+			INSERT INTO rbac_role (tenant_id, role, description)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (tenant_id, role) DO UPDATE
+			  SET description = EXCLUDED.description
+		`, tenantID, role, desc)
+		return err
+	}
+	upsertPerm := func(perm, desc string) error {
+		_, err := pool.Exec(ctx, `
+			INSERT INTO rbac_perm (tenant_id, perm, description)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (tenant_id, perm) DO UPDATE
+			  SET description = EXCLUDED.description
+		`, tenantID, perm, desc)
+		return err
+	}
+	linkRolePerm := func(role, perm string) error {
+		_, err := pool.Exec(ctx, `
+			INSERT INTO rbac_role_perm (tenant_id, role, perm)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (tenant_id, role, perm) DO NOTHING
+		`, tenantID, role, perm)
+		return err
+	}
+
+	var roleList []string
+	permSet := map[string]struct{}{}
+	for r, perms := range rbacRoles {
+		nr := norm(r)
+		roleList = append(roleList, nr)
+		for _, p := range perms {
+			permSet[norm(p)] = struct{}{}
+		}
+	}
+
+	for _, r := range roleList {
+		if err := upsertRole(r, roleDesc[r]); err != nil {
+			log.Fatalf("rbac_role upsert (%s): %v", r, err)
+		}
+	}
+	for p := range permSet {
+		if err := upsertPerm(p, permDesc[p]); err != nil {
+			log.Fatalf("rbac_perm upsert (%s): %v", p, err)
+		}
+	}
+	for r, perms := range rbacRoles {
+		nr := norm(r)
+		for _, p := range perms {
+			np := norm(p)
+			if err := linkRolePerm(nr, np); err != nil {
+				log.Fatalf("rbac_role_perm insert (%s/%s): %v", nr, np, err)
+			}
+		}
+	}
+
+	assign := map[string][]string{
+		admin.ID: {"sys:admin", "admin"},
+		mfa.ID:   {"viewer"},
+	}
+	for userID, roles := range assign {
+		for _, role := range roles {
+			nr := norm(role)
+			_, err := pool.Exec(ctx, `
+				INSERT INTO rbac_user_role (tenant_id, user_id, role)
+				VALUES ($1, $2, $3)
+				ON CONFLICT (tenant_id, user_id, role) DO NOTHING
+			`, tenantID, userID, nr)
+			if err != nil {
+				log.Fatalf("rbac_user_role insert (user=%s, role=%s): %v", userID, nr, err)
+			}
+		}
+	}
+
+	getUserRoles := func(userID string) []string {
+		rows, err := pool.Query(ctx, `
+			SELECT role FROM rbac_user_role
+			WHERE user_id = $1
+			ORDER BY role
+		`, userID)
+		if err != nil {
+			return nil
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var r string
+			_ = rows.Scan(&r)
+			out = append(out, r)
+		}
+		return out
+	}
+	adminRolesNow := getUserRoles(admin.ID)
+	mfaRolesNow := getUserRoles(mfa.ID)
+	unvRolesNow := getUserRoles(unv.ID)
+	// ─────────────────────── fin RBAC (seed) ───────────────────────
+
 	// 7) Output (consola + archivos)
-	verifyURL := fmt.Sprintf("%s/v1/auth/verify-email?token=%s", emailBase, urlEncode(verTok))
-	resetURL := fmt.Sprintf("%s/reset?token=%s", emailBase, urlEncode(resetTok))
+	verifyURL := fmt.Sprintf("%s/v1/auth/verify-email?token=%s", emailBase, url.QueryEscape(verTok))
+	resetURL := fmt.Sprintf("%s/reset?token=%s", emailBase, url.QueryEscape(resetTok))
 
 	fmt.Println()
 	fmt.Println("Seed listo ✅")
@@ -412,6 +537,7 @@ func main() {
 	}
 	fmt.Println("--------------------------------------------------")
 	fmt.Printf("Admin:      %s / %s\n", admin.Email, admin.Password)
+	fmt.Printf("Admin SUB:  %s\n", admin.ID)
 	fmt.Printf("MFA user:   %s / %s\n", mfa.Email, mfa.Password)
 	fmt.Printf("Unverified: %s / %s\n", unv.Email, unv.Password)
 	fmt.Println("--------------------------------------------------")
@@ -420,6 +546,19 @@ func main() {
 	fmt.Println("--------------------------------------------------")
 	fmt.Printf("Verify link (unverified): %s\n", verifyURL)
 	fmt.Printf("Reset  link (admin):      %s\n", resetURL)
+	fmt.Println("--------------------------------------------------")
+	// RBAC print extra
+	fmt.Println("RBAC:")
+	fmt.Printf("- Roles por usuario:\n")
+	fmt.Printf("  - Admin     : %v\n", adminRolesNow)
+	fmt.Printf("  - MFA       : %v\n", mfaRolesNow)
+	fmt.Printf("  - Unverified: %v\n", unvRolesNow)
+	fmt.Printf("- Permisos por rol:\n")
+	fmt.Printf("  - sys:admin : %v\n", rbacRoles["sys:admin"])
+	fmt.Printf("  - admin     : %v\n", rbacRoles["admin"])
+	fmt.Printf("  - viewer    : %v\n", rbacRoles["viewer"])
+	fmt.Println("Sugerencia ENV para admin endpoints protegidos:")
+	fmt.Printf("  ADMIN_ENFORCE=1  ADMIN_SUBS=%s\n", admin.ID)
 	fmt.Println("--------------------------------------------------")
 
 	md := fmt.Sprintf(
@@ -437,6 +576,7 @@ func main() {
 			"  - type: `%s`\n\n"+
 			"## Users\n"+
 			"- **Admin**: `%s` / `%s`\n"+
+			"  - sub: `%s`\n"+
 			"- **MFA**  : `%s` / `%s`\n"+
 			"  - TOTP secret (base32): `%s`\n"+
 			"  - OTPAuth URL: %s\n"+
@@ -450,11 +590,35 @@ func main() {
 		tenantID, tenantSlug,
 		clientName, clientID, clientType,
 		beClientName, beClientID, beClientType,
-		admin.Email, admin.Password,
+		admin.Email, admin.Password, admin.ID,
 		mfa.Email, mfa.Password, b32, otpURL, recovPlain, devToken,
 		unv.Email, unv.Password,
 		verifyURL, resetURL,
 	)
+
+	// Append RBAC section to MD
+	mdRBAC := fmt.Sprintf(
+		"\n## RBAC\n"+
+			"### Roles por usuario\n"+
+			"- Admin: `%s`\n"+
+			"- MFA: `%s`\n"+
+			"- Unverified: `%s`\n\n"+
+			"### Permisos por rol\n"+
+			"- sys:admin: %v\n"+
+			"- admin: %v\n"+
+			"- viewer: %v\n\n"+
+			"### ENV sugerido (admin endpoints)\n"+
+			"- `ADMIN_ENFORCE=1`\n"+
+			"- `ADMIN_SUBS=%s`\n",
+		strings.Join(adminRolesNow, ", "),
+		strings.Join(mfaRolesNow, ", "),
+		strings.Join(unvRolesNow, ", "),
+		rbacRoles["sys:admin"],
+		rbacRoles["admin"],
+		rbacRoles["viewer"],
+		admin.ID,
+	)
+	md += mdRBAC
 
 	yaml := fmt.Sprintf(`generated: %q
 tenant:
@@ -473,6 +637,7 @@ users:
   admin:
     email: %q
     password: %q
+    sub: %q
   mfa:
     email: %q
     password: %q
@@ -491,11 +656,35 @@ email_flows:
 		tenantID, tenantSlug,
 		clientName, clientID, clientType,
 		beClientName, beClientID, beClientType,
-		admin.Email, admin.Password,
+		admin.Email, admin.Password, admin.ID,
 		mfa.Email, mfa.Password, b32, otpURL, strings.Join(quoteAll(recovPlain), ", "), devToken,
 		unv.Email, unv.Password,
 		verifyURL, resetURL,
 	)
+
+	// Append RBAC section to YAML (nueva sección)
+	yamlRBAC := fmt.Sprintf(`rbac:
+  roles:
+    "sys:admin": [%s]
+    "admin": [%s]
+    "viewer": [%s]
+  assignments:
+    admin: [%s]
+    mfa: [%s]
+    unverified: [%s]
+admin_env:
+  ADMIN_ENFORCE: "1"
+  ADMIN_SUBS: %q
+`,
+		strings.Join(quoteAll(rbacRoles["sys:admin"]), ", "),
+		strings.Join(quoteAll(rbacRoles["admin"]), ", "),
+		strings.Join(quoteAll(rbacRoles["viewer"]), ", "),
+		strings.Join(quoteAll(adminRolesNow), ", "),
+		strings.Join(quoteAll(mfaRolesNow), ", "),
+		strings.Join(quoteAll(unvRolesNow), ", "),
+		admin.ID,
+	)
+	yaml = yaml + yamlRBAC
 
 	// Detectar si los archivos ya existen
 	mdPath := "cmd/seed/seed_data.md"

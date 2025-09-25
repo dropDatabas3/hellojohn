@@ -43,6 +43,11 @@ test/
 │   ├── 18_social_login_code_test.go (login_code exchange social)
 │   ├── 20_introspect_test.go        (introspección avanzada)
 │   ├── 21_password_blacklist_test.go(password blacklist)
+│   ├── 22_admin_clients_test.go      (CRUD clientes + revoke sesiones)
+│   ├── 23_admin_scopes_test.go       (CRUD scopes + delete guard 409)
+│   ├── 24_admin_consents_test.go     (upsert/list/revoke consentimiento)
+│   ├── 25_admin_users_disable_test.go(placeholder / futura desactivación)
+│   ├── 26_token_claims_test.go       (claims token extendidos)
 │   └── 99_social_google_manual_test.go (ejecución manual)
 └── assets/
     └── callback.html                (página callback OAuth usada en tests)
@@ -62,6 +67,11 @@ El archivo `TestMain_bootstrap_test.go` realiza estos pasos antes de correr cual
 9. Finaliza proceso del servicio.
 
 Si algún paso falla el resto de la suite se aborta—por eso es importante revisar logs en ejecuciones fallidas.
+
+### 3.1 Notas Sprint 6 bootstrap
+* Semilla: si el YAML define `sub` pero no `id`, el loader asigna `ID = Sub` para compatibilidad retroactiva (evita 400 en upsert consents admin).
+* Tests admin (22–24) asumen migración 0003 aplicada (`scope`, `user_consent`).
+* OIDC tests (04/05) esperan ahora 302 directo en casos de autoconsent (sin paso intermedio consent_required).
 
 ---
 ## 4. Variables de entorno relevantes
@@ -142,6 +152,11 @@ go test -v -failfast ./...
 | 18_social_login_code | login_code | Generación y canje one-use social exchange |
 | 20_introspect | Introspección | Access vs refresh, auth básica, campos active/exp/sub |
 | 21_password_blacklist | Blacklist | Rechazo password débil y aceptación de segura |
+| 22_admin_clients | Admin clientes | Crear/listar/editar, revoke y delete (soft/hard) |
+| 23_admin_scopes | Admin scopes | Validación regex, conflicto, delete in-use=409 |
+| 24_admin_consents | Admin consents | Upsert unión scopes, listar activos, revoke refresh |
+| 25_admin_users_disable | Admin usuarios | (Roadmap) desactivar usuario y bloquear login |
+| 26_token_claims | Claims extendidos | (Roadmap) validar claims agregados/RBAC |
 | e2e_test (legacy) | Conjunto histórico | Smoke adicional + MFA gating simplificada |
 | 99_social_google_manual | Manual | Iteraciones locales sin romper pipeline |
 
@@ -181,6 +196,11 @@ func Test_XX_Descripcion(t *testing.T) {
 }
 ```
 
+### 9.1 Pruebas Admin API específicas
+* Evitar dependencias de orden: 22 crea clientes propios; 23/24 crean scopes/consents aislados.
+* Reutilizar helpers para login/authorize en lugar de emitir tokens manualmente.
+* Verificar códigos de error (`scope_in_use`, `scope_exists`, `missing_fields`) para robustez contract.
+
 ---
 ## 10. Troubleshooting
 | Síntoma | Causa frecuente | Solución |
@@ -192,6 +212,9 @@ func Test_XX_Descripcion(t *testing.T) {
 | Rate tests skip | RATE_ENABLED != true | Exporta RATE_ENABLED=true |
 | Social tests skip | GOOGLE_ENABLED vacío | Exporta GOOGLE_* credenciales |
 | Blacklist test falla | Ruta blacklist ausente | Define SECURITY_PASSWORD_BLACKLIST_PATH |
+| scope delete 200 cuando esperaba 409 | Consent inexistente o no activo | Crear consentimiento primero (upsert) antes de delete |
+| upsert consent 400 missing_fields | seed sin user_id válido | Confirmar mapping sub->id aplicado y user_id UUID |
+| OIDC test espera consent_required | Autoconsent activo | Desactivar con CONSENT_AUTO=0 para validar rama estricta |
 
 Logs detallados: `go test -v 2>&1 | tee out.log`.
 
@@ -245,6 +268,18 @@ Indicadores mínimos tras una ejecución completa:
 | Métricas Prometheus | Validar endpoint /metrics y etiquetas | 
 | Pruebas de carga ligeras | Smoke de rendimiento (p50/p95) en login | 
 | Tests multi-tenant avanzados | Aislamiento cross-tenant en social y refresh | 
+| Admin disable user | Implementar test 25 al completar feature |
+| Admin token claims | Llenar 26_token_claims_test.go con asserts de scopes extras |
+
+---
+### 16. Changelog Suite Sprint 6
+| Cambio | Detalle |
+|--------|---------|
+| Migración 0003 cubierta | Tests consumen scopes/consents persistidos |
+| Nuevos tests 22–24 | Cobertura CRUD clientes / scopes / consents |
+| Password blacklist | Test 21 añade seguridad a política de contraseñas |
+| Semilla compatible | Fallback sub->id asegura estabilidad upsert consents |
+| Autoconsent | Ajustes en expectativas de OIDC tests (04/05) |
 
 ---
 Última actualización: Septiembre 2025 – Suite alineada con Sprint 5.

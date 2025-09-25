@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
+	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
 )
@@ -79,8 +81,9 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				httpx.WriteError(w, http.StatusBadRequest, "invalid_grant", "authorization code expirado", 2207)
 				return
 			}
-			// Coherencia client/redirect_uri
-			if ac.ClientID != clientID || ac.RedirectURI != redirectURI {
+			// Validar contra el UUID interno del client (ac.ClientID contiene cl.ID desde authorize)
+			// Aceptamos que en el form venga el client_id "público": lo resolvemos y comparamos con cl.ID
+			if ac.ClientID != cl.ID || ac.RedirectURI != redirectURI {
 				httpx.WriteError(w, http.StatusBadRequest, "invalid_grant", "client/redirect_uri no coinciden", 2208)
 				return
 			}
@@ -106,10 +109,25 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				"amr":   accessAMR,
 				"acr":   acrVal,
 				"scope": strings.Join(reqScopes, " "),
+				"scp":   reqScopes, // compatibilidad con SDKs que esperan lista
 			}
 			custom := map[string]any{}
 
 			std, custom = applyAccessClaimsHook(ctx, c, ac.TenantID, clientID, ac.UserID, reqScopes, ac.AMR, std, custom)
+
+			// SYS namespace a partir de metadata + RBAC (Fase 2)
+			if u, err := c.Store.GetUserByID(ctx, ac.UserID); err == nil && u != nil {
+				type rbacReader interface {
+					GetUserRoles(ctx context.Context, userID string) ([]string, error)
+					GetUserPermissions(ctx context.Context, userID string) ([]string, error)
+				}
+				var roles, perms []string
+				if rr, ok := c.Store.(rbacReader); ok {
+					roles, _ = rr.GetUserRoles(ctx, ac.UserID)
+					perms, _ = rr.GetUserPermissions(ctx, ac.UserID)
+				}
+				custom = helpers.PutSystemClaimsV2(custom, c.Issuer.Iss, u.Metadata, roles, perms)
+			}
 
 			access, exp, err := c.Issuer.IssueAccess(ac.UserID, clientID, std, custom)
 			if err != nil {
@@ -130,20 +148,18 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				return
 			}
 
-			// ID Token: std/extra (top-level). El at_hash depende del access recién emitido.
-			// Añadimos acr para consistencia con access token.
+			// ID Token (sin SYS_NS)
 			idStd := map[string]any{
 				"tid":     ac.TenantID,
 				"at_hash": atHash(access),
-				"azp":     clientID, // OIDC recomendado
+				"azp":     clientID,
 				"acr":     acrVal,
+				"amr":     accessAMR, // añadir AMR al ID Token para interoperabilidad
 			}
 			idExtra := map[string]any{}
 			if ac.Nonce != "" {
 				idExtra["nonce"] = ac.Nonce
 			}
-
-			// Hook opcional (no puede pisar at_hash/azp/nonce/iss/sub/aud/*)
 			idStd, idExtra = applyIDClaimsHook(ctx, c, ac.TenantID, clientID, ac.UserID, reqScopes, ac.AMR, idStd, idExtra)
 
 			idToken, _, err := c.Issuer.IssueIDToken(ac.UserID, clientID, idStd, idExtra)
@@ -152,7 +168,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				return
 			}
 
-			// Evitar cache en respuestas con tokens
+			// Evitar cache
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("Pragma", "no-cache")
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -203,15 +219,27 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				return
 			}
 
-			// Access via refresh: amr=["refresh"], tid del client
 			std := map[string]any{
 				"tid": cl.TenantID,
 				"amr": []string{"refresh"},
 				"acr": "urn:hellojohn:loa:1",
+				"scp": []string{}, // refresh flow: sin scopes explícitos aquí
 			}
 			custom := map[string]any{}
 
 			std, custom = applyAccessClaimsHook(ctx, c, cl.TenantID, clientID, rt.UserID, []string{}, []string{"refresh"}, std, custom)
+			if u, err := c.Store.GetUserByID(ctx, rt.UserID); err == nil && u != nil {
+				type rbacReader interface {
+					GetUserRoles(ctx context.Context, userID string) ([]string, error)
+					GetUserPermissions(ctx context.Context, userID string) ([]string, error)
+				}
+				var roles, perms []string
+				if rr, ok := c.Store.(rbacReader); ok {
+					roles, _ = rr.GetUserRoles(ctx, rt.UserID)
+					perms, _ = rr.GetUserPermissions(ctx, rt.UserID)
+				}
+				custom = helpers.PutSystemClaimsV2(custom, c.Issuer.Iss, u.Metadata, roles, perms)
+			}
 
 			access, exp, err := c.Issuer.IssueAccess(rt.UserID, clientID, std, custom)
 			if err != nil {
@@ -231,7 +259,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			}
 			_ = c.Store.RevokeRefreshToken(ctx, rt.ID)
 
-			// Evitar cache en respuestas con tokens
+			// Evitar cache
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("Pragma", "no-cache")
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -241,7 +269,6 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				"expires_in":    int64(time.Until(exp).Seconds()),
 				"access_token":  access,
 				"refresh_token": newRT,
-				// Por diseño, en refresh no devolvemos id_token.
 			})
 
 		default:

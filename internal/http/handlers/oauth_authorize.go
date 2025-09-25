@@ -2,11 +2,10 @@ package handlers
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -30,10 +29,6 @@ type authCode struct {
 	ExpiresAt       time.Time `json:"expires_at"`
 }
 
-func b64urlSHA256(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return base64.RawURLEncoding.EncodeToString(sum[:])
-}
 func addQS(u, k, v string) string {
 	sep := "?"
 	if strings.Contains(u, "?") {
@@ -128,9 +123,9 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 		}
 
 		var (
-			sub string
-			tid string
-			amr []string
+			sub             string
+			tid             string
+			amr             []string
 			trustedByCookie bool
 		)
 
@@ -179,11 +174,15 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 		// Step-up MFA: si el usuario tiene MFA TOTP confirmada y la AMR actual solo contiene pwd, devolver JSON mfa_required
 		if len(amr) == 1 && amr[0] == "pwd" {
 			// intentamos detectar secreto MFA
-			if mg, ok := c.Store.(interface{ GetMFATOTP(ctx context.Context, userID string) (*core.MFATOTP, error) }); ok {
+			if mg, ok := c.Store.(interface {
+				GetMFATOTP(ctx context.Context, userID string) (*core.MFATOTP, error)
+			}); ok {
 				if m, _ := mg.GetMFATOTP(r.Context(), sub); m != nil && m.ConfirmedAt != nil {
 					// Revisar trusted device cookie (si existe) para posiblemente elevar amr automáticamente
 					if ck, err := r.Cookie("mfa_trust"); err == nil && ck != nil {
-						if tc, ok2 := c.Store.(interface{ IsTrustedDevice(ctx context.Context, userID, deviceHash string, now time.Time) (bool, error) }); ok2 {
+						if tc, ok2 := c.Store.(interface {
+							IsTrustedDevice(ctx context.Context, userID, deviceHash string, now time.Time) (bool, error)
+						}); ok2 {
 							if ok3, _ := tc.IsTrustedDevice(r.Context(), sub, tokens.SHA256Base64URL(ck.Value), time.Now()); ok3 {
 								trustedByCookie = true
 							}
@@ -220,16 +219,114 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 			}
 		}
 
+		// ─────────────────────────────────────────────────────────────
+		// Gate de consentimiento: si faltan scopes ⇒ respuesta JSON consent_required
+		// Se ejecuta después de validar login y (posible) MFA, antes de generar authorization code.
+		// ─────────────────────────────────────────────────────────────
+		if c.ScopesConsents != nil {
+			granted := []string{}
+			if uc, err := c.ScopesConsents.GetConsent(ctx, sub, cl.ID); err == nil && uc.RevokedAt == nil {
+				granted = uc.GrantedScopes
+			}
+			set := map[string]struct{}{}
+			for _, g := range granted {
+				g = strings.ToLower(strings.TrimSpace(g))
+				if g != "" {
+					set[g] = struct{}{}
+				}
+			}
+			var missing []string
+			for _, rs := range reqScopes {
+				key := strings.ToLower(strings.TrimSpace(rs))
+				if key == "" {
+					continue
+				}
+				if _, ok := set[key]; !ok {
+					missing = append(missing, rs)
+				}
+			}
+			if len(missing) > 0 {
+				// ==== Autoconsent opcional (scopes básicos) controlado por env ====
+				auto := strings.TrimSpace(os.Getenv("CONSENT_AUTO"))
+				if auto == "" {
+					auto = "1"
+				} // por defecto habilitado
+				allowed := map[string]struct{}{"openid": {}, "email": {}, "profile": {}}
+				if raw := strings.TrimSpace(os.Getenv("CONSENT_AUTO_SCOPES")); raw != "" {
+					allowed = map[string]struct{}{}
+					for _, s := range strings.Fields(raw) {
+						s = strings.ToLower(strings.TrimSpace(s))
+						if s != "" {
+							allowed[s] = struct{}{}
+						}
+					}
+				}
+				subset := true
+				for _, s := range reqScopes {
+					if _, ok := allowed[strings.ToLower(strings.TrimSpace(s))]; !ok {
+						subset = false
+						break
+					}
+				}
+				needConsentResponse := true
+				if auto != "0" && subset {
+					var upErr error
+					type up1 interface {
+						UpsertConsent(ctx context.Context, tenantID, userID, clientID string, scopes []string) error
+					}
+					type up2 interface {
+						UpsertConsent(ctx context.Context, userID, clientID string, scopes []string) error
+					}
+					if u1, ok := c.ScopesConsents.(up1); ok {
+						upErr = u1.UpsertConsent(ctx, tid, sub, cl.ID, reqScopes)
+					} else if u2, ok := c.ScopesConsents.(up2); ok {
+						upErr = u2.UpsertConsent(ctx, sub, cl.ID, reqScopes)
+					}
+					if upErr == nil {
+						needConsentResponse = false // éxito: continuamos flujo normal
+					}
+				}
+				if needConsentResponse { // emitir consent_required
+					mid, _ := tokens.GenerateOpaqueToken(24)
+					payload := consentChallenge{
+						UserID:              sub,
+						TenantID:            tid,
+						ClientID:            cl.ID,
+						RedirectURI:         redirectURI,
+						State:               state,
+						Nonce:               nonce,
+						CodeChallenge:       codeChallenge,
+						CodeChallengeMethod: "S256",
+						RequestedScopes:     reqScopes,
+						AMR:                 amr,
+						ExpiresAt:           time.Now().Add(10 * time.Minute),
+					}
+					buf, _ := json.Marshal(payload)
+					c.Cache.Set("consent:token:"+mid, buf, 10*time.Minute)
+
+					w.Header().Set("Content-Type", "application/json; charset=utf-8")
+					w.Header().Set("Cache-Control", "no-store")
+					w.Header().Set("Pragma", "no-cache")
+					httpx.WriteJSON(w, http.StatusOK, map[string]any{
+						"consent_required": true,
+						"consent_token":    mid,
+						"requested_scopes": reqScopes,
+					})
+					return
+				}
+			}
+		}
+
 		code, err := tokens.GenerateOpaqueToken(32)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "server_error", "no se pudo generar code", 2106)
 			return
 		}
-		key := "oidc:code:" + b64urlSHA256(code)
+		key := "oidc:code:" + tokens.SHA256Base64URL(code)
 		payload := authCode{
 			UserID:          sub,
 			TenantID:        tid,
-			ClientID:        clientID,
+			ClientID:        cl.ID,
 			RedirectURI:     redirectURI,
 			Scope:           scope,
 			Nonce:           nonce,

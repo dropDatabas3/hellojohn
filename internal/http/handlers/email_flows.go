@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -43,15 +42,16 @@ type RateLimiter interface {
 // --- Handler ---
 
 type EmailFlowsHandler struct {
-	Tokens   *store.TokenStore
-	Users    *store.UserStore
-	Mailer   email.Sender
-	Tmpl     *email.Templates
-	Policy   password.Policy
-	Redirect RedirectValidator
-	Issuer   TokenIssuer
-	Auth     CurrentUserProvider
-	Limiter  RateLimiter
+	Tokens        *store.TokenStore
+	Users         *store.UserStore
+	Mailer        email.Sender
+	Tmpl          *email.Templates
+	Policy        password.Policy
+	Redirect      RedirectValidator
+	Issuer        TokenIssuer
+	Auth          CurrentUserProvider
+	Limiter       RateLimiter
+	BlacklistPath string
 
 	BaseURL        string
 	VerifyTTL      time.Duration
@@ -384,8 +384,8 @@ func (h *EmailFlowsHandler) reset(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf(`{"level":"info","msg":"reset_token_ok","request_id":"%s","tenant_id":"%s","user_id":"%s"}`, rid, tenantID, userID)
 
-	// Blacklist opcional (SECURITY_PASSWORD_BLACKLIST_PATH)
-	if p := strings.TrimSpace(os.Getenv("SECURITY_PASSWORD_BLACKLIST_PATH")); p != "" {
+	// Blacklist opcional (config/ENV)
+	if p := strings.TrimSpace(h.BlacklistPath); p != "" {
 		if bl, err := password.GetCachedBlacklist(p); err == nil && bl.Contains(in.NewPassword) {
 			writeErr(w, "policy_violation", "password no permitido por política", http.StatusBadRequest)
 			return

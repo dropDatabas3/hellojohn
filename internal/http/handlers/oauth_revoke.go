@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 
@@ -22,6 +24,21 @@ func NewOAuthRevokeHandler(c *app.Container) http.HandlerFunc {
 			return
 		}
 		token := strings.TrimSpace(r.PostForm.Get("token"))
+		// Fallback 1: Authorization: Bearer <token>
+		if token == "" {
+			if h := r.Header.Get("Authorization"); strings.HasPrefix(strings.ToLower(h), "bearer ") {
+				token = strings.TrimSpace(h[len("Bearer "):])
+			}
+		}
+		// Fallback 2: JSON {"token":"..."}
+		if token == "" && strings.Contains(strings.ToLower(r.Header.Get("Content-Type")), "application/json") {
+			var body struct {
+				Token string `json:"token"`
+			}
+			if err := json.NewDecoder(io.LimitReader(r.Body, 32<<10)).Decode(&body); err == nil {
+				token = strings.TrimSpace(body.Token)
+			}
+		}
 		if token == "" {
 			httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "token es obligatorio", 2302)
 			return

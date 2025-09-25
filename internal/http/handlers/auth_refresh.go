@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
+	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
 )
@@ -80,7 +82,24 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 			"tid": cl.TenantID,
 			"amr": []string{"refresh"},
 		}
-		token, exp, err := c.Issuer.IssueAccess(rt.UserID, req.ClientID, std, map[string]any{})
+		// Hook + SYS namespace
+		custom := map[string]any{}
+		std, custom = applyAccessClaimsHook(r.Context(), c, cl.TenantID, req.ClientID, rt.UserID, []string{}, []string{"refresh"}, std, custom)
+		// derivar is_admin + RBAC (Fase 2)
+		if u, err := c.Store.GetUserByID(r.Context(), rt.UserID); err == nil && u != nil {
+			type rbacReader interface {
+				GetUserRoles(ctx context.Context, userID string) ([]string, error)
+				GetUserPermissions(ctx context.Context, userID string) ([]string, error)
+			}
+			var roles, perms []string
+			if rr, ok := c.Store.(rbacReader); ok {
+				roles, _ = rr.GetUserRoles(r.Context(), rt.UserID)
+				perms, _ = rr.GetUserPermissions(r.Context(), rt.UserID)
+			}
+			custom = helpers.PutSystemClaimsV2(custom, c.Issuer.Iss, u.Metadata, roles, perms)
+		}
+
+		token, exp, err := c.Issuer.IssueAccess(rt.UserID, req.ClientID, std, custom)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 1405)
 			return

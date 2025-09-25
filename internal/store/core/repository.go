@@ -55,4 +55,13 @@ type Repository interface {
 	UseRecoveryCode(ctx context.Context, userID string, hash string, at time.Time) (bool, error)
 	AddTrustedDevice(ctx context.Context, userID string, deviceHash string, exp time.Time) error
 	IsTrustedDevice(ctx context.Context, userID string, deviceHash string, now time.Time) (bool, error)
+
+	// --- Admin Clients ---
+	ListClients(ctx context.Context, tenantID, query string) ([]Client, error)
+	GetClientByID(ctx context.Context, id string) (*Client, *ClientVersion, error)
+	UpdateClient(ctx context.Context, c *Client) error
+	DeleteClient(ctx context.Context, id string) error
+
+	// Revocar todos los refresh tokens por client (todos los usuarios)
+	RevokeAllRefreshTokensByClient(ctx context.Context, clientID string) error
 }
