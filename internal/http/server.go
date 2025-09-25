@@ -53,6 +53,7 @@ func Start(addr string, handler http.Handler) error {
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           handler,
+		ErrorLog:          log.New(os.Stderr, "http: ", 0),
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,

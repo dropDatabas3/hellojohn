@@ -237,6 +237,53 @@ Incorpora tres tablas independientes para mantener cohesión:
 
 Esto desacopla la lógica MFA del resto del ciclo de refresh. No se agregan columnas nuevas a `app_user` manteniendo bajo el impacto de cambios.
 
+### 7.1 Scopes & Consents (migración 0003)
+Introduce tablas:
+
+```
+CREATE TABLE scope (
+  id UUID PK DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenant(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(tenant_id,name)
+);
+
+CREATE TABLE user_consent (
+  id UUID PK DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+  client_id UUID NOT NULL REFERENCES client(id) ON DELETE CASCADE,
+  granted_scopes TEXT[] NOT NULL,
+  granted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  revoked_at TIMESTAMPTZ NULL,
+  UNIQUE(user_id, client_id)
+);
+```
+
+Índices:
+* `idx_scope_tenant_name (tenant_id,name)` búsqueda rápida y ref interna.
+* `idx_user_consent_user_active` filtro activos por usuario.
+* `idx_user_consent_client_active` filtro activos por cliente.
+* `idx_user_consent_scopes_gin` GIN para búsquedas por scopes (future UI / auditoría).
+
+Decisiones clave:
+* `granted_scopes` como `TEXT[]` flexible evita tabla pivote, reduce joins en lectura típica (listar consentimientos de usuario).
+* No hay FK desde `granted_scopes` a `scope.name` ⇒ integridad lógica implementada en aplicación (delete guard manual).
+* Eliminación de scope válida solo si ningún consentimiento activo del mismo tenant contiene el nombre.
+
+Riesgo mitigado: inconsistencia de tokens emitidos referenciando scopes no registrados. El guardia evita que un scope desaparezca mientras se mantiene un consentimiento activo que lo incluye.
+
+### 7.2 RBAC preliminar (migración 0004)
+Archivos `0004_rbac_up.sql` / `0004_rbac_down.sql` (si presentes) introducen un mapa minimal de roles y permisos multi‑tenant (pendiente de finalización):
+* Tablas esperadas: `role` (tenant_id, name), `role_perm` (tenant_id, role, perm), `user_role` (user_id, role, tenant_id).
+* Índices compuestos para `tenant_id, role` y GIN/BTREE sobre permisos según cardinalidad.
+* Handlers ya implementados (`admin_rbac.go`) operan mediante type assertions sobre el store; sin migración activa devuelven 501.
+
+Racional de diseño:
+* Separar RBAC de scopes OAuth2 (servicios distintos: autorización UI/API vs delegación OAuth).
+* Permitir evolución incremental: primera fase solo agrega/quita roles/perms en memoria/DB sin caching avanzado.
+
 ---
 ## 8. Diferencias entre Postgres / MySQL / Mongo
 | Aspecto | PostgreSQL | MySQL inicial | Mongo inicial |
@@ -305,6 +352,26 @@ Indices parciales soportan consultas de selección rápida para cada job.
 | Scope registry | Tabla `scope_definition` para validación de server side | Evita scopes huérfanos. |
 | Soft delete usuarios | Campo `deleted_at` en app_user + vistas filtradas | Preserva integridad histórica. |
 | Partitioning refresh | Particionar refresh_token por mes o hash | Mejora limpieza masiva. |
+
+### 12.1 Posibles mejoras Scopes/Consents
+| Mejora | Descripción |
+|--------|-------------|
+| Tabla pivote opcional | Reemplazar `TEXT[]` por `scope_grant(scope_id, consent_id)` si se requiere FK estricta | 
+| Auditoría consent | Tabla `consent_event` (grant, extend, revoke) con diff de scopes | 
+| TTL de consentimiento | Campo `expires_at` para consentimientos temporales | 
+| Revocación granular | Endpoint para remover un subconjunto de scopes sin revocar todos | 
+
+### 12.2 Estrategia FK futura
+Si se adopta tabla pivote, se migraría así:
+1. Crear tabla `scope_grant(consent_id FK, scope_id FK)` poblarla con UNNEST de `granted_scopes`.
+2. Marcar `granted_scopes` como deprecated manteniendo sincronización disparada por triggers.
+3. Finalmente eliminar `granted_scopes` tras una ventana de compatibilidad.
+
+---
+### Notas Sprint 6
+* Añadida migración 0003 consolidando soporte dinámico de scopes y consentimiento administrable.
+* Delete guard implementado a nivel repositorio (consultas EXISTS) antes de borrar scopes.
+* Preparado esqueleto RBAC (0004) para roles/permisos multi‑tenant.
 
 ---
 ### Resumen rápido

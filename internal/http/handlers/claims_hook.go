@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
+	"github.com/dropDatabas3/hellojohn/internal/claims"
 )
 
 // Reservadas que NO deben ser sobreescritas por policies para evitar romper invariantes.
@@ -35,6 +36,7 @@ func mergeSafe(dst map[string]any, src map[string]any, prevent []string) {
 }
 
 // applyAccessClaimsHook ejecuta el hook (si existe) y fusiona en std/custom.
+// Además, BLOQUEA que se intente escribir el namespace del sistema dentro de "custom".
 func applyAccessClaimsHook(ctx context.Context, c *app.Container, tenantID, clientID, userID string, scopes, amr []string, std, custom map[string]any) (map[string]any, map[string]any) {
 	if std == nil {
 		std = map[string]any{}
@@ -53,11 +55,19 @@ func applyAccessClaimsHook(ctx context.Context, c *app.Container, tenantID, clie
 			Extras:   map[string]any{},
 		})
 		if err == nil {
-			mergeSafe(std, addStd, reservedTopLevel)
-			// "custom" es anidado, no necesita lista de reservadas
-			for k, v := range addExtra {
-				if _, exists := custom[k]; !exists {
-					custom[k] = v
+			// top-level: prevenir también el namespace del sistema por si algún hook intenta inyectarlo arriba
+			sysNS := claims.SystemNamespace(c.Issuer.Iss)
+			prevent := append(append([]string{}, reservedTopLevel...), sysNS)
+
+			mergeSafe(std, addStd, prevent)
+
+			// "custom": bloquear explícitamente el sysNS
+			if addExtra != nil {
+				delete(addExtra, sysNS)
+				for k, v := range addExtra {
+					if _, exists := custom[k]; !exists {
+						custom[k] = v
+					}
 				}
 			}
 		}
@@ -66,6 +76,7 @@ func applyAccessClaimsHook(ctx context.Context, c *app.Container, tenantID, clie
 }
 
 // applyIDClaimsHook ejecuta el hook (si existe) y fusiona en std y extra (ambos top-level).
+// También bloquea el namespace del sistema en el top-level del ID Token.
 func applyIDClaimsHook(ctx context.Context, c *app.Container, tenantID, clientID, userID string, scopes, amr []string, std, extra map[string]any) (map[string]any, map[string]any) {
 	if std == nil {
 		std = map[string]any{}
@@ -84,8 +95,10 @@ func applyIDClaimsHook(ctx context.Context, c *app.Container, tenantID, clientID
 			Extras:   map[string]any{},
 		})
 		if err == nil {
-			mergeSafe(std, addStd, reservedTopLevel)
-			mergeSafe(extra, addExtra, reservedTopLevel)
+			sysNS := claims.SystemNamespace(c.Issuer.Iss)
+			prevent := append(append([]string{}, reservedTopLevel...), sysNS)
+			mergeSafe(std, addStd, prevent)
+			mergeSafe(extra, addExtra, prevent)
 		}
 	}
 	return std, extra

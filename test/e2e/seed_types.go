@@ -30,7 +30,8 @@ type seedData struct {
 
 	Users struct {
 		Admin struct {
-			ID       string `yaml:"id"`
+			ID       string `yaml:"id"`  // prefer 'id' but some seeds use 'sub'
+			Sub      string `yaml:"sub"` // compatibility alias
 			Email    string `yaml:"email"`
 			Password string `yaml:"password"`
 		} `yaml:"admin"`

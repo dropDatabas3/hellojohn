@@ -21,6 +21,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/app"
 	"github.com/dropDatabas3/hellojohn/internal/config"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
+	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/oauth/google"
 	"github.com/dropDatabas3/hellojohn/internal/rate"
@@ -44,17 +45,47 @@ type googleHandler struct {
 // issueSocialTokens centraliza la emisión de access/refresh y el flujo opcional de login_code.
 // Siempre escribe la respuesta (redirect o JSON). Devuelve inmediatamente true para permitir return rápido.
 func (h *googleHandler) issueSocialTokens(w http.ResponseWriter, r *http.Request, uid uuid.UUID, tid uuid.UUID, cid string, clientRedirect string, amr []string) bool {
-	std := map[string]any{"tid": tid.String(), "amr": amr, "acr": "urn:hellojohn:loa:1"}
-	access, exp, err := h.c.Issuer.IssueAccess(uid.String(), cid, std, nil)
+	// ACR según AMR (elevar a LoA2 si incluye "mfa")
+	acr := "urn:hellojohn:loa:1"
+	for _, v := range amr {
+		if v == "mfa" {
+			acr = "urn:hellojohn:loa:2"
+			break
+		}
+	}
+
+	std := map[string]any{"tid": tid.String(), "amr": amr, "acr": acr}
+	custom := map[string]any{}
+
+	// Hook + SYS_NS + roles/perms (best-effort)
+	std, custom = applyAccessClaimsHook(r.Context(), h.c, tid.String(), cid, uid.String(), []string{}, amr, std, custom)
+	if u, err := h.c.Store.GetUserByID(r.Context(), uid.String()); err == nil && u != nil {
+		type rbacReader interface {
+			GetUserRoles(ctx context.Context, userID string) ([]string, error)
+			GetUserPermissions(ctx context.Context, userID string) ([]string, error)
+		}
+		var roles, perms []string
+		if rr, ok := h.c.Store.(rbacReader); ok {
+			roles, _ = rr.GetUserRoles(r.Context(), uid.String())
+			perms, _ = rr.GetUserPermissions(r.Context(), uid.String())
+		}
+		custom = helpers.PutSystemClaimsV2(custom, h.c.Issuer.Iss, u.Metadata, roles, perms)
+	} else {
+		custom = helpers.PutSystemClaimsV2(custom, h.c.Issuer.Iss, nil, nil, nil)
+	}
+
+	access, exp, err := h.c.Issuer.IssueAccess(uid.String(), cid, std, custom)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir access", 1621)
 		return true
 	}
+
 	cl, _, e2 := h.c.Store.GetClientByClientID(r.Context(), cid)
-	if e2 != nil || cl == nil {
+	if e2 != nil || cl == nil || !strings.EqualFold(cl.TenantID, tid.String()) {
 		httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1623)
 		return true
 	}
+
 	rawRT, err := tokens.GenerateOpaqueToken(32)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 1622)
@@ -65,7 +96,9 @@ func (h *googleHandler) issueSocialTokens(w http.ResponseWriter, r *http.Request
 		httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1624)
 		return true
 	}
+
 	respAuth := AuthLoginResponse{AccessToken: access, TokenType: "Bearer", ExpiresIn: int64(time.Until(exp).Seconds()), RefreshToken: rawRT}
+
 	if clientRedirect != "" { // login_code flow
 		loginCode := randB64(32)
 		cacheKey := "social:code:" + loginCode
@@ -98,6 +131,7 @@ func (h *googleHandler) issueSocialTokens(w http.ResponseWriter, r *http.Request
 		http.Redirect(w, r, target, http.StatusFound)
 		return true
 	}
+
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -377,18 +411,29 @@ func (h *googleHandler) callback(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			get := func(k string) string {
-				if s, _ := st[k].(string); s != "" { return s }
+				if s, _ := st[k].(string); s != "" {
+					return s
+				}
 				return ""
 			}
 			idTid := get("tid")
 			tid, err := uuid.Parse(idTid)
-			if err != nil { httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "tid inválido", 1615); return }
+			if err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "tid inválido", 1615)
+				return
+			}
 			cid := get("cid")
 			clientRedirect := get("redir")
-			if !h.isAllowed(tid, cid) { httpx.WriteError(w, http.StatusForbidden, "access_denied", "no permitido para este tenant/cliente", 1616); return }
+			if !h.isAllowed(tid, cid) {
+				httpx.WriteError(w, http.StatusForbidden, "access_denied", "no permitido para este tenant/cliente", 1616)
+				return
+			}
 			idc := &google.IDClaims{Email: "debug+" + code + "@example.test", EmailVerified: true, Sub: "sub-" + code}
 			uid, err := h.ensureUserAndIdentity(r.Context(), tid, idc)
-			if err != nil { httpx.WriteError(w, http.StatusInternalServerError, "provision_failed", "no se pudo crear/ligar usuario", 1620); return }
+			if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "provision_failed", "no se pudo crear/ligar usuario", 1620)
+				return
+			}
 			_ = h.issueSocialTokens(w, r, uid, tid, cid, clientRedirect, []string{"google"})
 			return
 		}

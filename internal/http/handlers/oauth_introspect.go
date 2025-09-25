@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
+	"github.com/dropDatabas3/hellojohn/internal/claims"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
@@ -63,19 +64,19 @@ func NewOAuthIntrospectHandler(c *app.Container, auth clientBasicAuth) http.Hand
 		}
 
 		// Caso 2: access JWT firmado (EdDSA). Validar firma/issuer/exp.
-		claims, err := jwtx.ParseEdDSA(tok, c.Issuer.Keys, c.Issuer.Iss)
+		tclaims, err := jwtx.ParseEdDSA(tok, c.Issuer.Keys, c.Issuer.Iss)
 		if err != nil {
 			httpx.WriteJSON(w, http.StatusOK, map[string]any{"active": false})
 			return
 		}
-		expF, _ := claims["exp"].(float64)
-		iatF, _ := claims["iat"].(float64)
-		amr, _ := claims["amr"].([]any)
-		sub, _ := claims["sub"].(string)
-		clientID, _ := claims["aud"].(string)
-		scopeRaw, _ := claims["scope"].(string)
-		tid, _ := claims["tid"].(string)
-		acr, _ := claims["acr"].(string)
+		expF, _ := tclaims["exp"].(float64)
+		iatF, _ := tclaims["iat"].(float64)
+		amr, _ := tclaims["amr"].([]any)
+		sub, _ := tclaims["sub"].(string)
+		clientID, _ := tclaims["aud"].(string)
+		scopeRaw, _ := tclaims["scope"].(string)
+		tid, _ := tclaims["tid"].(string)
+		acr, _ := tclaims["acr"].(string)
 		var scope []string
 		if scopeRaw != "" {
 			scope = strings.Fields(scopeRaw)
@@ -104,11 +105,65 @@ func NewOAuthIntrospectHandler(c *app.Container, auth clientBasicAuth) http.Hand
 			resp["acr"] = acr
 		}
 		// Opcional: introspection puede incluir jti, iss, etc., si existen.
-		if jti, ok := claims["jti"].(string); ok {
+		if jti, ok := tclaims["jti"].(string); ok {
 			resp["jti"] = jti
 		}
-		if iss, ok := claims["iss"].(string); ok {
+		if iss, ok := tclaims["iss"].(string); ok {
 			resp["iss"] = iss
+		}
+
+		// Si ?include_sys=1, exponemos roles/perms del namespace de sistema cuando el token está activo.
+		if active {
+			if v := r.URL.Query().Get("include_sys"); v == "1" || strings.EqualFold(v, "true") {
+				var roles, perms []string
+
+				if m, ok := tclaims["custom"].(map[string]any); ok {
+					// 1) clave recomendada (namespace de sistema)
+					if sys, ok := m[claims.SystemNamespace(c.Issuer.Iss)].(map[string]any); ok {
+						if rr, ok := sys["roles"].([]any); ok {
+							for _, it := range rr {
+								if s, ok := it.(string); ok && s != "" {
+									roles = append(roles, s)
+								}
+							}
+						} else if rr2, ok := sys["roles"].([]string); ok {
+							roles = append(roles, rr2...)
+						}
+						if pp, ok := sys["perms"].([]any); ok {
+							for _, it := range pp {
+								if s, ok := it.(string); ok && s != "" {
+									perms = append(perms, s)
+								}
+							}
+						} else if pp2, ok := sys["perms"].([]string); ok {
+							perms = append(perms, pp2...)
+						}
+					} else if sys2, ok := m[c.Issuer.Iss].(map[string]any); ok {
+						// 2) compat: algunos flows guardaron bajo issuer plano
+						if rr, ok := sys2["roles"].([]any); ok {
+							for _, it := range rr {
+								if s, ok := it.(string); ok && s != "" {
+									roles = append(roles, s)
+								}
+							}
+						} else if rr2, ok := sys2["roles"].([]string); ok {
+							roles = append(roles, rr2...)
+						}
+						if pp, ok := sys2["perms"].([]any); ok {
+							for _, it := range pp {
+								if s, ok := it.(string); ok && s != "" {
+									perms = append(perms, s)
+								}
+							}
+						} else if pp2, ok := sys2["perms"].([]string); ok {
+							perms = append(perms, pp2...)
+						}
+					}
+				}
+
+				resp["roles"] = roles
+				resp["perms"] = perms
+			}
 		}
 		// Validación ligera de formato UUID en sub si parece UUID.
 		if _, err := uuid.Parse(sub); err != nil { /* ignore */

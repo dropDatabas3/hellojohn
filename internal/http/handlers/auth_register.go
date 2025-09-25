@@ -38,7 +38,7 @@ func contains(ss []string, v string) bool {
 	return false
 }
 
-func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Duration) http.HandlerFunc {
+func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Duration, blacklistPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo POST", 1000)
@@ -50,6 +50,7 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 		if !httpx.ReadJSON(w, r, &req) {
 			return
 		}
+
 		req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 		req.TenantID = strings.TrimSpace(req.TenantID)
 		req.ClientID = strings.TrimSpace(req.ClientID)
@@ -78,8 +79,12 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			return
 		}
 
-		// Blacklist opcional (SECURITY_PASSWORD_BLACKLIST_PATH) usando cache global
-		if p := strings.TrimSpace(os.Getenv("SECURITY_PASSWORD_BLACKLIST_PATH")); p != "" {
+		// Blacklist opcional
+		p := strings.TrimSpace(blacklistPath)
+		if p == "" { // modo env-only
+			p = strings.TrimSpace(os.Getenv("SECURITY_PASSWORD_BLACKLIST_PATH"))
+		}
+		if p != "" {
 			if bl, err := password.GetCachedBlacklist(p); err == nil && bl.Contains(req.Password) {
 				httpx.WriteError(w, http.StatusBadRequest, "policy_violation", "password no permitido por política", 2401)
 				return

@@ -6,14 +6,17 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/cache"
 	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
+	"github.com/dropDatabas3/hellojohn/internal/store"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
 )
 
 // Container es el contenedor DI simple que usamos en los handlers.
 type Container struct {
-	Store  core.Repository
-	Issuer *jwtx.Issuer
-	Cache  cache.Cache
+	Store          core.Repository
+	Issuer         *jwtx.Issuer
+	Cache          cache.Cache
+	Stores         *store.Stores                 // wrapper opcional con Close()
+	ScopesConsents core.ScopesConsentsRepository // puede ser nil si driver != postgres
 
 	// MultiLimiter para rate limits específicos por endpoint
 	MultiLimiter helpers.MultiLimiter
@@ -38,4 +41,12 @@ type ClaimsEvent struct {
 	AMR      []string
 	// Campos libres para futuros usos (acr, auth_time, etc.)
 	Extras map[string]any
+}
+
+// Close intenta cerrar recursos opcionales del contenedor (si existen).
+func (c *Container) Close() error {
+	if c.Stores != nil && c.Stores.Close != nil {
+		return c.Stores.Close()
+	}
+	return nil
 }

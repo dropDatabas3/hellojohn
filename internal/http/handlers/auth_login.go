@@ -211,6 +211,18 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		// Hook opcional (CEL/webhook/etc.)
 		std, custom = applyAccessClaimsHook(ctx, c, req.TenantID, req.ClientID, u.ID, []string{}, amrSlice, std, custom)
 
+		// ── RBAC (Fase 2): roles/perms opcionales si el store los implementa
+		type rbacReader interface {
+			GetUserRoles(ctx context.Context, userID string) ([]string, error)
+			GetUserPermissions(ctx context.Context, userID string) ([]string, error)
+		}
+		var roles, perms []string
+		if rr, ok := c.Store.(rbacReader); ok {
+			roles, _ = rr.GetUserRoles(ctx, u.ID)
+			perms, _ = rr.GetUserPermissions(ctx, u.ID)
+		}
+		custom = helpers.PutSystemClaimsV2(custom, c.Issuer.Iss, u.Metadata, roles, perms)
+
 		token, exp, err := c.Issuer.IssueAccess(u.ID, req.ClientID, std, custom)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 1204)

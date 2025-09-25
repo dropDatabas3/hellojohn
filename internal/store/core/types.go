@@ -9,19 +9,29 @@ type Tenant struct {
 }
 
 type Client struct {
-	ID, TenantID, Name, ClientID, ClientType string
-	RedirectURIs, AllowedOrigins             []string
-	Providers, Scopes                        []string
-	ActiveVersionID                          *string
-	CreatedAt                                time.Time
+	ID              string    `json:"id"`
+	TenantID        string    `json:"tenant_id"`
+	Name            string    `json:"name"`
+	ClientID        string    `json:"client_id"`
+	ClientType      string    `json:"client_type"`
+	RedirectURIs    []string  `json:"redirect_uris"`
+	AllowedOrigins  []string  `json:"allowed_origins"`
+	Providers       []string  `json:"providers"`
+	Scopes          []string  `json:"scopes"`
+	ActiveVersionID *string   `json:"active_version_id,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 type ClientVersion struct {
-	ID, ClientID, Version                               string
-	ClaimSchemaJSON, ClaimMappingJSON, CryptoConfigJSON []byte
-	Status                                              string // draft|active|retired
-	CreatedAt                                           time.Time
-	PromotedAt                                          *time.Time
+	ID               string     `json:"id"`
+	ClientID         string     `json:"client_id"`
+	Version          string     `json:"version"`
+	ClaimSchemaJSON  []byte     `json:"claim_schema_json"`
+	ClaimMappingJSON []byte     `json:"claim_mapping_json"`
+	CryptoConfigJSON []byte     `json:"crypto_config_json"`
+	Status           string     `json:"status"` // draft|active|retired
+	CreatedAt        time.Time  `json:"created_at"`
+	PromotedAt       *time.Time `json:"promoted_at,omitempty"`
 }
 
 type User struct {

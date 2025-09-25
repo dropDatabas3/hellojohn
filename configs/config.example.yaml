@@ -21,6 +21,9 @@
 #   MFA_TOTP_WINDOW=1
 #   MFA_TOTP_ISSUER=HelloJohn
 #   MFA_REMEMBER_TTL=720h
+# Consentimiento (ENV-ONLY, autoconsent básico seguro):
+#   CONSENT_AUTO=1                       # 1=autoconsent activo, 0=siempre requerir consentimiento explícito
+#   CONSENT_AUTO_SCOPES="openid email profile"  # Scopes que pueden autoconsentirse (subset match)
 ###############################################
 
 app:
@@ -125,10 +128,19 @@ security:
     require_lower: true
     require_digit: true
     require_symbol: false
-  # Ruta opcional a archivo de blacklist de contraseñas (una por línea, # comentarios). Se puede definir por ENV:
-  #   SECURITY_PASSWORD_BLACKLIST_PATH=./configs/password_blacklist.txt
-  # Si se establece, se carga una sola vez y se cachea en memoria.
-  password_blacklist_path: ""  # dejar vacío si no se usa
+  # Blacklist opcional de contraseñas débiles conocidas.
+  # Cómo usarla:
+  #   1. Crear un archivo de texto (una contraseña por línea). Las líneas vacías o que comiencen con '#'
+  #      se ignoran. El match es case-insensitive y se recortan espacios laterales.
+  #   2. Definir la ruta aquí (relativa al directorio del binario / proyecto) O vía variable de entorno:
+  #        SECURITY_PASSWORD_BLACKLIST_PATH=./configs/password_blacklist.txt
+  #   3. Reiniciar el servicio. El archivo se carga una única vez al arranque y se cachea en memoria;
+  #      si modificas el archivo necesitas reiniciar para que se refleje.
+  #   4. Dejar la ruta vacía (o no definir la variable) deshabilita la blacklist.
+  # Notas:
+  #   - No poner contraseñas reales de usuarios; sólo patrones comunes (ej: password, 123456, qwerty...).
+  #   - Para grandes listas considera montar un volumen sólo lectura.
+  password_blacklist_path: ""  # vacío = deshabilitada
 
 providers:
   # TTL del code efímero que devuelve /v1/auth/social/result

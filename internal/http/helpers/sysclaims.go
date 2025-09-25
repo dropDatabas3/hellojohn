@@ -1,0 +1,90 @@
+package helpers
+
+import (
+	"sort"
+	"strings"
+
+	"github.com/dropDatabas3/hellojohn/internal/claims"
+)
+
+func coerceBool(v any) bool {
+	switch t := v.(type) {
+	case bool:
+		return t
+	case string:
+		s := strings.TrimSpace(strings.ToLower(t))
+		return s == "true" || s == "1" || s == "yes"
+	case float64:
+		return t != 0
+	case int:
+		return t != 0
+	case int64:
+		return t != 0
+	default:
+		return false
+	}
+}
+
+func normUnique(ss []string) []string {
+	if len(ss) == 0 {
+		return []string{}
+	}
+	set := map[string]struct{}{}
+	out := make([]string, 0, len(ss))
+	for _, s := range ss {
+		s2 := strings.TrimSpace(s)
+		if s2 == "" {
+			continue
+		}
+		s2 = strings.ToLower(s2)
+		if _, ok := set[s2]; !ok {
+			set[s2] = struct{}{}
+			out = append(out, s2)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// V1 (Fase 1): solo is_admin y placeholders.
+func PutSystemClaims(custom map[string]any, issuer string, userMeta map[string]any) map[string]any {
+	if custom == nil {
+		custom = map[string]any{}
+	}
+	ns := claims.SystemNamespace(issuer)
+	isAdmin := false
+	if userMeta != nil {
+		if v, ok := userMeta["is_admin"]; ok {
+			isAdmin = coerceBool(v)
+		}
+	}
+	custom[ns] = map[string]any{
+		"is_admin":   isAdmin,
+		"roles":      []string{},
+		"perms":      []string{},
+		"claims_ver": 0,
+	}
+	return custom
+}
+
+// V2 (Fase 2): roles/perms efectivos + claims_ver=1.
+// Si roles/perms vienen vacíos, se preserva el comportamiento de V1 (pero sube claims_ver).
+func PutSystemClaimsV2(custom map[string]any, issuer string, userMeta map[string]any, roles, perms []string) map[string]any {
+	if custom == nil {
+		custom = map[string]any{}
+	}
+	ns := claims.SystemNamespace(issuer)
+	isAdmin := false
+	if userMeta != nil {
+		if v, ok := userMeta["is_admin"]; ok {
+			isAdmin = coerceBool(v)
+		}
+	}
+	custom[ns] = map[string]any{
+		"is_admin":   isAdmin,
+		"roles":      normUnique(roles),
+		"perms":      normUnique(perms),
+		"claims_ver": 1,
+	}
+	return custom
+}

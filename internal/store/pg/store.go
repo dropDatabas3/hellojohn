@@ -61,6 +61,19 @@ func (n *noopTx) Commit(context.Context) error            { return nil }
 func (n *noopTx) Rollback(context.Context) error          { return nil }
 func (s *Store) BeginTx(context.Context) (core.Tx, error) { return &noopTx{}, nil }
 
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+func derefTime(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
+}
+
 // ====================== AUTH ======================
 
 func (s *Store) GetUserByEmail(ctx context.Context, tenantID, email string) (*core.User, *core.Identity, error) {
@@ -176,10 +189,16 @@ LIMIT 1`
 	row := s.pool.QueryRow(ctx, q, clientID)
 
 	var c core.Client
-	var v core.ClientVersion
 	var active *string
-	if err := row.Scan(&c.ID, &c.TenantID, &c.Name, &c.ClientID, &c.ClientType, &c.RedirectURIs, &c.AllowedOrigins, &c.Providers, &c.Scopes, &active, &c.CreatedAt,
-		&v.ID, &v.Version, &v.ClaimSchemaJSON, &v.ClaimMappingJSON, &v.CryptoConfigJSON, &v.Status, &v.CreatedAt, &v.PromotedAt); err != nil {
+
+	var vID, vVersion, vStatus *string
+	var vCreatedAt, vPromotedAt *time.Time
+	var claimSchema, claimMapping, cryptoConf []byte
+
+	if err := row.Scan(
+		&c.ID, &c.TenantID, &c.Name, &c.ClientID, &c.ClientType, &c.RedirectURIs, &c.AllowedOrigins, &c.Providers, &c.Scopes, &active, &c.CreatedAt,
+		&vID, &vVersion, &claimSchema, &claimMapping, &cryptoConf, &vStatus, &vCreatedAt, &vPromotedAt,
+	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil, core.ErrNotFound
 		}
@@ -187,11 +206,23 @@ LIMIT 1`
 		return nil, nil, err
 	}
 	c.ActiveVersionID = active
-	if v.ID == "" {
+
+	if vID == nil {
 		return &c, nil, nil
 	}
-	v.ClientID = c.ID
-	return &c, &v, nil
+
+	v := &core.ClientVersion{
+		ID:               *vID,
+		ClientID:         c.ID,
+		Version:          deref(vVersion),
+		ClaimSchemaJSON:  claimSchema,
+		ClaimMappingJSON: claimMapping,
+		CryptoConfigJSON: cryptoConf,
+		Status:           deref(vStatus),
+		CreatedAt:        derefTime(vCreatedAt),
+		PromotedAt:       vPromotedAt,
+	}
+	return &c, v, nil
 }
 
 // CreateUser crea o devuelve el existente (upsert) y rellena ID/CreatedAt.
@@ -421,5 +452,112 @@ func (s *Store) RevokeAllRefreshTokens(ctx context.Context, userID, clientID str
 		SET revoked_at = NOW()
 		WHERE user_id = $1 AND client_id = $2 AND revoked_at IS NULL
 	`, userID, clientID)
+	return err
+}
+
+// ====================== ADMIN CLIENTS ======================
+
+// ListClients: filtra por tenant; query opcional sobre name/client_id (ILIKE %q%)
+func (s *Store) ListClients(ctx context.Context, tenantID, query string) ([]core.Client, error) {
+	q := `
+SELECT id, tenant_id, name, client_id, client_type, redirect_uris, allowed_origins, providers, scopes, active_version_id, created_at
+FROM client
+WHERE tenant_id = $1`
+	args := []any{tenantID}
+	if strings.TrimSpace(query) != "" {
+		q += " AND (name ILIKE $2 OR client_id ILIKE $2)"
+		args = append(args, "%"+query+"%")
+	}
+	q += " ORDER BY created_at DESC"
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []core.Client
+	for rows.Next() {
+		var c core.Client
+		var active *string
+		if err := rows.Scan(&c.ID, &c.TenantID, &c.Name, &c.ClientID, &c.ClientType, &c.RedirectURIs, &c.AllowedOrigins, &c.Providers, &c.Scopes, &active, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		c.ActiveVersionID = active
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) GetClientByID(ctx context.Context, id string) (*core.Client, *core.ClientVersion, error) {
+	const q = `
+SELECT c.id, c.tenant_id, c.name, c.client_id, c.client_type, c.redirect_uris, c.allowed_origins, c.providers, c.scopes, c.active_version_id, c.created_at,
+       v.id, v.version, v.claim_schema_json, v.claim_mapping_json, v.crypto_config_json, v.status, v.created_at, v.promoted_at
+FROM client c
+LEFT JOIN client_version v ON v.id = c.active_version_id
+WHERE c.id = $1
+LIMIT 1`
+	row := s.pool.QueryRow(ctx, q, id)
+
+	var c core.Client
+	var active *string
+
+	// Campos de la versión como punteros para tolerar NULL del LEFT JOIN
+	var vID, vVersion, vStatus *string
+	var vCreatedAt, vPromotedAt *time.Time
+	var claimSchema, claimMapping, cryptoConf []byte
+
+	if err := row.Scan(
+		&c.ID, &c.TenantID, &c.Name, &c.ClientID, &c.ClientType, &c.RedirectURIs, &c.AllowedOrigins, &c.Providers, &c.Scopes, &active, &c.CreatedAt,
+		&vID, &vVersion, &claimSchema, &claimMapping, &cryptoConf, &vStatus, &vCreatedAt, &vPromotedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, core.ErrNotFound
+		}
+		return nil, nil, err
+	}
+	c.ActiveVersionID = active
+
+	// Si no hay active_version_id, vID será nil
+	if vID == nil {
+		return &c, nil, nil
+	}
+
+	v := &core.ClientVersion{
+		ID:               *vID,
+		ClientID:         c.ID,
+		Version:          deref(vVersion),
+		ClaimSchemaJSON:  claimSchema,
+		ClaimMappingJSON: claimMapping,
+		CryptoConfigJSON: cryptoConf,
+		Status:           deref(vStatus),
+		CreatedAt:        derefTime(vCreatedAt),
+		PromotedAt:       vPromotedAt,
+	}
+	return &c, v, nil
+}
+
+// UpdateClient: campos permitidos (name, client_type, redirect_uris, allowed_origins, providers, scopes)
+func (s *Store) UpdateClient(ctx context.Context, c *core.Client) error {
+	const q = `
+UPDATE client
+SET name=$2, client_type=$3, redirect_uris=$4, allowed_origins=$5, providers=$6, scopes=$7
+WHERE id=$1`
+	_, err := s.pool.Exec(ctx, q, c.ID, c.Name, c.ClientType, c.RedirectURIs, c.AllowedOrigins, c.Providers, c.Scopes)
+	return err
+}
+
+func (s *Store) DeleteClient(ctx context.Context, id string) error {
+	// Opcional: cascada lógica. Acá hacemos delete directo; tu FK debe estar definida con ON DELETE RESTRICT o CASCADE según tu modelo.
+	_, err := s.pool.Exec(ctx, `DELETE FROM client WHERE id = $1`, id)
+	return err
+}
+
+// Revocar todo por client (todos los usuarios que tengan refresh con ese client)
+func (s *Store) RevokeAllRefreshTokensByClient(ctx context.Context, clientID string) error {
+	_, err := s.pool.Exec(ctx, `
+        UPDATE refresh_token
+        SET revoked_at = NOW()
+        WHERE client_id = $1 AND revoked_at IS NULL
+    `, clientID)
 	return err
 }
