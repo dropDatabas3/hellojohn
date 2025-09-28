@@ -117,8 +117,7 @@ func Test_25_Admin_Users_Disable_Enable(t *testing.T) {
 	// helpers disable/enable
 	call := func(path string) (int, string) {
 		body, _ := json.Marshal(map[string]any{
-			"tenant_id": seed.Tenant.ID,
-			"user_id":   userID,
+			"user_id": userID,
 		})
 		req, _ := http.NewRequest("POST", baseURL+path, bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+adminAccess)
@@ -141,7 +140,7 @@ func Test_25_Admin_Users_Disable_Enable(t *testing.T) {
 		t.Fatalf("disable status=%d body=%s", st, body)
 	}
 
-	// 3) Login debe fallar (401/403)
+	// 3) Login debe fallar (401/403/423)
 	{
 		lb, _ := json.Marshal(map[string]any{
 			"tenant_id": seed.Tenant.ID, "client_id": seed.Clients.Web.ClientID,
@@ -152,9 +151,9 @@ func Test_25_Admin_Users_Disable_Enable(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer resp.Body.Close()
-		if resp.StatusCode != 401 && resp.StatusCode != 403 {
+		if resp.StatusCode != 401 && resp.StatusCode != 403 && resp.StatusCode != 423 {
 			b, _ := io.ReadAll(resp.Body)
-			t.Fatalf("login (disabled) debería 401/403; got %d body=%s", resp.StatusCode, string(b))
+			t.Fatalf("login (disabled) debería 401/403/423; got %d body=%s", resp.StatusCode, string(b))
 		}
 	}
 

@@ -35,10 +35,14 @@ type ClientVersion struct {
 }
 
 type User struct {
-	ID, TenantID, Email, Status string
-	EmailVerified               bool
-	Metadata                    map[string]any
-	CreatedAt                   time.Time
+	ID             string
+	TenantID       string
+	Email          string
+	EmailVerified  bool
+	Metadata       map[string]any
+	CreatedAt      time.Time
+	DisabledAt     *time.Time
+	DisabledReason *string
 }
 
 type Identity struct {

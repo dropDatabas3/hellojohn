@@ -73,6 +73,14 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 			httpx.WriteError(w, status, "invalid_client", "client inválido", 1403)
 			return
 		}
+
+		// Rechazar refresh si el usuario está deshabilitado
+		if u, err := c.Store.GetUserByID(ctx, rt.UserID); err == nil && u != nil {
+			if u.DisabledAt != nil {
+				httpx.WriteError(w, http.StatusUnauthorized, "user_disabled", "usuario deshabilitado", 1410)
+				return
+			}
+		}
 		if rt.ClientID != cl.ID {
 			httpx.WriteError(w, http.StatusUnauthorized, "mismatched_client", "refresh no pertenece al client", 1404)
 			return

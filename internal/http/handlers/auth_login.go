@@ -102,10 +102,6 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "tenant_id, client_id, email y password son obligatorios", 1002)
 			return
 		}
-		if req.TenantID == "" || req.ClientID == "" || req.Email == "" || req.Password == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "tenant_id, client_id, email y password son obligatorios", 1002)
-			return
-		}
 
 		// Rate limiting específico para login (endpoint semántico)
 		if c.MultiLimiter != nil {
@@ -136,6 +132,13 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			}
 			log.Printf("auth login: user not found or err: %v (tenant=%s email=%s)", err, req.TenantID, util.MaskEmail(req.Email))
 			httpx.WriteError(w, status, "invalid_credentials", "usuario o password inválidos", 1201)
+			return
+		}
+
+		// Bloqueo por usuario deshabilitado
+		if u.DisabledAt != nil {
+			// prefer 423 Locked for login when disabled
+			httpx.WriteError(w, http.StatusLocked, "user_disabled", "usuario deshabilitado", 1210)
 			return
 		}
 		if id == nil || id.PasswordHash == nil || *id.PasswordHash == "" || !c.Store.CheckPassword(id.PasswordHash, req.Password) {
