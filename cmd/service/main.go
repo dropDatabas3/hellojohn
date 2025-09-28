@@ -490,6 +490,13 @@ func main() {
 		httpserver.RequireSysAdmin(container.Issuer),
 	)
 
+	// ─── Admin Users (disable/enable) ───
+	adminUsers := httpserver.Chain(
+		handlers.NewAdminUsersHandler(&container),
+		httpserver.RequireAuth(container.Issuer),
+		httpserver.RequireSysAdmin(container.Issuer),
+	)
+
 	// Introspect endurecido con basic auth (si user/pass vacíos ⇒ siempre 401)
 	introspectAuth := basicAuthCfg{user: strings.TrimSpace(cfg.Auth.IntrospectBasicUser), pass: strings.TrimSpace(cfg.Auth.IntrospectBasicPass)}
 	oauthIntrospectHandler := handlers.NewOAuthIntrospectHandler(&container, introspectAuth)
@@ -612,6 +619,7 @@ func main() {
 		adminClients,
 		adminRBACUsers,
 		adminRBACRoles,
+		adminUsers,
 	)
 
 	// Rutas Google (solo si está habilitado)

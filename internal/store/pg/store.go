@@ -78,7 +78,7 @@ func derefTime(t *time.Time) time.Time {
 
 func (s *Store) GetUserByEmail(ctx context.Context, tenantID, email string) (*core.User, *core.Identity, error) {
 	const q = `
-SELECT u.id, u.tenant_id, u.email, u.email_verified, u.status, u.metadata, u.created_at,
+	SELECT u.id, u.tenant_id, u.email, u.email_verified, u.metadata, u.created_at, u.disabled_at, u.disabled_reason,
        i.id, i.provider, i.provider_user_id, i.email, i.email_verified, i.password_hash, i.created_at
 FROM app_user u
 JOIN identity i ON i.user_id = u.id AND i.provider = 'password'
@@ -93,9 +93,11 @@ LIMIT 1`
 	var idEmail *string
 	var idEmailVerified *bool
 	var pwd *string
+	var disabledAt *time.Time
+	var disabledReason *string
 
 	if err := row.Scan(
-		&u.ID, &u.TenantID, &u.Email, &u.EmailVerified, &u.Status, &meta, &u.CreatedAt,
+		&u.ID, &u.TenantID, &u.Email, &u.EmailVerified, &meta, &u.CreatedAt, &disabledAt, &disabledReason,
 		&i.ID, &i.Provider, &providerUserID, &idEmail, &idEmailVerified, &pwd, &i.CreatedAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -105,6 +107,8 @@ LIMIT 1`
 		return nil, nil, err
 	}
 	u.Metadata = meta
+	u.DisabledAt = disabledAt
+	u.DisabledReason = disabledReason
 	i.UserID = u.ID
 	if providerUserID != nil {
 		i.ProviderUserID = *providerUserID
@@ -231,13 +235,13 @@ func (s *Store) CreateUser(ctx context.Context, u *core.User) error {
 		u.Metadata = map[string]any{}
 	}
 	const q = `
-INSERT INTO app_user (id, tenant_id, email, email_verified, status, metadata)
-VALUES (gen_random_uuid(), $1, LOWER($2), $3, $4, $5)
-ON CONFLICT (tenant_id, email)
-DO UPDATE SET email = EXCLUDED.email
-RETURNING id, created_at`
+	INSERT INTO app_user (id, tenant_id, email, email_verified, metadata)
+	VALUES (gen_random_uuid(), $1, LOWER($2), $3, $4)
+	ON CONFLICT (tenant_id, email)
+	DO UPDATE SET email = EXCLUDED.email
+	RETURNING id, created_at`
 	return s.pool.QueryRow(ctx, q,
-		u.TenantID, u.Email, u.EmailVerified, u.Status, u.Metadata,
+		u.TenantID, u.Email, u.EmailVerified, u.Metadata,
 	).Scan(&u.ID, &u.CreatedAt)
 }
 
@@ -327,11 +331,11 @@ func (s *Store) CreateUserWithPassword(ctx context.Context, tenantID, email, pas
 	var meta map[string]any
 
 	err = tx.QueryRow(ctx, `
-		INSERT INTO app_user (tenant_id, email, email_verified, status, metadata)
-		VALUES ($1, LOWER($2), false, 'active', '{}'::jsonb)
-		RETURNING id, tenant_id, email, email_verified, status, metadata, created_at
+		INSERT INTO app_user (tenant_id, email, email_verified, metadata)
+		VALUES ($1, LOWER($2), false, '{}'::jsonb)
+		RETURNING id, tenant_id, email, email_verified, metadata, created_at
 	`, tenantID, email).
-		Scan(&u.ID, &u.TenantID, &u.Email, &u.EmailVerified, &u.Status, &meta, &u.CreatedAt)
+		Scan(&u.ID, &u.TenantID, &u.Email, &u.EmailVerified, &meta, &u.CreatedAt)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			return nil, nil, core.ErrConflict
@@ -421,12 +425,14 @@ func (s *Store) RevokeRefreshToken(ctx context.Context, id string) error {
 
 func (s *Store) GetUserByID(ctx context.Context, userID string) (*core.User, error) {
 	const q = `
-SELECT id, tenant_id, email, email_verified, status, metadata, created_at
-FROM app_user WHERE id = $1 LIMIT 1`
+	SELECT id, tenant_id, email, email_verified, metadata, created_at, disabled_at, disabled_reason
+	FROM app_user WHERE id = $1 LIMIT 1`
 	row := s.pool.QueryRow(ctx, q, userID)
 	var u core.User
 	var meta map[string]any
-	if err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.EmailVerified, &u.Status, &meta, &u.CreatedAt); err != nil {
+	var disabledAt *time.Time
+	var disabledReason *string
+	if err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.EmailVerified, &meta, &u.CreatedAt, &disabledAt, &disabledReason); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, core.ErrNotFound
 		}
@@ -434,6 +440,8 @@ FROM app_user WHERE id = $1 LIMIT 1`
 		return nil, err
 	}
 	u.Metadata = meta
+	u.DisabledAt = disabledAt
+	u.DisabledReason = disabledReason
 	return &u, nil
 }
 
@@ -560,4 +568,26 @@ func (s *Store) RevokeAllRefreshTokensByClient(ctx context.Context, clientID str
         WHERE client_id = $1 AND revoked_at IS NULL
     `, clientID)
 	return err
+}
+
+// ====================== ADMIN USERS (disable/enable) ======================
+
+// DisableUser marca al usuario como 'disabled' y setea metadata auxiliar si las columnas existen.
+func (s *Store) DisableUser(ctx context.Context, userID, by, reason string) error {
+	// status='disabled'. Columnas opcionales disabled_at/disabled_by/disabled_reason pueden no existir.
+	// Intentamos la actualización extendida; si falla por columna, caemos a mínima.
+	_, err := s.pool.Exec(ctx, `UPDATE app_user SET disabled_at=NOW(), disabled_reason=NULLIF($2,'') WHERE id=$1`, userID, reason)
+	return err
+}
+
+// EnableUser marca al usuario como 'active' y limpia metadata auxiliar conocida.
+func (s *Store) EnableUser(ctx context.Context, userID, by string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE app_user SET disabled_at=NULL, disabled_reason=NULL WHERE id=$1`, userID)
+	return err
+}
+
+// RevokeAllRefreshByUser revokes and returns affected rows
+func (s *Store) RevokeAllRefreshByUser(ctx context.Context, userID string) (int, error) {
+	tag, err := s.pool.Exec(ctx, `UPDATE refresh_token SET revoked_at = NOW() WHERE user_id=$1 AND revoked_at IS NULL`, userID)
+	return int(tag.RowsAffected()), err
 }

@@ -101,7 +101,6 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			TenantID:      req.TenantID,
 			Email:         req.Email,
 			EmailVerified: false,
-			Status:        "active",
 			Metadata:      map[string]any{},
 		}
 		if err := c.Store.CreateUser(ctx, u); err != nil {
