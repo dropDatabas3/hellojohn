@@ -68,7 +68,7 @@ El archivo `TestMain_bootstrap_test.go` realiza estos pasos antes de correr cual
 
 Si algún paso falla el resto de la suite se aborta—por eso es importante revisar logs en ejecuciones fallidas.
 
-### 3.1 Notas Sprint 6 bootstrap
+### 3.1 Notas bootstrap
 * Semilla: si el YAML define `sub` pero no `id`, el loader asigna `ID = Sub` para compatibilidad retroactiva (evita 400 en upsert consents admin).
 * Tests admin (22–24) asumen migración 0003 aplicada (`scope`, `user_consent`).
 * OIDC tests (04/05) esperan ahora 302 directo en casos de autoconsent (sin paso intermedio consent_required).
@@ -272,7 +272,7 @@ Indicadores mínimos tras una ejecución completa:
 | Admin token claims | Llenar 26_token_claims_test.go con asserts de scopes extras |
 
 ---
-### 16. Changelog Suite Sprint 6
+### 16. Changelog de la suite
 | Cambio | Detalle |
 |--------|---------|
 | Migración 0003 cubierta | Tests consumen scopes/consents persistidos |
@@ -282,4 +282,4 @@ Indicadores mínimos tras una ejecución completa:
 | Autoconsent | Ajustes en expectativas de OIDC tests (04/05) |
 
 ---
-Última actualización: Septiembre 2025 – Suite alineada con Sprint 5.
+Última actualización: Septiembre 2025 – Suite alineada con el estado actual.

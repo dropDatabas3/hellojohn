@@ -23,7 +23,7 @@ Autenticación unificada (password, OAuth2/OIDC, social Google, MFA TOTP), gesti
 12. Operación (CLI, migraciones, rotación de claves)
 13. Glosario rápido
 14. Futuro inmediato (dirección evolutiva)
-15. Changelog Sprint 6 (resumen)
+15. Changelog (resumen)
 
 ---
 ## 1. Visión general
@@ -247,6 +247,173 @@ Firmas Ed25519: header contiene KID. Privadas opcionalmente cifradas con master 
 ## 7. Catálogo de endpoints (resumen operativo)
 Autenticación básica:
 `POST /v1/auth/register`, `POST /v1/auth/login`, `POST /v1/auth/refresh`, `POST /v1/auth/logout`, `GET /v1/me`, `POST /v1/auth/logout-all`
+<div align="center">
+
+# HelloJohn – Universal Login & Identity Service
+
+Autenticación unificada (password, OAuth2/OIDC, social Google, MFA TOTP), gestión de sesiones y emisión segura de tokens multi‑tenant.
+
+</div>
+
+---
+
+## Índice
+- [1. Introducción](#1-introducción)
+- [2. Características](#2-características)
+- [3. Arquitectura](#3-arquitectura)
+- [4. Estructura del proyecto](#4-estructura-del-proyecto)
+- [5. Requisitos](#5-requisitos)
+- [6. Puesta en marcha rápida](#6-puesta-en-marcha-rápida)
+  - [6.1 Con Docker (DB/Cache)](#61-con-docker-dbcache)
+  - [6.2 Ejecutar el servicio](#62-ejecutar-el-servicio)
+- [7. Configuración](#7-configuración)
+  - [7.1 Variables clave](#71-variables-clave)
+  - [7.2 Blacklist de contraseñas](#72-blacklist-de-contraseñas)
+- [8. Catálogo de endpoints](#8-catálogo-de-endpoints)
+  - [8.1 Administración (JWT admin)](#81-administración-jwt-admin)
+- [9. Admin: autenticación y autorización](#9-admin-autenticación-y-autorización)
+- [10. Flujos principales](#10-flujos-principales)
+- [11. Seguridad](#11-seguridad)
+- [12. Rate limiting](#12-rate-limiting)
+- [13. Migraciones, seed y claves](#13-migraciones-seed-y-claves)
+- [14. Pruebas E2E](#14-pruebas-e2e)
+- [15. Operación y salud](#15-operación-y-salud)
+- [16. Roadmap](#16-roadmap)
+- [17. Troubleshooting](#17-troubleshooting)
+
+---
+
+## 1. Introducción
+HelloJohn es un servicio de identidad orientado a apps web y backends que necesitan:
+- Registro/login por email/password con política de contraseñas y blacklist opcional.
+- OAuth2/OIDC Authorization Code + PKCE (S256) para SPAs, mobile y backends.
+- Emisión de Access/ID/Refresh tokens (EdDSA Ed25519) con JWKS y rotación de claves.
+- Login social (Google) con state firmado y código efímero (login_code).
+- Flujos de verificación de email y recuperación de contraseña.
+- MFA TOTP con trusted devices y códigos de recuperación.
+- Introspección de tokens y revocación masiva de sesiones.
+- Rate limiting semántico.
+
+Todo expone JSON consistente, headers de seguridad y convenciones pensadas para integraciones multi‑tenant.
+
+---
+
+## 2. Características
+- Multi‑tenant y clients versionados.
+- Consentimientos por usuario/cliente con scopes dinámicos.
+- Revocación de refresh tokens en cascada al revocar consentimientos/cliente o desactivar usuario.
+- Keystore persistente con rotación de claves y JWKS.
+- Cache abstracta (memory/redis) y rate limiter semántico.
+
+---
+
+## 3. Arquitectura
+```mermaid
+flowchart LR
+  subgraph Edge
+    Client[Browser / SPA / Backend]
+  end
+  Client -->|OAuth2 / REST| API[HTTP Layer]
+  API --> MW[Middlewares: CORS, SecHeaders, Rate, Logging, Recover]
+  API --> H[Handlers /v1/* /oauth2/*]
+  H --> Issuer[JWT Issuer]
+  H --> Store[(Postgres)]
+  H --> Cache[(Cache)]
+  Cache --- CNote
+  CNote["Redis o Memory (configurable)"]
+  H --> Email[SMTP + Templates]
+  H --> Rate[Redis Limiter]
+  Issuer --> Keystore[(signing_keys)]
+  H --> MFA[Trusted Devices + TOTP]
+```
+
+---
+
+## 4. Estructura del proyecto
+```
+cmd/
+  service/        # Servicio HTTP principal
+  migrate/        # Migraciones DB
+  seed/           # Seed de datos
+  keys/           # Gestión de claves (rotate/list/retire)
+configs/          # YAML (ejemplo y real) + blacklist opcional
+deployments/      # docker-compose (Postgres/Redis) y Dockerfile (WIP)
+internal/         # Código del dominio (HTTP, handlers, stores, JWT, MFA, etc.)
+migrations/       # SQL/JS para motores soportados
+templates/        # Emails (txt/html)
+test/             # Suite E2E
+```
+
+---
+
+## 5. Requisitos
+- Go 1.23+
+- Postgres 16 (dev mediante docker‑compose) y Redis (opcional, recomendado para rate/cache)
+- SMTP para emails (en desarrollo puede usarse un servidor de pruebas)
+
+---
+
+## 6. Puesta en marcha rápida
+
+### 6.1 Con Docker (DB/Cache)
+En desarrollo podés levantar Postgres y Redis con `deployments/docker-compose.yml`.
+
+Opcional
+```
+docker compose -f deployments/docker-compose.yml up -d
+```
+
+### 6.2 Ejecutar el servicio
+1) Copiá el ejemplo y/o usa variables de entorno:
+```
+cp configs/config.example.yaml configs/config.yaml
+```
+2) Definí una master key para cifrado (mínimo 32 bytes):
+```
+setx SIGNING_MASTER_KEY 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+3) Iniciá el servicio (con migraciones automáticas):
+```
+go run ./cmd/service -env
+```
+
+Notas
+- Por defecto escucha en :8080.
+- El flag `-env` usa solo variables de entorno (y `.env` si pasás `-env-file`).
+
+---
+
+## 7. Configuración
+Precedencia: defaults → config.yaml → env → flags.
+
+### 7.1 Variables clave
+- Servidor: SERVER_ADDR, SERVER_CORS_ALLOWED_ORIGINS
+- JWT: JWT_ISSUER, JWT_ACCESS_TTL, JWT_REFRESH_TTL
+- Storage: STORAGE_DRIVER, STORAGE_DSN, POSTGRES_MAX_OPEN_CONNS, POSTGRES_MAX_IDLE_CONNS, POSTGRES_CONN_MAX_LIFETIME
+- Cache/Redis: CACHE_KIND, REDIS_ADDR, REDIS_DB, REDIS_PREFIX, CACHE_MEMORY_DEFAULT_TTL
+- Registro/Auth: REGISTER_AUTO_LOGIN, AUTH_ALLOW_BEARER_SESSION
+- Sesión: AUTH_SESSION_COOKIE_NAME, AUTH_SESSION_DOMAIN, AUTH_SESSION_SAMESITE, AUTH_SESSION_SECURE, AUTH_SESSION_TTL
+- Introspección: INTROSPECT_BASIC_USER, INTROSPECT_BASIC_PASS
+- Email flows/SMTP: AUTH_VERIFY_TTL, AUTH_RESET_TTL, AUTH_RESET_AUTO_LOGIN, EMAIL_BASE_URL, EMAIL_TEMPLATES_DIR, EMAIL_DEBUG_LINKS, SMTP_*
+- Rate global/por‑endpoint: RATE_ENABLED, RATE_WINDOW, RATE_MAX_REQUESTS, RATE_* (login/forgot/MFA)
+- Password: SECURITY_PASSWORD_POLICY_*, SECURITY_PASSWORD_BLACKLIST_PATH
+- Social Google: GOOGLE_ENABLED, GOOGLE_CLIENT_ID/SECRET, GOOGLE_REDIRECT_URL, GOOGLE_SCOPES, GOOGLE_ALLOWED_TENANTS/CLIENTS, SOCIAL_LOGIN_CODE_TTL
+- Claves: SIGNING_MASTER_KEY
+
+Autoconsent (seguro por defecto):
+- CONSENT_AUTO=1
+- CONSENT_AUTO_SCOPES="openid email profile"
+
+### 7.2 Blacklist de contraseñas
+1. Crear archivo con una contraseña por línea. Líneas vacías o con `#` se ignoran.
+2. Definir ruta vía YAML o env `SECURITY_PASSWORD_BLACKLIST_PATH`.
+3. Reiniciar el servicio.
+
+---
+
+## 8. Catálogo de endpoints
+Autenticación básica:
+`POST /v1/auth/register`, `POST /v1/auth/login`, `POST /v1/auth/refresh`, `POST /v1/auth/logout`, `POST /v1/auth/logout-all`, `GET /v1/me`
 
 Sesiones navegador:
 `POST /v1/session/login`, `POST /v1/session/logout`
@@ -266,108 +433,184 @@ Social:
 Salud:
 `GET /readyz`
 
-### 7.1 Endpoints Administración (Sprint 6)
-API base `/v1/admin/*` protegida (futuro: middleware admin/RBAC). Actualmente expone operaciones CRUD y gestión de consentimientos.
+### 8.1 Administración (JWT admin)
+API base `/v1/admin/*` protegida por RequireAuth + RequireSysAdmin (ver sección 9).
 
-Scopes & Consents introducen persistencia dinámica de permisos de OAuth2 por usuario/cliente, con validación estricta de nombres.
+Scopes & Consents introducen persistencia dinámica de permisos por usuario/cliente, con validación estricta y borrado seguro.
 
 | Método | Path | Descripción | Notas |
 |--------|------|-------------|-------|
 | GET | /v1/admin/clients?tenant_id= | Lista clientes por tenant | Filtro `q` opcional |
-| POST | /v1/admin/clients | Crea cliente | Campos oblig: tenant_id, client_id, name, client_type |
+| POST | /v1/admin/clients | Crea cliente | Requiere tenant_id, client_id, name, client_type |
 | GET | /v1/admin/clients/{id} | Obtiene cliente + versión activa | id UUID |
-| PUT | /v1/admin/clients/{id} | Actualiza (sin cambiar client_id) | 204 sin body |
-| DELETE | /v1/admin/clients/{id}?soft=true | Elimina (o solo revoca sesiones si soft) | Revoca refresh antes |
+| PUT | /v1/admin/clients/{id} | Actualiza (sin cambiar client_id) | 204 |
+| DELETE | /v1/admin/clients/{id}?soft=true | Elimina o solo revoca sesiones | Revoca refresh antes |
 | POST | /v1/admin/clients/{id}/revoke | Revoca todas las sesiones del cliente | Idempotente |
-| GET | /v1/admin/scopes?tenant_id= | Lista scopes registrados | Orden alfabético |
-| POST | /v1/admin/scopes | Crea scope | Valida regex y minúsculas, conflicto 409 |
-| PUT | /v1/admin/scopes/{id} | Actualiza descripción | No renombra, 204 idempotente |
-| DELETE | /v1/admin/scopes/{id} | Elimina scope si no está en uso | 409 si user_consent activo lo referencia |
+| GET | /v1/admin/scopes?tenant_id= | Lista scopes | Orden alfabético |
+| POST | /v1/admin/scopes | Crea scope | Valida regex/minúsculas, 409 si existe |
+| PUT | /v1/admin/scopes/{id} | Actualiza descripción | No renombra |
+| DELETE | /v1/admin/scopes/{id} | Elimina si no está en uso | 409 si en uso |
 | POST | /v1/admin/consents/upsert | Inserta o amplía consentimiento | Acepta client_id público o UUID |
-| GET | /v1/admin/consents?user_id=&client_id=&active_only= | Filtra consentimientos | user+client => 0..1 |
-| GET | /v1/admin/consents/by-user/{userID} | Lista consentimientos de usuario | `active_only=true` opcional |
-| POST | /v1/admin/consents/revoke | Revoca consentimiento (soft) | Revoca refresh tokens asociados |
-| DELETE | /v1/admin/consents/{user_id}/{client_id} | Alias a revoke now() | Idempotente |
-| GET | /v1/admin/rbac/users/{userID}/roles | Lista roles | Repos opcionales RBAC |
-| POST | /v1/admin/rbac/users/{userID}/roles | Añade / quita roles | Campos add/remove |
-| GET | /v1/admin/rbac/roles/{role}/perms | Lista permisos rol | Requiere bearer válido |
-| POST | /v1/admin/rbac/roles/{role}/perms | Añade / quita permisos | Dedup interno |
+| GET | /v1/admin/consents?user_id=&client_id=&active_only= | Filtra consentimientos | user+client ⇒ 0..1 |
+| GET | /v1/admin/consents/by-user/{userID} | Lista consentimientos de usuario | `active_only` opcional |
+| POST | /v1/admin/consents/revoke | Revoca consentimiento (soft) | Revoca refresh tokens |
+| DELETE | /v1/admin/consents/{user_id}/{client_id} | Alias de revoke now() | Idempotente |
+| GET | /v1/admin/rbac/users/{userID}/roles | Lista roles | Repos RBAC opcionales |
+| POST | /v1/admin/rbac/users/{userID}/roles | Añade/Quita roles | Campos add/remove |
+| GET | /v1/admin/rbac/roles/{role}/perms | Lista permisos rol | |
+| POST | /v1/admin/rbac/roles/{role}/perms | Añade/Quita permisos | |
 
-#### 7.1.1 Validación de nombres de scope
-Patrón aplicado (regex): `^[a-z0-9](?:[a-z0-9:_\.-]{0,62}[a-z0-9])?$`
-Reglas derivadas:
-* Longitud 1–64.
-* Solo minúsculas; debe iniciar y terminar alfanumérico.
-* Caracteres internos permitidos: `:` `_` `.` `-`.
-* Rechazo explícito de mayúsculas o espacios.
-* Conflicto de unicidad (tenant_id, name) ⇒ 409 `scope_exists`.
+Validación de scopes (regex): `^[a-z0-9](?:[a-z0-9:_\.-]{0,62}[a-z0-9])?$` (1–64, minúsculas, caracteres permitidos `:_.-`).
 
-#### 7.1.2 Eliminación segura de scopes
-Antes: delete directo podía dejar consentimientos apuntando a scopes inexistentes.
-Ahora: `DELETE /v1/admin/scopes/{id}` ejecuta comprobación manual `EXISTS` sobre `user_consent` activo en el mismo tenant; si está en uso ⇒ 409 `scope_in_use`.
-Racional: `granted_scopes` es `TEXT[]` y no puede tener FK directa; se preserva integridad referencial lógica.
+Eliminación segura: antes de borrar un scope se verifica que no esté referenciado por `user_consent` activo en el mismo tenant; si lo está ⇒ 409 `scope_in_use`.
 
-#### 7.1.3 Upsert de consentimientos
-`POST /v1/admin/consents/upsert` realiza unión de scopes evitando duplicados y re-activa consentimientos revocados (pone `revoked_at=NULL`). Escenarios de OIDC con autoconsent generan el registro sin interacción extra para scopes básicos.
-
-#### 7.1.4 Autoconsent (reiteración)
-Ver sección 10.0 — habilita consentimiento implícito cuando todos los scopes solicitados ⊆ set permitido (`CONSENT_AUTO_SCOPES`). Mejora DX de first‑party apps.
-
-#### 7.1.5 Revocación de consentimientos
-Revocar (POST/DELETE) marca `revoked_at` y revoca refresh tokens del par (user, client) para impedir refresh posterior. Access tokens existentes expiran naturalmente.
+Upsert de consentimientos: unión de scopes sin duplicar y reactivación (revoked_at=NULL) cuando corresponda. La revocación marca `revoked_at` y revoca refresh del par (user, client).
 
 ---
-## 8. Seguridad (controles aplicados)
-| Control | Descripción |
-|---------|-------------|
-| Argon2id | Hash fuerte de contraseñas (memoria elevada). |
-| Blacklist opcional | Rechazo de contraseñas débiles conocidas. |
-| PKCE S256 | Mitiga interceptación del authorization code. |
-| Refresh rotation | Minimiza replay y disminuye ventana de abuso. |
-| Ed25519 + JWKS | Firmas modernas y validación pública rotativa. |
-| AES-GCM reposo | Protege secretos TOTP y claves privadas (prefijos GCMV1 / GCMV1-MFA). |
-| No-store headers | Tokens nunca cacheados (Cache-Control no-store, Pragma no-cache). |
-| CSP & Headers | CSP estricta, X-Frame-Options DENY, Referrer-Policy, HSTS (según entorno). |
-| Introspección | Validación estado de refresh/access (firma/exp). |
-| Logout-all | Revocación masiva para respuesta a incidentes. |
-| MFA TOTP + trusted | Aumenta ACR y añade segunda barrera. |
-| Rate semántico | Limita abuso contextual (login/email/MFA). |
+
+## 9. Admin: autenticación y autorización
+Las rutas `/v1/admin/*` se protegen con:
+- RequireAuth: exige JWT Bearer válido emitido por el issuer configurado.
+- RequireSysAdmin: verifica privilegios de administrador del sistema.
+
+Política (middleware `RequireSysAdmin`):
+1) Si `ADMIN_ENFORCE` ≠ "1" ⇒ permitir (modo dev/compatibilidad).
+2) En claims.custom[SystemNamespace(iss)].is_admin == true ⇒ permitir.
+3) En claims.custom[SystemNamespace(iss)].roles incluye "sys:admin" ⇒ permitir.
+4) Fallback de emergencia: `sub` ∈ `ADMIN_SUBS` (CSV) ⇒ permitir.
+Si no, 403.
+
+Variables relevantes:
+- ADMIN_ENFORCE=1
+- ADMIN_SUBS="uuid-1,uuid-2"
+
+Ejemplo (payload recortado):
+```
+{
+  "iss": "http://localhost:8080",
+  "sub": "<user-uuid>",
+  "custom": {
+    "urn:hellojohn:sys": {
+      "is_admin": true,
+      "roles": ["sys:admin"]
+    }
+  }
+}
+```
 
 ---
-## 9. Rate limiting semántico
+
+## 10. Flujos principales
+### 10.1 Registro + Login (con MFA opcional)
+```mermaid
+sequenceDiagram
+autonumber
+participant U as Usuario
+participant S as Servicio
+U->>S: POST /v1/auth/register
+S-->>U: 200/201/204
+U->>S: POST /v1/auth/login (email,pwd)
+alt MFA requerida y no trusted
+  S-->>U: {mfa_required:true, mfa_token}
+  U->>S: POST /v1/mfa/totp/challenge
+  S-->>U: access + refresh
+else Sin MFA o trusted device
+  S-->>U: access + refresh
+end
+```
+
+### 10.2 OAuth2 Authorization Code (+ PKCE) con autoconsent
+```mermaid
+sequenceDiagram
+participant B as Browser
+participant S as Servicio
+participant A as App Backend
+B->>S: GET /oauth2/authorize (code_challenge)
+S-->>B: (si sin sesión) pedir /v1/session/login
+B->>S: POST /v1/session/login (cookie)
+B->>S: GET /oauth2/authorize (cookie válida)
+S-->>B: 302 redirect_uri?code=CODE&state (si scopes ⊆ CONSENT_AUTO_SCOPES)
+A->>S: POST /oauth2/token (code + code_verifier)
+S-->>A: access + id + refresh
+```
+
+### 10.3 Refresh rotativo
+```mermaid
+sequenceDiagram
+participant C as Cliente
+participant S as Servicio
+C->>S: POST /v1/auth/refresh (R1)
+S->>S: valida hash(R1), no revoked
+S->>S: emite R2, revoca R1
+S-->>C: access + R2
+```
+
+### 10.4 Password Reset / Verificación Email / Social Google
+Se mantienen los flujos estándar documentados en los endpoints (ver sección 8).
+
+---
+
+## 11. Seguridad
+- Argon2id (passwords) con parámetros seguros.
+- Blacklist opcional de contraseñas.
+- PKCE S256.
+- Refresh rotation.
+- Ed25519 + JWKS.
+- AES‑GCM en reposo para secretos TOTP y claves privadas.
+- Headers de seguridad (CSP, no‑store, X‑Frame‑Options DENY, HSTS si HTTPS, etc.).
+- Introspección y logout‑all.
+
+---
+
+## 12. Rate limiting
 Dos capas:
-1. Global (IP+path).  
-2. Pools específicos: login, forgot/reset, verify-email, MFA (enroll/verify/challenge/disable).  
-Redis almacena contadores con TTL igual a la ventana. Ante fallo de Redis el sistema es fail‑open (registro en log).
+1) Global (IP+path)
+2) Pools específicos: login, forgot/reset, verify-email, MFA (enroll/verify/challenge/disable)
+Redis almacena contadores con TTL de la ventana. Fallo de Redis ⇒ fail‑open (se registra en logs).
 
 ---
-## 10. Configuración y variables de entorno
-Precedencia: defaults → config.yaml → env → flags.
 
-Categorías principales (clave = variable, valor = función):
-* Servidor: SERVER_ADDR, SERVER_CORS_ALLOWED_ORIGINS
-* JWT: JWT_ISSUER, JWT_ACCESS_TTL, JWT_REFRESH_TTL
-* Storage: STORAGE_DRIVER, STORAGE_DSN, POSTGRES_MAX_OPEN_CONNS, POSTGRES_MAX_IDLE_CONNS, POSTGRES_CONN_MAX_LIFETIME
-* Cache/Redis: CACHE_KIND, REDIS_ADDR, REDIS_DB, REDIS_PREFIX, MEMORY_DEFAULT_TTL
-* Registro/Auth: REGISTER_AUTO_LOGIN, AUTH_ALLOW_BEARER_SESSION
-* Sesión: AUTH_SESSION_COOKIE_NAME, AUTH_SESSION_DOMAIN, AUTH_SESSION_SAMESITE, AUTH_SESSION_SECURE, AUTH_SESSION_TTL
-* Email flows: AUTH_VERIFY_TTL, AUTH_RESET_TTL, AUTH_RESET_AUTO_LOGIN, EMAIL_BASE_URL, EMAIL_TEMPLATES_DIR, EMAIL_DEBUG_LINKS
-* SMTP: SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, SMTP_FROM, SMTP_TLS, SMTP_INSECURE_SKIP_VERIFY
-* Rate global: RATE_ENABLED, RATE_WINDOW, RATE_MAX_REQUESTS
-* Rate específicos: RATE_LOGIN_LIMIT, RATE_LOGIN_WINDOW, RATE_FORGOT_LIMIT, RATE_FORGOT_WINDOW, RATE_MFA_ENROLL_LIMIT, RATE_MFA_ENROLL_WINDOW, RATE_MFA_VERIFY_LIMIT, RATE_MFA_VERIFY_WINDOW, RATE_MFA_CHALLENGE_LIMIT, RATE_MFA_CHALLENGE_WINDOW, RATE_MFA_DISABLE_LIMIT, RATE_MFA_DISABLE_WINDOW
-* Password policy: SECURITY_PASSWORD_POLICY_* , SECURITY_PASSWORD_BLACKLIST_PATH
-* Social: GOOGLE_ENABLED, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URL, GOOGLE_SCOPES, GOOGLE_ALLOWED_TENANTS, GOOGLE_ALLOWED_CLIENTS, SOCIAL_LOGIN_CODE_TTL
-* Introspección: INTROSPECT_BASIC_USER, INTROSPECT_BASIC_PASS
-* MFA: MFA_TOTP_ISSUER, MFA_TOTP_WINDOW, MFA_REMEMBER_TTL
-* Claves: SIGNING_MASTER_KEY
+## 13. Migraciones, seed y claves
+- Migrar DB: `go run ./cmd/migrate`
+- Seed inicial: `go run ./cmd/seed`
+- Servidor: `go run ./cmd/service -env`
+- Rotar claves: `go run ./cmd/keys -rotate`
+- Listar claves: `go run ./cmd/keys -list`
+- Retirar claves: `go run ./cmd/keys -retire -retire-after=168h`
 
-### 10.0 Autoconsent de scopes básicos (novedad)
-Contexto del cambio: anteriormente, cuando un usuario autenticado (sesión cookie o bearer) iniciaba un flujo `GET /oauth2/authorize` y aún no existía consentimiento almacenado para todos los scopes solicitados, el endpoint devolvía `200 {"consent_required": true}` obligando a una interacción adicional incluso para scopes totalmente básicos (`openid email profile`).
+El servicio puede ejecutar migraciones al arrancar si `FLAGS_MIGRATE=true`.
 
-Con la nueva lógica se incorporó un modo de autoconsent seguro y opinado que mejora la DX en entornos first‑party:
+---
 
-Qué se arregló y por qué ahora pasan los tests 04/05:
-* Antes: falta de consentimiento ⇒ `200 consent_required` (los tests esperaban un `302` con `code`).
+## 14. Pruebas E2E
+La suite `test/e2e` cubre registro/login, refresh, email flows, OAuth2, social (login_code), MFA, introspección, blacklist y administración (clients, scopes, consents, users disable/enable).
+
+---
+
+## 15. Operación y salud
+- Health: `GET /readyz` verifica DB, cache y keystore.
+- Logs estructurados con request id.
+- Timeouts y graceful shutdown configurables por ENV (`HTTP_*`).
+
+---
+
+## 16. Roadmap
+- CLI y GUI de administración.
+- Endpoints adicionales de administración (listado de usuarios, vistas/sesiones).
+- Observabilidad (métricas, trazas).
+- Extensión de providers y WebAuthn.
+
+---
+
+## 17. Troubleshooting
+- 401 en `/v1/admin/*`: asegurate de enviar Bearer JWT válido y definir `ADMIN_ENFORCE=1` solo cuando el token tenga claims admin. `ADMIN_SUBS` puede servir de emergencia.
+- 401 en `/oauth2/introspect`: definí `INTROSPECT_BASIC_USER/PASS` para habilitar basic auth del endpoint.
+- 500 al iniciar: `SIGNING_MASTER_KEY` faltante o corto (mínimo 32 bytes).
+- Emails no salen: revisá `SMTP_*` y `EMAIL_DEBUG_LINKS` (en prod se fuerza false).
+
+---
+
+© 2025 HelloJohn – Documentación actualizada y alineada al código.
 * Ahora: si todos los scopes solicitados están dentro del conjunto autoconsentible, se persiste el consentimiento inmediatamente y se emite el authorization code (`302 redirect ...?code=...`).
 
 Reglas del autoconsent:
@@ -441,7 +684,7 @@ Deshabilitar: dejar el campo vacío en YAML o no exportar la variable de entorno
 Suite ubicada en `test/e2e` levanta el servicio, corre migraciones, genera claves, hace seed y ejecuta casos: registro/login, refresh rotativo, email flows, OAuth2, social login_code, MFA, introspección, blacklist.  
 Los tests garantizan: no-store en respuestas con credenciales, rotación de refresh, revocación correcta, uso único de login_code y recuperación MFA.
 
-### 11.1 Nuevos casos Sprint 6
+### 11.1 Nuevos casos
 | Archivo | Propósito clave |
 |---------|-----------------|
 | 21_password_blacklist_test.go | Verifica rechazo por blacklist (parte hardening password) |
@@ -495,7 +738,7 @@ Health: `/readyz` realiza ping a DB, valora cache Redis y firma+parsea un JWT pa
 * Enforzar validación de scopes solicitados vs registro al authorize (actualmente permitir libre + registro incremental opcional).
 
 ---
-## 15. Changelog Sprint 6 (resumen)
+## 15. Changelog (resumen)
 | Ítem | Descripción |
 |------|-------------|
 | Migración 0003 | Tablas `scope` y `user_consent` + índices GIN y activos |
