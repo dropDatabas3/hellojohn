@@ -1,4 +1,4 @@
--- Roles y permisos por tenant; asignación de roles a usuarios; relación rol<->permiso.
+-- Roles y permisos por tenant; asignacion de roles a usuarios; relacion rol<->permiso.
 
 BEGIN;
 
@@ -33,7 +33,6 @@ CREATE TABLE IF NOT EXISTS rbac_user_role (
   FOREIGN KEY (tenant_id, role) REFERENCES rbac_role(tenant_id, role) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES app_user(id) ON DELETE CASCADE
 );
-
 -- Indices de ayuda
 CREATE INDEX IF NOT EXISTS idx_rbac_user_role_user ON rbac_user_role(user_id);
 CREATE INDEX IF NOT EXISTS idx_rbac_role_perm_perm ON rbac_role_perm(tenant_id, perm);
