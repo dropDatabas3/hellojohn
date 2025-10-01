@@ -199,32 +199,80 @@ func loadConfigFromEnv() *config.Config {
 	c.Rate.Window = getenv("RATE_WINDOW", "1m")
 	c.Rate.MaxRequests = getenvInt("RATE_MAX_REQUESTS", 60)
 	// Endpoint-specific rate limits (optional)
-	if v := getenvInt("RATE_LOGIN_LIMIT", 0); v > 0 { c.Rate.Login.Limit = v }
-	if v := getenv("RATE_LOGIN_WINDOW", ""); v != "" { c.Rate.Login.Window = v }
-	if v := getenvInt("RATE_FORGOT_LIMIT", 0); v > 0 { c.Rate.Forgot.Limit = v }
-	if v := getenv("RATE_FORGOT_WINDOW", ""); v != "" { c.Rate.Forgot.Window = v }
-	if v := getenvInt("RATE_MFA_ENROLL_LIMIT", 0); v > 0 { c.Rate.MFA.Enroll.Limit = v }
-	if v := getenv("RATE_MFA_ENROLL_WINDOW", ""); v != "" { c.Rate.MFA.Enroll.Window = v }
-	if v := getenvInt("RATE_MFA_VERIFY_LIMIT", 0); v > 0 { c.Rate.MFA.Verify.Limit = v }
-	if v := getenv("RATE_MFA_VERIFY_WINDOW", ""); v != "" { c.Rate.MFA.Verify.Window = v }
-	if v := getenvInt("RATE_MFA_CHALLENGE_LIMIT", 0); v > 0 { c.Rate.MFA.Challenge.Limit = v }
-	if v := getenv("RATE_MFA_CHALLENGE_WINDOW", ""); v != "" { c.Rate.MFA.Challenge.Window = v }
-	if v := getenvInt("RATE_MFA_DISABLE_LIMIT", 0); v > 0 { c.Rate.MFA.Disable.Limit = v }
-	if v := getenv("RATE_MFA_DISABLE_WINDOW", ""); v != "" { c.Rate.MFA.Disable.Window = v }
+	if v := getenvInt("RATE_LOGIN_LIMIT", 0); v > 0 {
+		c.Rate.Login.Limit = v
+	}
+	if v := getenv("RATE_LOGIN_WINDOW", ""); v != "" {
+		c.Rate.Login.Window = v
+	}
+	if v := getenvInt("RATE_FORGOT_LIMIT", 0); v > 0 {
+		c.Rate.Forgot.Limit = v
+	}
+	if v := getenv("RATE_FORGOT_WINDOW", ""); v != "" {
+		c.Rate.Forgot.Window = v
+	}
+	if v := getenvInt("RATE_MFA_ENROLL_LIMIT", 0); v > 0 {
+		c.Rate.MFA.Enroll.Limit = v
+	}
+	if v := getenv("RATE_MFA_ENROLL_WINDOW", ""); v != "" {
+		c.Rate.MFA.Enroll.Window = v
+	}
+	if v := getenvInt("RATE_MFA_VERIFY_LIMIT", 0); v > 0 {
+		c.Rate.MFA.Verify.Limit = v
+	}
+	if v := getenv("RATE_MFA_VERIFY_WINDOW", ""); v != "" {
+		c.Rate.MFA.Verify.Window = v
+	}
+	if v := getenvInt("RATE_MFA_CHALLENGE_LIMIT", 0); v > 0 {
+		c.Rate.MFA.Challenge.Limit = v
+	}
+	if v := getenv("RATE_MFA_CHALLENGE_WINDOW", ""); v != "" {
+		c.Rate.MFA.Challenge.Window = v
+	}
+	if v := getenvInt("RATE_MFA_DISABLE_LIMIT", 0); v > 0 {
+		c.Rate.MFA.Disable.Limit = v
+	}
+	if v := getenv("RATE_MFA_DISABLE_WINDOW", ""); v != "" {
+		c.Rate.MFA.Disable.Window = v
+	}
 
 	// Apply reasonable defaults if any endpoint-specific values remain zero/empty
-	if c.Rate.Login.Limit == 0 { c.Rate.Login.Limit = 10 }
-	if c.Rate.Login.Window == "" { c.Rate.Login.Window = "1m" }
-	if c.Rate.Forgot.Limit == 0 { c.Rate.Forgot.Limit = 5 }
-	if c.Rate.Forgot.Window == "" { c.Rate.Forgot.Window = "10m" }
-	if c.Rate.MFA.Enroll.Limit == 0 { c.Rate.MFA.Enroll.Limit = 3 }
-	if c.Rate.MFA.Enroll.Window == "" { c.Rate.MFA.Enroll.Window = "10m" }
-	if c.Rate.MFA.Verify.Limit == 0 { c.Rate.MFA.Verify.Limit = 10 }
-	if c.Rate.MFA.Verify.Window == "" { c.Rate.MFA.Verify.Window = "1m" }
-	if c.Rate.MFA.Challenge.Limit == 0 { c.Rate.MFA.Challenge.Limit = 10 }
-	if c.Rate.MFA.Challenge.Window == "" { c.Rate.MFA.Challenge.Window = "1m" }
-	if c.Rate.MFA.Disable.Limit == 0 { c.Rate.MFA.Disable.Limit = 3 }
-	if c.Rate.MFA.Disable.Window == "" { c.Rate.MFA.Disable.Window = "10m" }
+	if c.Rate.Login.Limit == 0 {
+		c.Rate.Login.Limit = 10
+	}
+	if c.Rate.Login.Window == "" {
+		c.Rate.Login.Window = "1m"
+	}
+	if c.Rate.Forgot.Limit == 0 {
+		c.Rate.Forgot.Limit = 5
+	}
+	if c.Rate.Forgot.Window == "" {
+		c.Rate.Forgot.Window = "10m"
+	}
+	if c.Rate.MFA.Enroll.Limit == 0 {
+		c.Rate.MFA.Enroll.Limit = 3
+	}
+	if c.Rate.MFA.Enroll.Window == "" {
+		c.Rate.MFA.Enroll.Window = "10m"
+	}
+	if c.Rate.MFA.Verify.Limit == 0 {
+		c.Rate.MFA.Verify.Limit = 10
+	}
+	if c.Rate.MFA.Verify.Window == "" {
+		c.Rate.MFA.Verify.Window = "1m"
+	}
+	if c.Rate.MFA.Challenge.Limit == 0 {
+		c.Rate.MFA.Challenge.Limit = 10
+	}
+	if c.Rate.MFA.Challenge.Window == "" {
+		c.Rate.MFA.Challenge.Window = "1m"
+	}
+	if c.Rate.MFA.Disable.Limit == 0 {
+		c.Rate.MFA.Disable.Limit = 3
+	}
+	if c.Rate.MFA.Disable.Window == "" {
+		c.Rate.MFA.Disable.Window = "10m"
+	}
 
 	// --- Flags ---
 	c.Flags.Migrate = getenvBool("FLAGS_MIGRATE", true)
