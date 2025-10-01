@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -37,9 +38,78 @@ func Test_04_Session_OIDC_Code_PKCE(t *testing.T) {
 			b, _ := io.ReadAll(resp.Body)
 			t.Fatalf("session login status=%d body=%s", resp.StatusCode, string(b))
 		}
-		// (opcional) sanity headers de cookie
-		if sc := readHeader(resp, "Set-Cookie"); sc == "" {
+
+		// Parsear cookies de la respuesta y validar atributos de seguridad
+		cookies := resp.Cookies()
+		if len(cookies) == 0 {
 			t.Fatalf("no Set-Cookie on session/login")
+		}
+
+		// Expectativas configurables (para dev/prod)
+		expectedSameSite := http.SameSiteLaxMode
+		if v := strings.ToLower(os.Getenv("SESSION_SAMESITE")); v != "" {
+			switch v {
+			case "none":
+				expectedSameSite = http.SameSiteNoneMode
+			case "strict":
+				expectedSameSite = http.SameSiteStrictMode
+			case "lax", "default":
+				expectedSameSite = http.SameSiteLaxMode
+			default:
+				t.Fatalf("unknown SESSION_SAMESITE=%q (use: none|lax|strict|default)", v)
+			}
+		}
+		expectedSecure := strings.HasPrefix(strings.ToLower(baseURL), "https://") ||
+			strings.EqualFold(os.Getenv("COOKIE_SECURE_IN_DEV"), "true")
+
+		foundSecure, foundHttpOnly, foundSameSite, foundPath := false, false, false, false
+		foundMaxAgeOrExpires := false
+
+		for _, ck := range cookies {
+			// Reglas mínimas para TODA cookie de sesión
+			if !ck.HttpOnly {
+				t.Fatalf("cookie %q should be HttpOnly", ck.Name)
+			}
+			foundHttpOnly = true
+
+			if ck.Path == "/" || ck.Path == "" {
+				foundPath = true
+			}
+
+			// SameSite exacto
+			if ck.SameSite == expectedSameSite {
+				foundSameSite = true
+			}
+
+			// Secure según esquema/entorno (None requiere Secure)
+			if expectedSameSite == http.SameSiteNoneMode && !ck.Secure {
+				t.Fatalf("cookie %q with SameSite=None MUST be Secure", ck.Name)
+			}
+			if ck.Secure {
+				foundSecure = true
+			}
+
+			// TTL: Max-Age (>0) o Expires válido
+			if ck.MaxAge > 0 || (!ck.Expires.IsZero() && ck.Expires.After(time.Now().Add(5*time.Minute))) {
+				foundMaxAgeOrExpires = true
+			}
+		}
+
+		// Aserciones de conjunto (no dependemos del nombre exacto)
+		if !foundHttpOnly {
+			t.Fatalf("session cookies must be HttpOnly")
+		}
+		if !foundSameSite {
+			t.Fatalf("no cookie matched expected SameSite=%v", expectedSameSite)
+		}
+		if expectedSecure && !foundSecure {
+			t.Fatalf("expected at least one Secure cookie (https or COOKIE_SECURE_IN_DEV=true)")
+		}
+		if !foundPath {
+			t.Fatalf("expected cookie Path=/")
+		}
+		if !foundMaxAgeOrExpires {
+			t.Fatalf("expected cookie with Max-Age>0 or future Expires")
 		}
 	}
 

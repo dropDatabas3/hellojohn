@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
+
+	e2eint "github.com/dropDatabas3/hellojohn/test/e2e/internal"
 )
 
 // 00 - Smoke + Discovery, JWKS, CORS y headers básicos
@@ -56,8 +59,39 @@ func Test_00_Smoke_Discovery(t *testing.T) {
 		if respOK.StatusCode != http.StatusNoContent {
 			t.Fatalf("preflight allowed -> expected 204 got %d", respOK.StatusCode)
 		}
-		if readHeader(respOK, "Access-Control-Allow-Origin") != originOK {
+		if !e2eint.ACAOReflects(respOK, originOK) {
 			t.Fatalf("ACAO should echo allowed origin (%s)", originOK)
+		}
+
+		// --- Headers CORS adicionales (allowed) ---
+		if am := e2eint.GetHeaderLower(respOK, "Access-Control-Allow-Methods"); !strings.Contains(am, "post") {
+			t.Fatalf("ACAM should include POST, got %q", am)
+		}
+		ah := e2eint.GetHeaderLower(respOK, "Access-Control-Allow-Headers")
+		for _, need := range []string{"authorization", "content-type"} {
+			if !e2eint.HasTokenCI(ah, need) && !strings.Contains(ah, need) { // fallback contains for safety
+				t.Fatalf("ACAH should include %q, got %q", need, ah)
+			}
+		}
+
+		// Access-Control-Allow-Credentials (solo si el backend lo habilita)
+		// Por defecto asumimos true (muchos backends lo habilitan para sesiones),
+		// y permitimos override vía CORS_ALLOW_CREDENTIALS.
+		wantCreds := true
+		if v := os.Getenv("CORS_ALLOW_CREDENTIALS"); v != "" {
+			wantCreds = strings.EqualFold(v, "true")
+		}
+		gotCreds := strings.EqualFold(respOK.Header.Get("Access-Control-Allow-Credentials"), "true")
+		if wantCreds && !gotCreds {
+			t.Fatalf("expected Access-Control-Allow-Credentials:true for allowed origin")
+		}
+		if !wantCreds && gotCreds {
+			t.Fatalf("unexpected Access-Control-Allow-Credentials:true when not enabled")
+		}
+
+		// Vary: Origin (importante cuando se hace reflect del Origin)
+		if !e2eint.VaryContainsOrigin(respOK) {
+			t.Fatalf("expected Vary to include Origin")
 		}
 
 		// Origin denegado: nunca debe reflejar ACAO
@@ -70,8 +104,11 @@ func Test_00_Smoke_Discovery(t *testing.T) {
 			t.Fatal(err)
 		}
 		respBad.Body.Close()
-		if h := readHeader(respBad, "Access-Control-Allow-Origin"); h != "" {
+		if h := respBad.Header.Get("Access-Control-Allow-Origin"); h != "" {
 			t.Fatalf("ACAO must not be present for disallowed origins; got %q", h)
+		}
+		if acac := respBad.Header.Get("Access-Control-Allow-Credentials"); strings.EqualFold(acac, "true") {
+			t.Fatalf("ACAC must not be true for disallowed origins")
 		}
 	})
 
@@ -202,17 +239,17 @@ func Test_00_Smoke_Discovery(t *testing.T) {
 		req1.Header.Set("Origin", allowedOrigin)
 		req1.Header.Set("Access-Control-Request-Method", "POST")
 		req1.Header.Set("Access-Control-Request-Headers", "content-type")
-		
+
 		resp1, err := c.Do(req1)
 		if err != nil {
 			t.Fatal(err)
 		}
 		resp1.Body.Close()
-		
+
 		if resp1.StatusCode != 200 && resp1.StatusCode != 204 {
 			t.Fatalf("CORS preflight allowed origin status=%d", resp1.StatusCode)
 		}
-		
+
 		allowOriginHeader := readHeader(resp1, "Access-Control-Allow-Origin")
 		if allowOriginHeader == "" {
 			t.Fatalf("CORS allowed origin missing Access-Control-Allow-Origin header")
@@ -224,13 +261,13 @@ func Test_00_Smoke_Discovery(t *testing.T) {
 		req2.Header.Set("Origin", forbiddenOrigin)
 		req2.Header.Set("Access-Control-Request-Method", "POST")
 		req2.Header.Set("Access-Control-Request-Headers", "content-type")
-		
+
 		resp2, err := c.Do(req2)
 		if err != nil {
 			t.Fatal(err)
 		}
 		resp2.Body.Close()
-		
+
 		// Para origen no permitido, no debería tener Access-Control-Allow-Origin
 		forbiddenAllowOrigin := readHeader(resp2, "Access-Control-Allow-Origin")
 		if forbiddenAllowOrigin == forbiddenOrigin {
