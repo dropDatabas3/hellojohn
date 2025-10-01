@@ -1,7 +1,11 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,6 +18,11 @@ func TestMain(m *testing.M) {
 	// 1) Envs mínimos (SIGNING_MASTER_KEY >= 32 bytes = 64 hex chars)
 	if len(os.Getenv("SIGNING_MASTER_KEY")) < 64 {
 		_ = os.Setenv("SIGNING_MASTER_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	}
+
+	// Ensure seed includes the custom scope we test against
+	if os.Getenv("SEED_SCOPES") == "" {
+		_ = os.Setenv("SEED_SCOPES", "openid,email,profile,offline_access,profile:read")
 	}
 
 	// 2) Migrar
@@ -107,15 +116,102 @@ func TestMain(m *testing.M) {
 	}
 
 	var err error
-	srv, err = startServer(context.Background(), envFile)
+	var startedBase string
+	srv, startedBase, err = startServer(context.Background(), envFile)
 	if err != nil {
 		panic(err)
+	}
+	// Override baseURL to the actual started server to avoid hitting any stale external instance
+	if startedBase != "" {
+		baseURL = startedBase
 	}
 	if err := waitReady(baseURL, 20*time.Second); err != nil {
 		if srv != nil && srv.out != nil {
 			println(srv.out.String())
 		}
 		panic(err)
+	}
+
+	// Ensure the web client has dynamic redirect URIs allowed (social result and localhost:3000)
+	// Acquire admin access token first
+	{
+		c := newHTTPClient()
+		// login admin
+		body := map[string]string{
+			"tenant_id": seed.Tenant.ID,
+			"client_id": seed.Clients.Web.ClientID,
+			"email":     seed.Users.Admin.Email,
+			"password":  seed.Users.Admin.Password,
+		}
+		bb, _ := json.Marshal(body)
+		resp, err := c.Post(baseURL+"/v1/auth/login", "application/json", bytes.NewReader(bb))
+		if err == nil && resp != nil {
+			var tok struct {
+				AccessToken string `json:"access_token"`
+			}
+			if resp.StatusCode == 200 {
+				_ = json.NewDecoder(resp.Body).Decode(&tok)
+			}
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			if tok.AccessToken != "" {
+				// list clients
+				req, _ := http.NewRequest(http.MethodGet, baseURL+"/v1/admin/clients?tenant_id="+seed.Tenant.ID, nil)
+				req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+				resp2, err2 := c.Do(req)
+				if err2 == nil && resp2.StatusCode == 200 {
+					var clients []struct {
+						ID             string   `json:"id"`
+						ClientID       string   `json:"client_id"`
+						TenantID       string   `json:"tenant_id"`
+						Name           string   `json:"name"`
+						ClientType     string   `json:"client_type"`
+						RedirectURIs   []string `json:"redirect_uris"`
+						AllowedOrigins []string `json:"allowed_origins"`
+						Providers      []string `json:"providers"`
+						Scopes         []string `json:"scopes"`
+					}
+					_ = json.NewDecoder(resp2.Body).Decode(&clients)
+					io.Copy(io.Discard, resp2.Body)
+					resp2.Body.Close()
+					// find web client
+					for _, cl := range clients {
+						if cl.ClientID == seed.Clients.Web.ClientID {
+							need := map[string]bool{
+								baseURL + "/v1/auth/social/result": true,
+								"http://localhost:3000/callback":   true,
+							}
+							have := map[string]bool{}
+							for _, u := range cl.RedirectURIs {
+								have[u] = true
+							}
+							updated := false
+							for u := range need {
+								if !have[u] {
+									cl.RedirectURIs = append(cl.RedirectURIs, u)
+									updated = true
+								}
+							}
+							if updated {
+								body2, _ := json.Marshal(cl)
+								ureq, _ := http.NewRequest(http.MethodPut, baseURL+"/v1/admin/clients/"+cl.ID, bytes.NewReader(body2))
+								ureq.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+								ureq.Header.Set("Content-Type", "application/json")
+								resp3, err3 := c.Do(ureq)
+								if err3 == nil && resp3 != nil {
+									io.Copy(io.Discard, resp3.Body)
+									resp3.Body.Close()
+								}
+							}
+							break
+						}
+					}
+				} else if resp2 != nil {
+					io.Copy(io.Discard, resp2.Body)
+					resp2.Body.Close()
+				}
+			}
+		}
 	}
 
 	code := m.Run()

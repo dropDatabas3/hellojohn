@@ -147,10 +147,10 @@ func (h *mfaHandler) Register(r chi.Router) {
 }
 
 // Exponer handlers para ServeMux
-func (h *mfaHandler) HTTPEnroll() http.Handler    { return http.HandlerFunc(h.enroll) }
-func (h *mfaHandler) HTTPVerify() http.Handler    { return http.HandlerFunc(h.verify) }
-func (h *mfaHandler) HTTPChallenge() http.Handler { return http.HandlerFunc(h.challenge) }
-func (h *mfaHandler) HTTPDisable() http.Handler   { return http.HandlerFunc(h.disable) }
+func (h *mfaHandler) HTTPEnroll() http.Handler         { return http.HandlerFunc(h.enroll) }
+func (h *mfaHandler) HTTPVerify() http.Handler         { return http.HandlerFunc(h.verify) }
+func (h *mfaHandler) HTTPChallenge() http.Handler      { return http.HandlerFunc(h.challenge) }
+func (h *mfaHandler) HTTPDisable() http.Handler        { return http.HandlerFunc(h.disable) }
 func (h *mfaHandler) HTTPRecoveryRotate() http.Handler { return http.HandlerFunc(h.rotateRecovery) }
 
 func currentUserFromHeader(r *http.Request) (string, error) {
@@ -371,12 +371,14 @@ func (h *mfaHandler) challenge(w http.ResponseWriter, r *http.Request) {
 		devHash := tokens.SHA256Base64URL(devToken)
 		ttl := mfaconfigRememberTTL()
 		_ = h.c.Store.AddTrustedDevice(r.Context(), uidStr, devHash, time.Now().Add(ttl).UTC())
+		// Cookie debe ser Secure solo si el request es HTTPS (o detrás de proxy con X-Forwarded-Proto=https)
+		secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 		http.SetCookie(w, &http.Cookie{
 			Name:     "mfa_trust",
 			Value:    devToken,
 			Path:     "/",
 			HttpOnly: true,
-			Secure:   !strings.HasPrefix(r.Host, "localhost"),
+			Secure:   secure,
 			SameSite: http.SameSiteLaxMode,
 			Expires:  time.Now().Add(ttl).UTC(),
 		})

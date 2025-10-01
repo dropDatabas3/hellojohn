@@ -58,6 +58,9 @@ func NewMux(
 
 	// ─── Admin Users (disable/enable) ───
 	adminUsers stdhttp.Handler, // POST /v1/admin/users/disable | /v1/admin/users/enable
+
+	// WhoAmI profile resource (scope-based)
+	profile stdhttp.Handler, // GET /v1/profile (requires profile:read)
 ) *stdhttp.ServeMux {
 	mux := stdhttp.NewServeMux()
 
@@ -137,6 +140,9 @@ func NewMux(
 	// ─── Admin Users (disable/enable) ───
 	mux.Handle("/v1/admin/users/disable", adminUsers) // POST
 	mux.Handle("/v1/admin/users/enable", adminUsers)  // POST
+
+	// Demo resource protected by scope
+	mux.Handle("/v1/profile", profile)
 
 	// Debug social (sólo si SOCIAL_DEBUG_LOG=1)
 	mux.HandleFunc("/v1/auth/social/debug/code", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {

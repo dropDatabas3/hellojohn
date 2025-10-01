@@ -87,27 +87,63 @@ func findRepoRoot() (string, error) {
 	return "", fmt.Errorf("go.mod no encontrado desde %s", dir)
 }
 
-func startServer(ctx context.Context, envFile string) (*serverProc, error) {
+// pickFreePort binds to 127.0.0.1:0 to let the OS select a free port, then closes it and returns the port.
+func pickFreePort() (int, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer ln.Close()
+	addr := ln.Addr().String()
+	_, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 0, err
+	}
+	p, err := strconv.Atoi(portStr)
+	if err != nil {
+		return 0, err
+	}
+	return p, nil
+}
+
+func startServer(ctx context.Context, envFile string) (*serverProc, string, error) {
 	root, err := findRepoRoot()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
+	// Choose a dedicated free port for this test run to avoid colliding with any pre-existing server
+	port, err := pickFreePort()
+	if err != nil {
+		return nil, "", fmt.Errorf("pick free port: %w", err)
+	}
+	addr := "127.0.0.1:" + strconv.Itoa(port)
+	// Bind on 127.0.0.1 but advertise and use localhost for baseURL to ensure cookies and host-based logic align
+	base := "http://localhost:" + strconv.Itoa(port)
 	args := []string{"run", "./cmd/service", "-env"}
 	if envFile != "" {
 		args = append(args, "-env-file", envFile)
 	}
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "GOFLAGS=-count=1") // no cache durante e2e
+	// Ensure the spawned service binds to our chosen port and advertises the same base URL
+	env := append(os.Environ(), "GOFLAGS=-count=1") // no cache durante e2e
+	env = append(env,
+		"SERVER_ADDR="+addr,
+		"JWT_ISSUER="+base,
+		"EMAIL_BASE_URL="+base,
+		// Ensure cookies in dev attach to localhost
+		"AUTH_SESSION_DOMAIN=localhost",
+	)
+	cmd.Env = env
 
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start service: %w", err)
+		return nil, "", fmt.Errorf("start service: %w", err)
 	}
-	return &serverProc{cmd: cmd, out: &out}, nil
+	return &serverProc{cmd: cmd, out: &out}, base, nil
 }
 
 // runCmd ejecuta "go <args...>" en el root del repo (go.mod)

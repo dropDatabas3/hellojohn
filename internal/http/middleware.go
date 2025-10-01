@@ -494,3 +494,131 @@ func RequireAdmin() Middleware {
 		})
 	}
 }
+
+// RequireScope enforces that the access token contains the required scope.
+// It expects RequireAuth to have already populated claims in context.
+// Accepted claim shapes:
+// - scp: ["scope1","scope2"] (preferred)
+// - scope: "scope1 scope2" (space separated)
+func RequireScope(want string) Middleware {
+	want = strings.ToLower(strings.TrimSpace(want))
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if want == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			cl := GetClaims(r.Context())
+			if cl == nil {
+				WriteError(w, http.StatusUnauthorized, "missing_claims", "no claims in context", 4012)
+				return
+			}
+			// collect scopes
+			has := false
+			if v, ok := cl["scp"]; ok {
+				switch arr := v.(type) {
+				case []any:
+					for _, it := range arr {
+						if s, ok := it.(string); ok && strings.EqualFold(strings.TrimSpace(s), want) {
+							has = true
+							break
+						}
+					}
+				case []string:
+					for _, s := range arr {
+						if strings.EqualFold(strings.TrimSpace(s), want) {
+							has = true
+							break
+						}
+					}
+				}
+			}
+			if !has {
+				if s, ok := cl["scope"].(string); ok {
+					for _, part := range strings.Fields(s) {
+						if strings.EqualFold(strings.TrimSpace(part), want) {
+							has = true
+							break
+						}
+					}
+				}
+			}
+			if !has {
+				// RFC6750 suggests 403 with insufficient_scope
+				w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope", scope="`+want+`"`)
+				WriteError(w, http.StatusForbidden, "insufficient_scope", "scope requerido: "+want, 4031)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequireAnyScope enforces that the access token contains ANY of the required scopes.
+// It expects RequireAuth to have already populated claims in context.
+// Accepted claim shapes:
+// - scp: ["scope1","scope2"] (preferred)
+// - scope: "scope1 scope2" (space separated)
+func RequireAnyScope(wants ...string) Middleware {
+	norm := func(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+	var need []string
+	for _, w := range wants {
+		if n := norm(w); n != "" {
+			need = append(need, n)
+		}
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if len(need) == 0 {
+				next.ServeHTTP(w, r)
+				return
+			}
+			cl := GetClaims(r.Context())
+			if cl == nil {
+				WriteError(w, http.StatusUnauthorized, "missing_claims", "no claims in context", 4012)
+				return
+			}
+			has := func(scope string) bool {
+				// scp array
+				if v, ok := cl["scp"]; ok {
+					switch arr := v.(type) {
+					case []any:
+						for _, it := range arr {
+							if s, ok := it.(string); ok && strings.EqualFold(strings.TrimSpace(s), scope) {
+								return true
+							}
+						}
+					case []string:
+						for _, s := range arr {
+							if strings.EqualFold(strings.TrimSpace(s), scope) {
+								return true
+							}
+						}
+					}
+				}
+				// scope string
+				if s, ok := cl["scope"].(string); ok {
+					for _, part := range strings.Fields(s) {
+						if strings.EqualFold(strings.TrimSpace(part), scope) {
+							return true
+						}
+					}
+				}
+				return false
+			}
+			ok := false
+			for _, wnt := range need {
+				if has(wnt) {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope", scope="`+strings.Join(need, " ")+`"`)
+				WriteError(w, http.StatusForbidden, "insufficient_scope", "scope requerido (alguno de): "+strings.Join(need, ", "), 4031)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

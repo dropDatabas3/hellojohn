@@ -530,6 +530,11 @@ func main() {
 	oauthAuthorizeHandler := handlers.NewOAuthAuthorizeHandler(&container, cfg.Auth.Session.CookieName, cfg.Auth.AllowBearerSession)
 	oauthTokenHandler := handlers.NewOAuthTokenHandler(&container, refreshTTL)
 	userInfoHandler := handlers.NewUserInfoHandler(&container)
+	profileHandler := httpserver.Chain(
+		handlers.NewProfileHandler(&container),
+		httpserver.RequireAuth(container.Issuer),
+		httpserver.RequireScope("profile:read"),
+	)
 	consentAcceptHandler := handlers.NewConsentAcceptHandler(&container)
 
 	oauthRevokeHandler := handlers.NewOAuthRevokeHandler(&container)
@@ -591,6 +596,7 @@ func main() {
 		oauthAuthorizeHandler,
 		oauthTokenHandler,
 		userInfoHandler,
+		// additional below
 		// Adicionales (orden debe coincidir con firma NewMux: oauthRevoke, sessionLogin, sessionLogout, consentAccept)
 		oauthRevokeHandler,
 		sessionLoginHandler,
@@ -620,6 +626,8 @@ func main() {
 		adminRBACUsers,
 		adminRBACRoles,
 		adminUsers,
+		// demo protected resource
+		profileHandler,
 	)
 
 	// Rutas Google (solo si está habilitado)

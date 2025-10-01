@@ -186,6 +186,15 @@ Social:
 Salud:
 `GET /readyz`
 
+### Perfil (Sprint 7)
+`GET /v1/profile`
+
+- Auth: Bearer (access token)
+- Scope requerido: `profile:read`
+- Respuesta 200 (JSON): `sub`, `email`, `email_verified`, `name`, `given_name`, `family_name`, `picture`, `updated_at`
+- Headers: `Cache-Control: no-store`, `Pragma: no-cache`, `Content-Type: application/json; charset=utf-8`
+- Usos: CLI `hellojohn whoami`, UI Cuenta/Perfil
+
 ### 8.1 Administración (JWT admin)
 API base `/v1/admin/*` protegida por RequireAuth + RequireSysAdmin (ver sección 9).
 

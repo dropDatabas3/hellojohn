@@ -5,9 +5,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
-	"os"
 )
 
 // 18 - Social login_code exchange one-use & TTL basic
@@ -63,11 +63,9 @@ func Test_18_Social_LoginCode_Exchange(t *testing.T) {
 	}
 
 	// 2. Armado redirect
-	// redirect base: usar primer redirect configurado del client si existe; fallback a baseURL/service result
-	redirect := baseURL + "/v1/auth/social/result"
-	if len(seed.Clients.Web.Redirects) > 0 && seed.Clients.Web.Redirects[0] != "" {
-		redirect = seed.Clients.Web.Redirects[0]
-	}
+	// Usar un redirect conocido que siempre está en el seed por defecto.
+	// Evita depender del issuer dinámico del server de pruebas.
+	redirect := "http://localhost:3000/callback"
 	startURL := baseURL + "/v1/auth/social/google/start?" + url.Values{
 		"tenant_id":    {seed.Tenant.ID},
 		"client_id":    {seed.Clients.Web.ClientID},
@@ -146,7 +144,7 @@ func Test_18_Social_LoginCode_Exchange(t *testing.T) {
 
 	// 5a. Exchange negativo con client_id distinto (si existe backend client)
 	wrongClientID := "non-existent-client"
-	if seed.Clients.Backend.ClientID != "" && seed.Clients.Backend.ClientID != seed.Clients.Web.ClientID {
+	if seed.Clients.Backend != nil && seed.Clients.Backend.ClientID != "" && seed.Clients.Backend.ClientID != seed.Clients.Web.ClientID {
 		wrongClientID = seed.Clients.Backend.ClientID
 	}
 	negJSON := map[string]string{"code": loginCode, "client_id": wrongClientID}
