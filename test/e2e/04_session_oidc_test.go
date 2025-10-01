@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	jwti "github.com/dropDatabas3/hellojohn/test/e2e/internal"
 )
 
 // 04 - OIDC con sesión por cookie (Code + PKCE) + userinfo + refresh + revoke.
@@ -161,6 +164,11 @@ func Test_04_Session_OIDC_Code_PKCE(t *testing.T) {
 		if n := asString(pld["nonce"]); n != "" && n != nonce {
 			t.Fatalf("id_token.nonce mismatch")
 		}
+
+		// Verificación criptográfica real del ID Token (firma + tiempos)
+		if _, _, err := jwti.VerifyJWTWithJWKS(context.Background(), baseURL, idt, baseURL, seed.Clients.Web.ClientID, 60*time.Second); err != nil {
+			t.Fatalf("verify id_token with jwks: %v", err)
+		}
 	}
 
 	// 4) /userinfo con Bearer
@@ -209,6 +217,11 @@ func Test_04_Session_OIDC_Code_PKCE(t *testing.T) {
 			t.Fatalf("refresh must rotate")
 		}
 		rt2 = out.RefreshToken
+
+		// Verificación cryptográfica del nuevo access token
+		if _, _, err := jwti.VerifyJWTWithJWKS(context.Background(), baseURL, out.AccessToken, baseURL, seed.Clients.Web.ClientID, 60*time.Second); err != nil {
+			t.Fatalf("verify access (post-refresh) with jwks: %v", err)
+		}
 	}
 
 	// reuse del refresh viejo → invalid_grant (400) o 401, según implementación

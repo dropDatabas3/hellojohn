@@ -2,12 +2,16 @@ package e2e
 
 import (
 	"bytes"
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	jwti "github.com/dropDatabas3/hellojohn/test/e2e/internal"
 )
 
 // 01 - Auth básica con password: register/login, /v1/me, refresh con rotación,
@@ -269,4 +273,50 @@ func Test_01_Auth_Basic(t *testing.T) {
 			t.Fatalf("expected 401 with wrong credentials; got %d", resp.StatusCode)
 		}
 	})
+
+	// Verificación criptográfica real (firma + tiempos) contra JWKS
+	t.Run("JWT cryptographic verification (JWKS)", func(t *testing.T) {
+		claims, _, err := jwti.VerifyJWTWithJWKS(context.Background(), baseURL, access, baseURL, seed.Clients.Web.ClientID, 60*time.Second)
+		if err != nil {
+			t.Fatalf("verify access with jwks: %v", err)
+		}
+		// sanity: same tid/aud
+		if aud, _ := claims["aud"].(string); aud != "" && aud != seed.Clients.Web.ClientID {
+			t.Fatalf("aud mismatch after verify: %v", claims["aud"])
+		}
+	})
+
+	// Negativo: forzar kid inexistente debe fallar
+	t.Run("JWT with unknown kid fails", func(t *testing.T) {
+		parts := strings.Split(access, ".")
+		if len(parts) < 3 {
+			t.Skip("malformed token in env")
+		}
+		// header -> set fake kid
+		var hdr map[string]any
+		_ = json.Unmarshal(mustB64(parts[0]), &hdr)
+		hdr["kid"] = "no-such-kid-e2e"
+		b, _ := json.Marshal(hdr)
+		fakeHeader := b64url(b)
+		mut := fakeHeader + "." + parts[1] + "." + parts[2]
+		_, _, err := jwti.VerifyJWTWithJWKS(context.Background(), baseURL, mut, baseURL, seed.Clients.Web.ClientID, 60*time.Second)
+		if err == nil || !strings.Contains(strings.ToLower(err.Error()), "kid") {
+			t.Fatalf("expected kid not found error, got: %v", err)
+		}
+	})
+}
+
+// helpers
+func mustB64(seg string) []byte {
+	// base64url decode
+	s := strings.ReplaceAll(seg, "-", "+")
+	s = strings.ReplaceAll(s, "_", "/")
+	switch len(s) % 4 {
+	case 2:
+		s += "=="
+	case 3:
+		s += "="
+	}
+	b, _ := base64.StdEncoding.DecodeString(s)
+	return b
 }
