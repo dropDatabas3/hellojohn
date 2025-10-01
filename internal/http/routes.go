@@ -33,6 +33,9 @@ func NewMux(
 	forgotHandler stdhttp.Handler, // POST /v1/auth/forgot
 	resetHandler stdhttp.Handler, // POST /v1/auth/reset
 
+	// CSRF token issuer
+	csrfGet stdhttp.Handler, // GET /v1/csrf
+
 	// OAuth2 introspection
 	oauthIntrospect stdhttp.Handler, // POST /oauth2/introspect
 	authLogoutAll stdhttp.Handler, // POST /v1/auth/logout-all
@@ -106,6 +109,9 @@ func NewMux(
 	mux.Handle("/v1/auth/verify-email", verifyEmailConfirmHandler)     // GET
 	mux.Handle("/v1/auth/forgot", forgotHandler)                       // POST
 	mux.Handle("/v1/auth/reset", resetHandler)                         // POST
+
+	// CSRF token endpoint
+	mux.Handle("/v1/csrf", csrfGet)
 
 	// MFA TOTP
 	mux.Handle("/v1/mfa/totp/enroll", mfaEnroll)

@@ -155,8 +155,17 @@ func loadConfigFromEnv() *config.Config {
 
 	// --- JWT ---
 	c.JWT.Issuer = getenv("JWT_ISSUER", "http://localhost:8080")
-	c.JWT.AccessTTL = getenv("JWT_ACCESS_TTL", "15m")
-	c.JWT.RefreshTTL = getenv("JWT_REFRESH_TTL", "720h")
+	// Allow test-only overrides without changing prod defaults
+	accTTL := getenv("TEST_ACCESS_TTL", "")
+	refTTL := getenv("TEST_REFRESH_TTL", "")
+	if accTTL == "" {
+		accTTL = getenv("JWT_ACCESS_TTL", "15m")
+	}
+	if refTTL == "" {
+		refTTL = getenv("JWT_REFRESH_TTL", "720h")
+	}
+	c.JWT.AccessTTL = accTTL
+	c.JWT.RefreshTTL = refTTL
 
 	// --- Register / Auth ---
 	c.Register.AutoLogin = getenvBool("REGISTER_AUTO_LOGIN", true)
@@ -538,7 +547,12 @@ func main() {
 	consentAcceptHandler := handlers.NewConsentAcceptHandler(&container)
 
 	oauthRevokeHandler := handlers.NewOAuthRevokeHandler(&container)
-	sessionLoginHandler := handlers.NewSessionLoginHandler(
+	// CSRF: optionally enforce double-submit for cookie session login
+	csrfHeader := getenv("CSRF_HEADER_NAME", "X-CSRF-Token")
+	csrfCookie := getenv("CSRF_COOKIE_NAME", "csrf_token")
+	csrfEnforce := getenvBool("CSRF_COOKIE_ENFORCED", false)
+
+	sessionLoginBase := handlers.NewSessionLoginHandler(
 		&container,
 		cfg.Auth.Session.CookieName,
 		cfg.Auth.Session.Domain,
@@ -546,6 +560,10 @@ func main() {
 		cfg.Auth.Session.Secure,
 		sessionTTL,
 	)
+	var sessionLoginHandler http.Handler = sessionLoginBase
+	if csrfEnforce {
+		sessionLoginHandler = httpserver.RequireCSRF(csrfHeader, csrfCookie)(sessionLoginBase)
+	}
 	sessionLogoutHandler := handlers.NewSessionLogoutHandler(
 		&container,
 		cfg.Auth.Session.CookieName,
@@ -607,6 +625,8 @@ func main() {
 		verifyEmailConfirmHandler,
 		forgotHandler,
 		resetHandler,
+		// CSRF token GET
+		handlers.NewCSRFGetHandler(getenv("CSRF_COOKIE_NAME", "csrf_token"), 30*time.Minute),
 		// sprint 5
 		oauthIntrospectHandler,
 		authLogoutAllHandler,

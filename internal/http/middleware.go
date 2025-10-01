@@ -622,3 +622,63 @@ func RequireAnyScope(wants ...string) Middleware {
 		})
 	}
 }
+
+// RequireCSRF enforces a double-submit CSRF check for cookie-based requests.
+// Behavior:
+//   - If Authorization: Bearer is present, the check is skipped (non-cookie flow).
+//   - Otherwise, for unsafe methods (POST, PUT, PATCH, DELETE), it requires a matching
+//     CSRF header and cookie with the same value.
+//   - Header/cookie names are configurable per handler wiring; this middleware only checks and returns 403 on mismatch.
+func RequireCSRF(headerName, cookieName string) Middleware {
+	hn := strings.TrimSpace(headerName)
+	if hn == "" {
+		hn = "X-CSRF-Token"
+	}
+	cn := strings.TrimSpace(cookieName)
+	if cn == "" {
+		cn = "csrf_token"
+	}
+	isUnsafe := func(m string) bool {
+		switch strings.ToUpper(m) {
+		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+			return true
+		default:
+			return false
+		}
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !isUnsafe(r.Method) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Skip CSRF if Bearer auth is present (not a cookie flow)
+			if ah := strings.TrimSpace(r.Header.Get("Authorization")); strings.HasPrefix(strings.ToLower(ah), "bearer ") {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Read header and cookie
+			hdr := strings.TrimSpace(r.Header.Get(hn))
+			ck, _ := r.Cookie(cn)
+			if hdr == "" || ck == nil || strings.TrimSpace(ck.Value) == "" || !subtleEqualCI(hdr, ck.Value) {
+				// RFC-ish contract for CSRF error
+				WriteError(w, http.StatusForbidden, "invalid_csrf_token", "CSRF token missing or mismatch", 1600)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// subtleEqualCI compares two strings for equality in constant time after exact match (case sensitive).
+// CSRF token comparison should be exact; keep this a simple constant-time eq for same length.
+func subtleEqualCI(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	var v byte
+	for i := 0; i < len(a); i++ {
+		v |= a[i] ^ b[i]
+	}
+	return v == 0
+}

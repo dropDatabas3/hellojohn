@@ -19,18 +19,21 @@ func NewUserInfoHandler(c *app.Container) http.HandlerFunc {
 		}
 		ah := strings.TrimSpace(r.Header.Get("Authorization"))
 		if ah == "" || !strings.HasPrefix(strings.ToLower(ah), "bearer ") {
-			httpx.WriteError(w, http.StatusUnauthorized, "missing_bearer", "falta Authorization: Bearer <token>", 2301)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="userinfo", error="invalid_token", error_description="missing bearer token"`)
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_token", "falta Authorization: Bearer <token>", 2301)
 			return
 		}
 		raw := strings.TrimSpace(ah[len("Bearer "):])
 		tk, err := jwtv5.Parse(raw, c.Issuer.Keyfunc(),
 			jwtv5.WithValidMethods([]string{"EdDSA"}), jwtv5.WithIssuer(c.Issuer.Iss))
 		if err != nil || !tk.Valid {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="userinfo", error="invalid_token", error_description="token inválido o expirado"`)
 			httpx.WriteError(w, http.StatusUnauthorized, "invalid_token", "token inválido o expirado", 2302)
 			return
 		}
 		claims, ok := tk.Claims.(jwtv5.MapClaims)
 		if !ok {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="userinfo", error="invalid_token", error_description="claims inválidos"`)
 			httpx.WriteError(w, http.StatusUnauthorized, "invalid_token", "claims inválidos", 2303)
 			return
 		}
