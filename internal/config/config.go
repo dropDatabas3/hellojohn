@@ -412,6 +412,16 @@ func (c *Config) applyEnvOverrides() {
 	if v, ok := getEnvStr("STORAGE_DSN"); ok {
 		c.Storage.DSN = v
 	}
+	// Aliases for specific drivers
+	if v, ok := getEnvStr("MYSQL_DSN"); ok {
+		c.Storage.MySQL.DSN = v
+	}
+	if v, ok := getEnvStr("MONGO_URI"); ok {
+		c.Storage.Mongo.URI = v
+	}
+	if v, ok := getEnvStr("MONGO_DATABASE"); ok {
+		c.Storage.Mongo.Database = v
+	}
 	if v, ok := getEnvInt("POSTGRES_MAX_OPEN_CONNS"); ok {
 		c.Storage.Postgres.MaxOpenConns = v
 	}
@@ -436,7 +446,10 @@ func (c *Config) applyEnvOverrides() {
 	if v, ok := getEnvStr("REDIS_PREFIX"); ok {
 		c.Cache.Redis.Prefix = v
 	}
-	if v, ok := getEnvStr("MEMORY_DEFAULT_TTL"); ok {
+	// Support both legacy and namespaced env names
+	if v, ok := getEnvStr("CACHE_MEMORY_DEFAULT_TTL"); ok {
+		c.Cache.Memory.DefaultTTL = v
+	} else if v, ok := getEnvStr("MEMORY_DEFAULT_TTL"); ok {
 		c.Cache.Memory.DefaultTTL = v
 	}
 
@@ -448,6 +461,13 @@ func (c *Config) applyEnvOverrides() {
 		c.JWT.AccessTTL = v
 	}
 	if v, ok := getEnvStr("JWT_REFRESH_TTL"); ok {
+		c.JWT.RefreshTTL = v
+	}
+	// Test-only overrides (useful in CI/e2e): take precedence if set
+	if v, ok := getEnvStr("TEST_ACCESS_TTL"); ok {
+		c.JWT.AccessTTL = v
+	}
+	if v, ok := getEnvStr("TEST_REFRESH_TTL"); ok {
 		c.JWT.RefreshTTL = v
 	}
 
@@ -483,6 +503,13 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v, ok := getEnvDur("AUTH_VERIFY_TTL"); ok {
 		c.Auth.Verify.TTL = v
+	}
+	// Basic auth for /oauth2/introspect (env-only in many setups, but allow YAML+ENV)
+	if v, ok := getEnvStr("INTROSPECT_BASIC_USER"); ok {
+		c.Auth.IntrospectBasicUser = v
+	}
+	if v, ok := getEnvStr("INTROSPECT_BASIC_PASS"); ok {
+		c.Auth.IntrospectBasicPass = v
 	}
 
 	// RATE

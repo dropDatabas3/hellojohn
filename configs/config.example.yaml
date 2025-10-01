@@ -55,7 +55,7 @@ cache:
     db: 0
     prefix: "hj:"
   memory:
-    default_ttl: "2m"
+    default_ttl: "2m"    # ENV: CACHE_MEMORY_DEFAULT_TTL (alias soportado: MEMORY_DEFAULT_TTL)
 
 jwt:
   issuer: "http://localhost:8080"
@@ -73,6 +73,9 @@ auth:
     samesite: "Lax"            # Lax | Strict | None
     secure: false              # true en prod (HTTPS)
     ttl: "12h"
+  # Credenciales básicas para proteger /oauth2/introspect (también se pueden definir por variables de entorno)
+  introspect_basic_user: "introspect"
+  introspect_basic_pass: "secret"
   reset:
     ttl: "60m"
     auto_login: true
