@@ -302,6 +302,11 @@ func loadConfigFromEnv() *config.Config {
 	c.Security.PasswordPolicy.RequireDigit = getenvBool("SECURITY_PASSWORD_POLICY_REQUIRE_DIGIT", true)
 	c.Security.PasswordPolicy.RequireSymbol = getenvBool("SECURITY_PASSWORD_POLICY_REQUIRE_SYMBOL", false)
 	c.Security.PasswordBlacklistPath = getenv("SECURITY_PASSWORD_BLACKLIST_PATH", c.Security.PasswordBlacklistPath)
+	// Secretbox master key for FS config encryption
+	c.Security.SecretBoxMasterKey = getenv("SECRETBOX_MASTER_KEY", "")
+
+	// --- Control Plane ---
+	c.ControlPlane.FSRoot = getenv("CONTROL_PLANE_FS_ROOT", "./data/hellojohn")
 
 	// --- Providers / Social (ENV-only mode) ---
 	// Login code TTL
@@ -346,6 +351,12 @@ func loadConfigFromEnv() *config.Config {
 }
 
 func printConfigSummary(c *config.Config) {
+	// Mask sensitive values for logging
+	secretBoxKeyMasked := "***masked***"
+	if c.Security.SecretBoxMasterKey == "" {
+		secretBoxKeyMasked = "NOT_SET"
+	}
+
 	log.Printf(`CONFIG:
   server.addr=%s
   cors=%v
@@ -367,7 +378,10 @@ func printConfigSummary(c *config.Config) {
 
   email(base_url=%s, templates=%s, debug_echo_links=%t)
 
-  providers(login_code_ttl=%s)   // NUEVO
+  providers(login_code_ttl=%s)
+
+  control_plane(fs_root=%s)
+  security(secretbox_master_key=%s)
 
   pwd_policy(min=%d, upper=%t, lower=%t, digit=%t, symbol=%t)
 	password_blacklist_path=%s
@@ -382,6 +396,7 @@ func printConfigSummary(c *config.Config) {
 		c.SMTP.Host, c.SMTP.Port, c.SMTP.Username, c.SMTP.From, c.SMTP.TLS, c.SMTP.InsecureSkipVerify,
 		c.Email.BaseURL, c.Email.TemplatesDir, c.Email.DebugEchoLinks,
 		c.Providers.LoginCodeTTL,
+		c.ControlPlane.FSRoot, secretBoxKeyMasked,
 		c.Security.PasswordPolicy.MinLength, c.Security.PasswordPolicy.RequireUpper, c.Security.PasswordPolicy.RequireLower, c.Security.PasswordPolicy.RequireDigit, c.Security.PasswordPolicy.RequireSymbol,
 		c.Security.PasswordBlacklistPath,
 	)
@@ -406,6 +421,10 @@ func main() {
 	var err error
 	if *flagEnvOnly {
 		cfg = loadConfigFromEnv()
+		// Validate config when using ENV-only mode
+		if err := cfg.Validate(); err != nil {
+			log.Fatalf("config validation: %v", err)
+		}
 	} else {
 		cfgPath := *flagConfigPath
 		if cfgPath == "" {
@@ -421,10 +440,6 @@ func main() {
 		cfg, err = config.Load(cfgPath)
 		if err != nil {
 			log.Fatalf("config: %v", err)
-		}
-		type envOverrider interface{ ApplyEnvOverrides() }
-		if o, ok := any(cfg).(envOverrider); ok {
-			o.ApplyEnvOverrides()
 		}
 	}
 	if *flagPrint {
