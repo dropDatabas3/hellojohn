@@ -4,6 +4,9 @@
 !.env.example
 configs/config.yaml
 
+# ───────── Control-plane local data ─────────
+/data/
+
 # ───────── Local utility scripts (keep out of repo) ─────────
 codeprinter.bat
 dump_code.ps1

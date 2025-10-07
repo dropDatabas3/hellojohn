@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/base64"
 	"flag"
 	"log"
 	"net/http"
@@ -14,7 +15,9 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
+	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/config"
+	cpfs "github.com/dropDatabas3/hellojohn/internal/controlplane/fs"
 	httpserver "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/http/handlers"
 	"github.com/dropDatabas3/hellojohn/internal/infra/cachefactory"
@@ -445,6 +448,30 @@ func main() {
 	if *flagPrint {
 		printConfigSummary(cfg)
 		return
+	}
+
+	// ─── SECRETBOX (requerido sólo para el service, porque usa FS) ───
+	if kb64 := strings.TrimSpace(cfg.Security.SecretBoxMasterKey); kb64 == "" {
+		log.Fatal("SECRETBOX_MASTER_KEY faltante (base64 de 32 bytes). Genera con: go run ./cmd/keys -gen-secretbox")
+	}
+	if b, err := base64.StdEncoding.DecodeString(cfg.Security.SecretBoxMasterKey); err != nil || len(b) != 32 {
+		log.Fatal("SECRETBOX_MASTER_KEY inválida: debe ser base64 de 32 bytes")
+	}
+	if strings.TrimSpace(cfg.ControlPlane.FSRoot) == "" {
+		log.Fatal("CONTROL_PLANE_FS_ROOT faltante")
+	}
+
+	// --- Control-Plane FS (MVP) ---
+	cpctx.Provider = cpfs.New(cfg.ControlPlane.FSRoot)
+	// Resolver por header/query con fallback a "local"
+	cpctx.ResolveTenant = func(r *http.Request) string {
+		if v := r.Header.Get("X-Tenant-Slug"); v != "" {
+			return v
+		}
+		if v := r.URL.Query().Get("tenant"); v != "" {
+			return v
+		}
+		return "local"
 	}
 
 	// D) Hard check de SIGNING_MASTER_KEY (requerimos >=32 bytes para AES-256-GCM de secretos MFA y claves privadas opcionales)

@@ -1,8 +1,6 @@
 package config
 
 import (
-	"encoding/base64"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -679,21 +677,8 @@ func (c *Config) applyEnvOverrides() {
 }
 
 // Validate performs validation of critical configuration values
+// Note: SECRETBOX validation is now in cmd/service since only the service uses FS
 func (c *Config) Validate() error {
-	// SECRETBOX_MASTER_KEY is required for encrypting secrets in FS config
-	if c.Security.SecretBoxMasterKey == "" {
-		return fmt.Errorf("SECRETBOX_MASTER_KEY required; generate with: openssl rand -base64 32")
-	}
-
-	// Validate SECRETBOX_MASTER_KEY format and length (must be base64 of 32 bytes)
-	if b, err := base64.StdEncoding.DecodeString(c.Security.SecretBoxMasterKey); err != nil || len(b) != 32 {
-		return fmt.Errorf("SECRETBOX_MASTER_KEY invalid: must be base64 encoding of 32 bytes")
-	}
-
-	// Ensure ControlPlane FSRoot is set (has default, but validate it's reasonable)
-	if c.ControlPlane.FSRoot == "" {
-		return fmt.Errorf("CONTROL_PLANE_FS_ROOT cannot be empty")
-	}
-
+	// General config validation can go here (if needed)
 	return nil
 }

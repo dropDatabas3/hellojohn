@@ -1,15 +1,17 @@
-package secretbox
+package security
 
 import (
 	"encoding/base64"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/dropDatabas3/hellojohn/internal/security/secretbox"
 )
 
 func TestEncryptDecrypt_RoundTrip(t *testing.T) {
-	t.Parallel()
-	UnsafeResetSecretBoxForTests()
+	// Remover t.Parallel() por conflicto con UnsafeReset global
+	secretbox.UnsafeResetSecretBoxForTests()
 
 	// Clave de 32 bytes -> base64
 	raw := make([]byte, 32)
@@ -17,13 +19,14 @@ func TestEncryptDecrypt_RoundTrip(t *testing.T) {
 		raw[i] = byte(i + 1)
 	}
 	os.Setenv("SECRETBOX_MASTER_KEY", base64.StdEncoding.EncodeToString(raw))
+	defer os.Unsetenv("SECRETBOX_MASTER_KEY")
 
 	msg := "hola mundo ✓ — secreto"
-	ct, err := Encrypt(msg)
+	ct, err := secretbox.Encrypt(msg)
 	if err != nil {
 		t.Fatalf("Encrypt err: %v", err)
 	}
-	pt, err := Decrypt(ct)
+	pt, err := secretbox.Decrypt(ct)
 	if err != nil {
 		t.Fatalf("Decrypt err: %v", err)
 	}
@@ -33,16 +36,17 @@ func TestEncryptDecrypt_RoundTrip(t *testing.T) {
 }
 
 func TestDecrypt_DetectsTamper(t *testing.T) {
-	t.Parallel()
-	UnsafeResetSecretBoxForTests()
+	// Remover t.Parallel() por conflicto con UnsafeReset global
+	secretbox.UnsafeResetSecretBoxForTests()
 
 	raw := make([]byte, 32)
 	for i := 0; i < 32; i++ {
 		raw[i] = byte(255 - i)
 	}
 	os.Setenv("SECRETBOX_MASTER_KEY", base64.StdEncoding.EncodeToString(raw))
+	defer os.Unsetenv("SECRETBOX_MASTER_KEY")
 
-	ct, err := Encrypt("top secret")
+	ct, err := secretbox.Encrypt("top secret")
 	if err != nil {
 		t.Fatalf("Encrypt err: %v", err)
 	}
@@ -62,17 +66,17 @@ func TestDecrypt_DetectsTamper(t *testing.T) {
 	parts[1] = base64.StdEncoding.EncodeToString(bs)
 	corrupted := parts[0] + "|" + parts[1]
 
-	if _, err := Decrypt(corrupted); err == nil {
+	if _, err := secretbox.Decrypt(corrupted); err == nil {
 		t.Fatalf("expected auth error, got nil")
 	}
 }
 
 func TestEncrypt_ErrorWhenNoKey(t *testing.T) {
-	t.Parallel()
-	UnsafeResetSecretBoxForTests()
+	// Remover t.Parallel() por conflicto con UnsafeReset global
+	secretbox.UnsafeResetSecretBoxForTests()
 	os.Unsetenv("SECRETBOX_MASTER_KEY")
 
-	if _, err := Encrypt("x"); err == nil {
+	if _, err := secretbox.Encrypt("x"); err == nil {
 		t.Fatalf("expected error when key missing")
 	}
 }
