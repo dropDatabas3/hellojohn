@@ -1,6 +1,8 @@
 package config
 
 import (
+	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -139,7 +141,8 @@ type Config struct {
 	} `yaml:"email"`
 
 	Security struct {
-		PasswordPolicy struct {
+		SecretBoxMasterKey string `yaml:"secretbox_master_key"` // base64(32 bytes) for encrypting secrets in FS config
+		PasswordPolicy     struct {
 			MinLength     int  `yaml:"min_length"`
 			RequireUpper  bool `yaml:"require_upper"`
 			RequireLower  bool `yaml:"require_lower"`
@@ -148,6 +151,10 @@ type Config struct {
 		} `yaml:"password_policy"`
 		PasswordBlacklistPath string `yaml:"password_blacklist_path"`
 	} `yaml:"security"`
+
+	ControlPlane struct {
+		FSRoot string `yaml:"fs_root"` // root directory for filesystem-based control plane
+	} `yaml:"control_plane"`
 
 	// ───────── Social Login Providers ─────────
 	Providers struct {
@@ -317,8 +324,18 @@ func Load(path string) (*Config, error) {
 		}
 	}
 
+	// ControlPlane defaults
+	if c.ControlPlane.FSRoot == "" {
+		c.ControlPlane.FSRoot = "./data/hellojohn" // default for development
+	}
+
 	// Overrides por env + salvaguarda prod
 	c.applyEnvOverrides()
+
+	// Validation
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
 
 	// Si Google.RedirectURL vacío pero tenemos issuer ⇒ autogenerar
 	if c.Providers.Google.Enabled && strings.TrimSpace(c.Providers.Google.RedirectURL) == "" && strings.TrimSpace(c.JWT.Issuer) != "" {
@@ -649,4 +666,34 @@ func (c *Config) applyEnvOverrides() {
 	if v, ok := getEnvCSV("GOOGLE_ALLOWED_CLIENTS"); ok {
 		c.Providers.Google.AllowedClients = v
 	}
+
+	// CONTROL_PLANE
+	if v, ok := getEnvStr("CONTROL_PLANE_FS_ROOT"); ok {
+		c.ControlPlane.FSRoot = v
+	}
+
+	// SECURITY - SecretBox Master Key
+	if v, ok := getEnvStr("SECRETBOX_MASTER_KEY"); ok {
+		c.Security.SecretBoxMasterKey = v
+	}
+}
+
+// Validate performs validation of critical configuration values
+func (c *Config) Validate() error {
+	// SECRETBOX_MASTER_KEY is required for encrypting secrets in FS config
+	if c.Security.SecretBoxMasterKey == "" {
+		return fmt.Errorf("SECRETBOX_MASTER_KEY required; generate with: openssl rand -base64 32")
+	}
+
+	// Validate SECRETBOX_MASTER_KEY format and length (must be base64 of 32 bytes)
+	if b, err := base64.StdEncoding.DecodeString(c.Security.SecretBoxMasterKey); err != nil || len(b) != 32 {
+		return fmt.Errorf("SECRETBOX_MASTER_KEY invalid: must be base64 encoding of 32 bytes")
+	}
+
+	// Ensure ControlPlane FSRoot is set (has default, but validate it's reasonable)
+	if c.ControlPlane.FSRoot == "" {
+		return fmt.Errorf("CONTROL_PLANE_FS_ROOT cannot be empty")
+	}
+
+	return nil
 }
