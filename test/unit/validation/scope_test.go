@@ -1,6 +1,10 @@
 package validation
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/dropDatabas3/hellojohn/internal/validation"
+)
 
 func TestValidScopeName_Valid(t *testing.T) {
 	valids := []string{
@@ -14,7 +18,7 @@ func TestValidScopeName_Valid(t *testing.T) {
 		mkLen("a", 62) + "b", // a + 62 x 'a' + b
 	}
 	for _, v := range valids {
-		if !ValidScopeName(v) {
+		if !validation.ValidScopeName(v) {
 			t.Fatalf("expected valid: %q", v)
 		}
 	}
@@ -28,11 +32,11 @@ func TestValidScopeName_Invalid(t *testing.T) {
 		"bad space",      // space
 		"UPPER",          // uppercase
 		"semicolon;hack", // semicolon
-		mkLen("a", 64),   // 64 of 'a' then missing closing alnum? Actually length >64 when appended later
-		mkLen("a", 65),   // > 64
+		mkLen("a", 65),   // > 64 chars should be invalid
+		mkLen("a", 100),  // way too long
 	}
 	for _, v := range invalids {
-		if ValidScopeName(v) {
+		if validation.ValidScopeName(v) {
 			t.Fatalf("expected invalid: %q", v)
 		}
 	}

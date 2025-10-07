@@ -52,15 +52,27 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			}
 
 			ctx := r.Context()
-			cl, _, err := c.Store.GetClientByClientID(ctx, clientID)
+
+			client, tenantSlug, err := helpers.LookupClient(ctx, r, clientID)
 			if err != nil {
-				status := http.StatusInternalServerError
-				if err == core.ErrNotFound {
-					status = http.StatusUnauthorized
-				}
-				httpx.WriteError(w, status, "invalid_client", "client inválido", 2204)
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client not found", 2204)
 				return
 			}
+
+			// TODO: Implementar ValidateClientSecret cuando se agregue auth del cliente
+			// if err := helpers.ValidateClientSecret(ctx, r, tenantSlug, client, clientSecret); err != nil {
+			//     httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "bad credentials", 2205)
+			//     return
+			// }
+
+			// Mapear client FS a estructura legacy para compatibilidad
+			cl := &core.Client{
+				ID:           client.ClientID,
+				TenantID:     tenantSlug,
+				RedirectURIs: client.RedirectURIs,
+				Scopes:       client.Scopes,
+			}
+			_ = tenantSlug
 
 			// Cargar y consumir el code (1 uso)
 			key := "oidc:code:" + tokens.SHA256Base64URL(code)
@@ -193,15 +205,21 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			}
 
 			ctx := r.Context()
-			cl, _, err := c.Store.GetClientByClientID(ctx, clientID)
+
+			client, tenantSlug, err := helpers.LookupClient(ctx, r, clientID)
 			if err != nil {
-				status := http.StatusInternalServerError
-				if err == core.ErrNotFound {
-					status = http.StatusUnauthorized
-				}
-				httpx.WriteError(w, status, "invalid_client", "client inválido", 2221)
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client not found", 2221)
 				return
 			}
+
+			// Mapear client FS a estructura legacy para compatibilidad
+			cl := &core.Client{
+				ID:           client.ClientID,
+				TenantID:     tenantSlug,
+				RedirectURIs: client.RedirectURIs,
+				Scopes:       client.Scopes,
+			}
+			_ = tenantSlug
 
 			hash := tokens.SHA256Base64URL(refreshToken)
 			rt, err := c.Store.GetRefreshTokenByHash(ctx, hash)

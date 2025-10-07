@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
+	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
+	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
@@ -87,40 +89,38 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 		}
 
 		ctx := r.Context()
-		cl, _, err := c.Store.GetClientByClientID(ctx, clientID)
+
+		client, tenantSlug, err := helpers.LookupClient(ctx, r, clientID)
 		if err != nil {
-			status := http.StatusInternalServerError
-			if err == core.ErrNotFound {
-				status = http.StatusUnauthorized
-			}
-			httpx.WriteError(w, status, "invalid_client", "client inválido", 2104)
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_client", "client not found", 2104)
 			return
 		}
-		okRedirect := false
-		for _, ru := range cl.RedirectURIs {
-			if ru == redirectURI {
-				okRedirect = true
-				break
-			}
-		}
-		if !okRedirect {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid_redirect_uri", "redirect_uri no coincide con el client", 2105)
+		if err := helpers.ValidateRedirectURI(client, redirectURI); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "redirect_uri mismatch", 2105)
 			return
 		}
-		reqScopes := strings.Fields(scope)
-		for _, s := range reqScopes {
-			found := false
-			for _, allowed := range cl.Scopes {
-				if strings.EqualFold(s, allowed) {
-					found = true
-					break
+
+		// Validar scopes solicitados
+		if scope := strings.TrimSpace(scope); scope != "" {
+			for _, s := range strings.Fields(scope) {
+				if !controlplane.DefaultIsScopeAllowed(client, s) {
+					httpx.WriteError(w, http.StatusBadRequest, "invalid_scope", "scope not allowed", 2106)
+					return
 				}
 			}
-			if !found {
-				redirectError(w, r, redirectURI, state, "invalid_scope", "scope no permitido para este client")
-				return
-			}
 		}
+
+		// Continuar con lógica existente
+		_ = tenantSlug
+
+		// Mapear client FS a estructura legacy para compatibilidad
+		cl := &core.Client{
+			ID:           client.ClientID, // Usar clientID como ID temporal
+			TenantID:     tenantSlug,      // Usar tenantSlug como TenantID
+			RedirectURIs: client.RedirectURIs,
+			Scopes:       client.Scopes,
+		}
+		reqScopes := strings.Fields(scope)
 
 		var (
 			sub             string
