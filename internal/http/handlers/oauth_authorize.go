@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
+	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
 	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
@@ -63,6 +64,26 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 		w.Header().Add("Vary", "Cookie")
 		if allowBearer {
 			w.Header().Add("Vary", "Authorization")
+		}
+
+		// Resolver store con precedencia: tenantDB > globalDB (para consent y magic link)
+		var activeScopesConsents core.ScopesConsentsRepository
+		var activeStore core.Repository
+
+		if c.TenantSQLManager != nil {
+			// Intentar obtener store del tenant actual
+			tenantSlug := cpctx.ResolveTenant(r)
+			if tenantStore, err := c.TenantSQLManager.GetPG(r.Context(), tenantSlug); err == nil && tenantStore != nil {
+				activeStore = tenantStore
+				// Para tenant stores, por ahora usar fallback a global consent (TODO: implementar per-tenant consent)
+			}
+		}
+		// Fallback a global store/consents si no hay tenant
+		if activeScopesConsents == nil && c.ScopesConsents != nil {
+			activeScopesConsents = c.ScopesConsents
+		}
+		if activeStore == nil && c.Store != nil {
+			activeStore = c.Store
 		}
 
 		q := r.URL.Query()
@@ -172,15 +193,15 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 		}
 
 		// Step-up MFA: si el usuario tiene MFA TOTP confirmada y la AMR actual solo contiene pwd, devolver JSON mfa_required
-		if len(amr) == 1 && amr[0] == "pwd" {
+		if len(amr) == 1 && amr[0] == "pwd" && activeStore != nil {
 			// intentamos detectar secreto MFA
-			if mg, ok := c.Store.(interface {
+			if mg, ok := activeStore.(interface {
 				GetMFATOTP(ctx context.Context, userID string) (*core.MFATOTP, error)
 			}); ok {
 				if m, _ := mg.GetMFATOTP(r.Context(), sub); m != nil && m.ConfirmedAt != nil {
 					// Revisar trusted device cookie (si existe) para posiblemente elevar amr automáticamente
 					if ck, err := r.Cookie("mfa_trust"); err == nil && ck != nil {
-						if tc, ok2 := c.Store.(interface {
+						if tc, ok2 := activeStore.(interface {
 							IsTrustedDevice(ctx context.Context, userID, deviceHash string, now time.Time) (bool, error)
 						}); ok2 {
 							if ok3, _ := tc.IsTrustedDevice(r.Context(), sub, tokens.SHA256Base64URL(ck.Value), time.Now()); ok3 {
@@ -223,9 +244,9 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 		// Gate de consentimiento: si faltan scopes ⇒ respuesta JSON consent_required
 		// Se ejecuta después de validar login y (posible) MFA, antes de generar authorization code.
 		// ─────────────────────────────────────────────────────────────
-		if c.ScopesConsents != nil {
+		if activeScopesConsents != nil {
 			granted := []string{}
-			if uc, err := c.ScopesConsents.GetConsent(ctx, sub, cl.ID); err == nil && uc.RevokedAt == nil {
+			if uc, err := activeScopesConsents.GetConsent(ctx, sub, cl.ID); err == nil && uc.RevokedAt == nil {
 				granted = uc.GrantedScopes
 			}
 			set := map[string]struct{}{}
@@ -271,16 +292,25 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 				needConsentResponse := true
 				if auto != "0" && subset {
 					var upErr error
+					type upTC interface {
+						UpsertConsentTC(ctx context.Context, tenantID, clientID, userID string, scopes []string) error
+					}
 					type up1 interface {
 						UpsertConsent(ctx context.Context, tenantID, userID, clientID string, scopes []string) error
 					}
 					type up2 interface {
 						UpsertConsent(ctx context.Context, userID, clientID string, scopes []string) error
 					}
-					if u1, ok := c.ScopesConsents.(up1); ok {
-						upErr = u1.UpsertConsent(ctx, tid, sub, cl.ID, reqScopes)
-					} else if u2, ok := c.ScopesConsents.(up2); ok {
-						upErr = u2.UpsertConsent(ctx, sub, cl.ID, reqScopes)
+
+					// Preferir TC si está disponible
+					if raw := any(activeScopesConsents); raw != nil {
+						if utc, ok := raw.(upTC); ok {
+							upErr = utc.UpsertConsentTC(ctx, tid, cl.ID, sub, reqScopes)
+						} else if u1, ok := raw.(up1); ok {
+							upErr = u1.UpsertConsent(ctx, tid, sub, cl.ID, reqScopes)
+						} else if u2, ok := raw.(up2); ok {
+							upErr = u2.UpsertConsent(ctx, sub, cl.ID, reqScopes)
+						}
 					}
 					if upErr == nil {
 						needConsentResponse = false // éxito: continuamos flujo normal

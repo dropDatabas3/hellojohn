@@ -61,6 +61,8 @@ type RefreshToken struct {
 	ExpiresAt   time.Time
 	RotatedFrom *string
 	RevokedAt   *time.Time
+	// Schema Cut: Tenant+Client directo (sin FK)
+	TenantID string `db:"tenant_id" json:"tenantId,omitempty"`
 }
 
 // MFA / TOTP secret metadata

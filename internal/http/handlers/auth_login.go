@@ -34,6 +34,11 @@ type AuthLoginResponse struct {
 
 func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Timeout de 3s para endpoint crítico
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		r = r.WithContext(ctx)
+
 		if r.Method != http.MethodPost {
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo POST", 1000)
 			return
@@ -122,9 +127,8 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			}
 		}
 
-		ctx := r.Context()
-
-		u, id, err := c.Store.GetUserByEmail(ctx, req.TenantID, req.Email)
+		// ctx ya está definido con timeout arriba
+		u, id, err := c.Store.GetUserByEmail(r.Context(), req.TenantID, req.Email)
 		if err != nil {
 			status := http.StatusInternalServerError
 			if err == core.ErrNotFound {

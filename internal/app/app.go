@@ -5,6 +5,7 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/cache"
 	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
+	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/store"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
@@ -20,6 +21,9 @@ type Container struct {
 
 	// MultiLimiter para rate limits específicos por endpoint
 	MultiLimiter helpers.MultiLimiter
+
+	// TenantSQLManager para bases de datos por tenant (S3/S4)
+	TenantSQLManager *tenantsql.Manager
 
 	// ClaimsHook es opcional. Si está seteado, permite inyectar/alterar claims
 	// de Access/ID Tokens a partir de una policy (CEL, webhooks, reglas estáticas, etc).
