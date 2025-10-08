@@ -44,6 +44,22 @@ func DefaultValidateClientID(id string) bool {
 	return reClientID.MatchString(id)
 }
 
+// FSProviderInterface define métodos específicos del FSProvider que no están en ControlPlane
+type FSProviderInterface interface {
+	ControlPlane
+	GetTenantRaw(ctx context.Context, slug string) (*Tenant, []byte, error)
+	GetTenantSettingsRaw(ctx context.Context, slug string) (*TenantSettings, []byte, error)
+	UpdateTenantSettings(ctx context.Context, slug string, settings *TenantSettings) error
+}
+
+// AsFSProvider helper para convertir ControlPlane a FSProvider si es posible
+func AsFSProvider(provider ControlPlane) (FSProviderInterface, bool) {
+	if fs, ok := provider.(FSProviderInterface); ok {
+		return fs, true
+	}
+	return nil, false
+}
+
 // Regla: https obligatorio salvo localhost (http://localhost o http://127.0.0.1)
 func DefaultValidateRedirectURI(uri string) bool {
 	u := strings.TrimSpace(strings.ToLower(uri))

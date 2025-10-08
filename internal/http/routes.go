@@ -62,6 +62,9 @@ func NewMux(
 	// ─── Admin Users (disable/enable) ───
 	adminUsers stdhttp.Handler, // POST /v1/admin/users/disable | /v1/admin/users/enable
 
+	// ─── Admin Tenants (CRUD + Settings) ───
+	adminTenants stdhttp.Handler, // GET/POST /v1/admin/tenants, GET/PUT /v1/admin/tenants/{slug}/settings
+
 	// WhoAmI profile resource (scope-based)
 	profile stdhttp.Handler, // GET /v1/profile (requires profile:read)
 ) *stdhttp.ServeMux {
@@ -146,6 +149,10 @@ func NewMux(
 	// ─── Admin Users (disable/enable) ───
 	mux.Handle("/v1/admin/users/disable", adminUsers) // POST
 	mux.Handle("/v1/admin/users/enable", adminUsers)  // POST
+
+	// ─── Admin Tenants (CRUD + Settings) ───
+	mux.Handle("/v1/admin/tenants", adminTenants)  // GET/POST
+	mux.Handle("/v1/admin/tenants/", adminTenants) // GET/PUT /{slug}/settings
 
 	// Demo resource protected by scope
 	mux.Handle("/v1/profile", profile)

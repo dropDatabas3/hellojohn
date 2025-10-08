@@ -2,102 +2,193 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
+	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 )
 
+// HealthStatus representa el estado de un componente específico
+type HealthStatus struct {
+	Status  string `json:"status"` // "ok" | "error" | "disabled"
+	Message string `json:"message,omitempty"`
+}
+
+// HealthResponse representa la respuesta de salud completa
+type HealthResponse struct {
+	Status      string                  `json:"status"` // "ready" | "degraded" | "unavailable"
+	Components  map[string]HealthStatus `json:"components"`
+	Version     string                  `json:"version,omitempty"`
+	Commit      string                  `json:"commit,omitempty"`
+	ActiveKeyID string                  `json:"active_key_id,omitempty"`
+	Timestamp   time.Time               `json:"timestamp"`
+}
+
 func NewReadyzHandler(c *app.Container, checkRedis func(ctx context.Context) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		response := HealthResponse{
+			Components: make(map[string]HealthStatus),
+			Timestamp:  time.Now().UTC(),
+		}
+
+		// Metadata de servicio
 		if v := os.Getenv("SERVICE_VERSION"); v != "" {
-			w.Header().Set("X-Service-Version", v)
+			response.Version = v
 		}
 		if git := os.Getenv("SERVICE_COMMIT"); git != "" {
-			w.Header().Set("X-Service-Commit", git)
+			response.Commit = git
 		}
 		if c != nil && c.Issuer != nil && c.Issuer.Keys != nil {
 			if kid, err := c.Issuer.ActiveKID(); err == nil && kid != "" {
-				w.Header().Set("X-JWKS-KID", kid)
+				response.ActiveKeyID = kid
 			}
 		}
 
-		// 1) DB
-		if err := c.Store.Ping(r.Context()); err != nil {
-			// Log interno con detalle
-			// (import "log")
-			log.Printf(`{"level":"error","msg":"db_unavailable","err":"%v"}`, err)
-			httpx.WriteError(w, http.StatusServiceUnavailable, "db_unavailable", "database unavailable", 2001)
-			return
+		// Headers para compatibilidad
+		w.Header().Set("Content-Type", "application/json")
+		if response.Version != "" {
+			w.Header().Set("X-Service-Version", response.Version)
+		}
+		if response.Commit != "" {
+			w.Header().Set("X-Service-Commit", response.Commit)
+		}
+		if response.ActiveKeyID != "" {
+			w.Header().Set("X-JWKS-KID", response.ActiveKeyID)
 		}
 
-		// 2) Self-check EdDSA: firmar y verificar un JWT efímero en memoria
-		now := time.Now().UTC()
-		claims := jwtv5.MapClaims{
-			"iss": c.Issuer.Iss,
-			"sub": "selfcheck",
-			"aud": "health",
-			"iat": now.Unix(),
-			"nbf": now.Unix(),
-			"exp": now.Add(60 * time.Second).Unix(),
-		}
-		signed, _, err := c.Issuer.SignRaw(claims)
-		if err != nil {
-			httpx.WriteError(w, http.StatusServiceUnavailable, "sign_failed", "no se pudo firmar self-check", 2004)
-			return
-		}
+		hasErrors := false
+		hasCriticalErrors := false
 
-		parsed, err := jwtv5.Parse(signed, c.Issuer.Keyfunc(),
-			jwtv5.WithValidMethods([]string{"EdDSA"}),
-			jwtv5.WithIssuer(c.Issuer.Iss),
-		)
-		if err != nil || !parsed.Valid {
-			httpx.WriteError(w, http.StatusServiceUnavailable, "verify_failed", "self-check: verificación falló", 2005)
-			return
-		}
-		if cl, ok := parsed.Claims.(jwtv5.MapClaims); ok {
-			if s, _ := cl["sub"].(string); s != "selfcheck" {
-				httpx.WriteError(w, http.StatusServiceUnavailable, "verify_failed", "self-check: sub inesperado", 2006)
-				return
-			}
-			switch a := cl["aud"].(type) {
-			case string:
-				if a != "health" {
-					httpx.WriteError(w, http.StatusServiceUnavailable, "verify_failed", "self-check: aud inesperado", 2007)
-					return
+		// 1) Control-plane FS (crítico)
+		if cpctx.Provider != nil {
+			if _, err := cpctx.Provider.ListTenants(ctx); err != nil {
+				response.Components["control_plane"] = HealthStatus{
+					Status:  "error",
+					Message: fmt.Sprintf("unavailable: %v", err),
 				}
-			case []any:
-				okAud := false
-				for _, it := range a {
-					if s, _ := it.(string); s == "health" {
-						okAud = true
-						break
+				hasCriticalErrors = true
+				log.Printf(`{"level":"error","component":"control_plane","msg":"unavailable","err":"%v"}`, err)
+			} else {
+				response.Components["control_plane"] = HealthStatus{Status: "ok"}
+			}
+		} else {
+			response.Components["control_plane"] = HealthStatus{
+				Status:  "error",
+				Message: "provider not initialized",
+			}
+			hasCriticalErrors = true
+		}
+
+		// 2) JWT Keystore (crítico)
+		if c != nil && c.Issuer != nil {
+			now := time.Now().UTC()
+			claims := jwtv5.MapClaims{
+				"iss": c.Issuer.Iss,
+				"sub": "selfcheck",
+				"aud": "health",
+				"iat": now.Unix(),
+				"nbf": now.Unix(),
+				"exp": now.Add(60 * time.Second).Unix(),
+			}
+			signed, _, err := c.Issuer.SignRaw(claims)
+			if err != nil {
+				response.Components["keystore"] = HealthStatus{
+					Status:  "error",
+					Message: fmt.Sprintf("sign failed: %v", err),
+				}
+				hasCriticalErrors = true
+			} else {
+				parsed, err := jwtv5.Parse(signed, c.Issuer.Keyfunc(),
+					jwtv5.WithValidMethods([]string{"EdDSA"}),
+					jwtv5.WithIssuer(c.Issuer.Iss),
+				)
+				if err != nil || !parsed.Valid {
+					response.Components["keystore"] = HealthStatus{
+						Status:  "error",
+						Message: fmt.Sprintf("verify failed: %v", err),
 					}
-				}
-				if !okAud {
-					httpx.WriteError(w, http.StatusServiceUnavailable, "verify_failed", "self-check: aud inesperado", 2007)
-					return
+					hasCriticalErrors = true
+				} else {
+					response.Components["keystore"] = HealthStatus{Status: "ok"}
 				}
 			}
 		} else {
-			httpx.WriteError(w, http.StatusServiceUnavailable, "verify_failed", "self-check: claims inválidos", 2008)
-			return
-		}
-
-		// 3) Redis (opcional)
-		if checkRedis != nil {
-			if err := checkRedis(r.Context()); err != nil {
-				log.Printf(`{"level":"error","msg":"redis_unavailable","err":"%v"}`, err)
-				httpx.WriteError(w, http.StatusServiceUnavailable, "redis_unavailable", "redis unavailable", 2003)
-				return
+			response.Components["keystore"] = HealthStatus{
+				Status:  "error",
+				Message: "issuer not initialized",
 			}
+			hasCriticalErrors = true
 		}
 
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ready"))
+		// 3) Global DB (no crítico en FS-only)
+		if c.Store != nil {
+			if err := c.Store.Ping(ctx); err != nil {
+				response.Components["db_global"] = HealthStatus{
+					Status:  "error",
+					Message: fmt.Sprintf("unavailable: %v", err),
+				}
+				hasErrors = true
+				log.Printf(`{"level":"error","component":"db_global","msg":"unavailable","err":"%v"}`, err)
+			} else {
+				response.Components["db_global"] = HealthStatus{Status: "ok"}
+			}
+		} else {
+			response.Components["db_global"] = HealthStatus{Status: "disabled", Message: "FS-only mode"}
+		}
+
+		// 4) Redis/Cache (no crítico)
+		if checkRedis != nil {
+			if err := checkRedis(ctx); err != nil {
+				response.Components["redis"] = HealthStatus{
+					Status:  "error",
+					Message: fmt.Sprintf("unavailable: %v", err),
+				}
+				hasErrors = true
+				log.Printf(`{"level":"error","component":"redis","msg":"unavailable","err":"%v"}`, err)
+			} else {
+				response.Components["redis"] = HealthStatus{Status: "ok"}
+			}
+		} else {
+			response.Components["redis"] = HealthStatus{Status: "disabled", Message: "memory cache only"}
+		}
+
+		// 5) Tenant Pools (informativo con métricas)
+		if c.TenantSQLManager != nil {
+			stats := c.TenantSQLManager.Stats()
+			var acquired, idle, total int
+			for _, st := range stats {
+				acquired += int(st.Acquired)
+				idle += int(st.Idle)
+				total += int(st.Total)
+			}
+			response.Components["tenant_pools"] = HealthStatus{
+				Status:  "ok",
+				Message: fmt.Sprintf("active pools: %d (acquired=%d idle=%d total=%d)", len(stats), acquired, idle, total),
+			}
+		} else {
+			response.Components["tenant_pools"] = HealthStatus{Status: "disabled"}
+		}
+
+		// Determinar estado general
+		if hasCriticalErrors {
+			response.Status = "unavailable"
+			w.WriteHeader(http.StatusServiceUnavailable)
+		} else if hasErrors {
+			response.Status = "degraded"
+			w.WriteHeader(http.StatusOK) // 200 pero degradado
+		} else {
+			response.Status = "ready"
+			w.WriteHeader(http.StatusOK)
+		}
+
+		// Escribir respuesta JSON
+		httpx.WriteJSON(w, http.StatusOK, response)
 	}
 }

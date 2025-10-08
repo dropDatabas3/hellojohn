@@ -8,23 +8,29 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
+	promhttp "github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
 	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/config"
 	cpfs "github.com/dropDatabas3/hellojohn/internal/controlplane/fs"
+	httpmetrics "github.com/dropDatabas3/hellojohn/internal/http"
 	httpserver "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/http/handlers"
 	"github.com/dropDatabas3/hellojohn/internal/infra/cachefactory"
+	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/rate"
 	"github.com/dropDatabas3/hellojohn/internal/store"
+	"github.com/dropDatabas3/hellojohn/internal/store/core"
 	pgdriver "github.com/dropDatabas3/hellojohn/internal/store/pg"
+	"github.com/jackc/pgx/v5/pgxpool"
 	rdb "github.com/redis/go-redis/v9"
 )
 
@@ -140,10 +146,12 @@ func loadConfigFromEnv() *config.Config {
 	c.Server.CORSAllowedOrigins = splitCSVEnv(getenv("SERVER_CORS_ALLOWED_ORIGINS", "http://localhost:3000"))
 
 	// --- Storage ---
-	c.Storage.Driver = getenv("STORAGE_DRIVER", "postgres")
-	c.Storage.DSN = getenv("STORAGE_DSN", "postgres://user:password@localhost:5432/login?sslmode=disable")
+	// Dejar vacíos por defecto para habilitar modo FS-only
+	c.Storage.Driver = getenv("STORAGE_DRIVER", "")
+	c.Storage.DSN = getenv("STORAGE_DSN", "")
+	// Mapear MaxIdleConns -> MinConns (pgxpool)
 	c.Storage.Postgres.MaxOpenConns = getenvInt("POSTGRES_MAX_OPEN_CONNS", 30)
-	c.Storage.Postgres.MaxIdleConns = getenvInt("POSTGRES_MAX_IDLE_CONNS", 5)
+	c.Storage.Postgres.MaxIdleConns = getenvInt("POSTGRES_MAX_IDLE_CONNS", 5) // lo usaremos como MinConns
 	c.Storage.Postgres.ConnMaxLifetime = getenv("POSTGRES_CONN_MAX_LIFETIME", "30m")
 	c.Storage.MySQL.DSN = getenv("MYSQL_DSN", "")
 	c.Storage.Mongo.URI = getenv("MONGO_URI", "")
@@ -463,6 +471,21 @@ func main() {
 
 	// --- Control-Plane FS (MVP) ---
 	cpctx.Provider = cpfs.New(cfg.ControlPlane.FSRoot)
+
+	// --- Tenant SQL Manager (S3/S4) ---
+	tenantSQLManager, err := tenantsql.New(tenantsql.Config{
+		Pool: tenantsql.PoolConfig{
+			MaxOpenConns:    15,
+			MaxIdleConns:    3,
+			ConnMaxLifetime: 30 * time.Minute,
+		},
+		MetricsFunc: httpmetrics.RecordTenantMigration,
+	})
+	if err != nil {
+		log.Fatalf("tenant sql manager: %v", err)
+	}
+	defer tenantSQLManager.Close()
+
 	// Resolver por header/query con fallback a "local"
 	cpctx.ResolveTenant = func(r *http.Request) string {
 		if v := r.Header.Get("X-Tenant-Slug"); v != "" {
@@ -481,55 +504,78 @@ func main() {
 
 	ctx := context.Background()
 
-	// ───── Store compuesto (repo principal + scopes/consents opcional) ─────
-	stores, err := store.OpenStores(ctx, store.Config{
-		Driver: cfg.Storage.Driver,
-		DSN:    cfg.Storage.DSN,
-		Postgres: struct {
-			MaxOpenConns, MaxIdleConns int
-			ConnMaxLifetime            string
-		}{
-			MaxOpenConns:    cfg.Storage.Postgres.MaxOpenConns,
-			MaxIdleConns:    cfg.Storage.Postgres.MaxIdleConns,
-			ConnMaxLifetime: cfg.Storage.Postgres.ConnMaxLifetime,
-		},
-		MySQL: struct{ DSN string }{DSN: cfg.Storage.MySQL.DSN},
-		Mongo: struct{ URI, Database string }{URI: cfg.Storage.Mongo.URI, Database: cfg.Storage.Mongo.Database},
-	})
-	if err != nil {
-		log.Fatalf("store open: %v", err)
+	// ───── Detectar si hay DB global y gatear OpenStores + migrations ─────
+	hasGlobalDB := strings.TrimSpace(cfg.Storage.Driver) != "" && strings.TrimSpace(cfg.Storage.DSN) != ""
+	log.Printf("DEBUG: Storage.Driver='%s', Storage.DSN='%s', hasGlobalDB=%v", cfg.Storage.Driver, cfg.Storage.DSN, hasGlobalDB)
+
+	var (
+		stores *store.Stores
+		repo   core.Repository
+	)
+	if hasGlobalDB {
+		var err error
+		storePtr, err := store.OpenStores(ctx, store.Config{
+			Driver: cfg.Storage.Driver,
+			DSN:    cfg.Storage.DSN,
+			Postgres: struct {
+				MaxOpenConns, MaxIdleConns int
+				ConnMaxLifetime            string
+			}{
+				MaxOpenConns:    cfg.Storage.Postgres.MaxOpenConns,
+				MaxIdleConns:    cfg.Storage.Postgres.MaxIdleConns,
+				ConnMaxLifetime: cfg.Storage.Postgres.ConnMaxLifetime,
+			},
+			MySQL: struct{ DSN string }{DSN: cfg.Storage.MySQL.DSN},
+			Mongo: struct{ URI, Database string }{URI: cfg.Storage.Mongo.URI, Database: cfg.Storage.Mongo.Database},
+		})
+		if err != nil {
+			log.Fatalf("store open: %v", err)
+		}
+		stores = storePtr
+		repo = stores.Repository
+
+		// Migraciones globales solo si hay DB
+		if cfg.Flags.Migrate {
+			if pg, ok := repo.(interface {
+				RunMigrations(context.Context, string) error
+			}); ok {
+				if err := pg.RunMigrations(ctx, "migrations/postgres"); err != nil {
+					log.Fatalf("migrations: %v", err)
+				}
+			}
+		}
 	}
-	// Para compatibilidad, usamos repo := stores.Repository
-	repo := stores.Repository
-	// Aseguramos cierre ordenado del pool extra (si existe)
 	defer func() {
-		// Si más adelante Container se crea antes, también se podría defer container.Close()
-		if stores.Close != nil {
+		if stores != nil && stores.Close != nil {
 			_ = stores.Close()
 		}
 	}()
 
-	// Migraciones
-	if cfg.Flags.Migrate {
-		if pg, ok := repo.(interface {
-			RunMigrations(context.Context, string) error
-		}); ok {
-			if err := pg.RunMigrations(ctx, "migrations/postgres"); err != nil {
-				log.Fatalf("migrations: %v", err)
-			}
-		} else if _, ok := repo.(*pgdriver.Store); ok {
-			if err := repo.(*pgdriver.Store).RunMigrations(ctx, "migrations/postgres"); err != nil {
-				log.Fatalf("migrations: %v", err)
-			}
+	// JWT / JWKS (Keystore persistente con bootstrap)
+	var refreshTTL time.Duration = 30 * 24 * time.Hour
+	if cfg.JWT.RefreshTTL != "" {
+		if d, err := time.ParseDuration(cfg.JWT.RefreshTTL); err == nil {
+			refreshTTL = d
 		}
 	}
 
-	// JWT / JWKS (Keystore persistente con bootstrap)
-	pgRepo, ok := repo.(*pgdriver.Store)
-	if !ok {
-		log.Fatalf("signing keys: Postgres store requerido")
+	var ks *jwtx.PersistentKeystore
+	if hasGlobalDB {
+		pgRepo, ok := repo.(*pgdriver.Store)
+		if !ok {
+			log.Fatalf("signing keys: se esperaba Postgres store")
+		}
+		ks = jwtx.NewPersistentKeystore(ctx, pgRepo)
+	} else {
+		// FS-only: usar FileSigningKeyStore para persistencia
+		keysDir := filepath.Join(cfg.ControlPlane.FSRoot, "keys")
+		fileStore, err := jwtx.NewFileSigningKeyStore(keysDir)
+		if err != nil {
+			log.Fatalf("create file signing keystore: %v", err)
+		}
+		ks = jwtx.NewPersistentKeystore(ctx, fileStore)
+		log.Printf("Using persistent file keystore at: %s", keysDir)
 	}
-	ks := jwtx.NewPersistentKeystore(ctx, pgRepo)
 	if err := ks.EnsureBootstrap(); err != nil {
 		log.Fatalf("bootstrap signing key: %v", err)
 	}
@@ -542,12 +588,6 @@ func main() {
 	if cfg.JWT.AccessTTL != "" {
 		if d, err := time.ParseDuration(cfg.JWT.AccessTTL); err == nil {
 			issuer.AccessTTL = d
-		}
-	}
-	refreshTTL := 30 * 24 * time.Hour
-	if cfg.JWT.RefreshTTL != "" {
-		if d, err := time.ParseDuration(cfg.JWT.RefreshTTL); err == nil {
-			refreshTTL = d
 		}
 	}
 
@@ -572,11 +612,14 @@ func main() {
 	}
 
 	container := app.Container{
-		Store:          repo, // repo principal
-		Issuer:         issuer,
-		Cache:          cc,
-		Stores:         stores,                // wrapper (incluye Close opcional)
-		ScopesConsents: stores.ScopesConsents, // puede ser nil si driver != postgres
+		Store:            repo, // puede ser nil en FS-only
+		Issuer:           issuer,
+		Cache:            cc,
+		TenantSQLManager: tenantSQLManager,
+		Stores:           stores,
+	}
+	if stores != nil {
+		container.ScopesConsents = stores.ScopesConsents // nil si no hay DB/PG
 	}
 	// Si preferís, podés delegar el cierre al contenedor:
 	// defer container.Close()
@@ -598,7 +641,7 @@ func main() {
 	// Protegemos todas las rutas /v1/admin/* con RequireAuth + RequireSysAdmin
 
 	adminScopes := httpserver.Chain(
-		handlers.NewAdminScopesHandler(&container),
+		handlers.NewAdminScopesFSHandler(&container),
 		httpserver.RequireAuth(container.Issuer),
 		httpserver.RequireSysAdmin(container.Issuer))
 	adminConsents := httpserver.Chain(
@@ -606,7 +649,7 @@ func main() {
 		httpserver.RequireAuth(container.Issuer),
 		httpserver.RequireSysAdmin(container.Issuer))
 	adminClients := httpserver.Chain(
-		handlers.NewAdminClientsHandler(&container),
+		handlers.NewAdminClientsFSHandler(&container),
 		httpserver.RequireAuth(container.Issuer),
 		httpserver.RequireSysAdmin(container.Issuer))
 	// ─── RBAC Admin ───
@@ -624,6 +667,13 @@ func main() {
 	// ─── Admin Users (disable/enable) ───
 	adminUsers := httpserver.Chain(
 		handlers.NewAdminUsersHandler(&container),
+		httpserver.RequireAuth(container.Issuer),
+		httpserver.RequireSysAdmin(container.Issuer),
+	)
+
+	// ─── Admin Tenants (CRUD + Settings) ───
+	adminTenants := httpserver.Chain(
+		handlers.NewAdminTenantsFSHandler(&container),
 		httpserver.RequireAuth(container.Issuer),
 		httpserver.RequireSysAdmin(container.Issuer),
 	)
@@ -694,22 +744,41 @@ func main() {
 		cfg.Auth.Session.Secure,
 	)
 
-	// Email Flows
-	verifyEmailStartHandler, verifyEmailConfirmHandler, forgotHandler, resetHandler, emailCleanup, err :=
-		handlers.BuildEmailFlowHandlers(ctx, cfg, &container, refreshTTL)
-	if err != nil {
-		log.Fatalf("email flows: %v", err)
+	// Email Flows (solo si tenemos DB)
+	var verifyEmailStartHandler, verifyEmailConfirmHandler, forgotHandler, resetHandler http.Handler
+	var emailCleanup func() = func() {} // default no-op cleanup
+	if hasGlobalDB {
+		var err error
+		verifyEmailStartHandler, verifyEmailConfirmHandler, forgotHandler, resetHandler, emailCleanup, err =
+			handlers.BuildEmailFlowHandlers(ctx, cfg, &container, refreshTTL)
+		if err != nil {
+			log.Fatalf("email flows: %v", err)
+		}
+		defer emailCleanup()
+	} else {
+		// Handlers dummy para modo FS-only
+		notImplemented := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "Feature requires database connection", http.StatusNotImplemented)
+		})
+		verifyEmailStartHandler = notImplemented
+		verifyEmailConfirmHandler = notImplemented
+		forgotHandler = notImplemented
+		resetHandler = notImplemented
 	}
-	defer emailCleanup()
 
-	// ───────── Social: Google ─────────
-	googleStart, googleCallback, googleCleanup, gerr :=
-		handlers.BuildGoogleSocialHandlers(ctx, cfg, &container, refreshTTL)
-	if gerr != nil {
-		log.Fatalf("google social: %v", gerr)
-	}
-	if googleCleanup != nil {
-		defer googleCleanup()
+	// ───────── Social: Google (solo si tenemos DB) ─────────
+	var googleStart, googleCallback http.Handler
+	var googleCleanup func()
+	if hasGlobalDB {
+		var gerr error
+		googleStart, googleCallback, googleCleanup, gerr =
+			handlers.BuildGoogleSocialHandlers(ctx, cfg, &container, refreshTTL)
+		if gerr != nil {
+			log.Fatalf("google social: %v", gerr)
+		}
+		if googleCleanup != nil {
+			defer googleCleanup()
+		}
 	}
 
 	// MFA TOTP handlers (si store soporta) – se registran siempre; retornarán 501 si no hay soporte
@@ -768,9 +837,26 @@ func main() {
 		adminRBACUsers,
 		adminRBACRoles,
 		adminUsers,
+		adminTenants,
 		// demo protected resource
 		profileHandler,
 	)
+
+	var globalPoolFunc func() *pgxpool.Pool
+	if pgRepo, ok := repo.(*pgdriver.Store); ok {
+		globalPoolFunc = pgRepo.Pool
+	}
+
+	_, err = httpmetrics.RegisterMetrics(httpmetrics.MetricsConfig{
+		TenantManager: tenantSQLManager,
+		GlobalPool:    globalPoolFunc,
+	})
+	if err != nil {
+		log.Fatalf("metrics: %v", err)
+	}
+
+	// Register /metrics route
+	mux.Handle("/metrics", promhttp.Handler())
 
 	// Rutas Google (solo si está habilitado)
 	if googleStart != nil {
@@ -793,11 +879,13 @@ func main() {
 	handler := httpserver.WithLogging(
 		httpserver.WithRecover(
 			httpserver.WithRequestID(
-				httpserver.WithRateLimit(
-					httpserver.WithSecurityHeaders(
-						httpserver.WithCORS(mux, cfg.Server.CORSAllowedOrigins),
+				httpmetrics.WithMetrics(
+					httpserver.WithRateLimit(
+						httpserver.WithSecurityHeaders(
+							httpserver.WithCORS(mux, cfg.Server.CORSAllowedOrigins),
+						),
+						limiter,
 					),
-					limiter,
 				),
 			),
 		),

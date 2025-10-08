@@ -18,6 +18,29 @@ import (
 
 type Store struct{ pool *pgxpool.Pool }
 
+// Pool expone el pool interno para usos avanzados (metrics/migraciones).
+func (s *Store) Pool() *pgxpool.Pool {
+	if s == nil {
+		return nil
+	}
+	return s.pool
+}
+
+// PoolStats devuelve un snapshot del estado del pool (puede ser nil si el pool no está inicializado).
+func (s *Store) PoolStats() *pgxpool.Stat {
+	if s == nil || s.pool == nil {
+		return nil
+	}
+	return s.pool.Stat()
+}
+
+// Close cierra el pool subyacente (idempotente).
+func (s *Store) Close() {
+	if s != nil && s.pool != nil {
+		s.pool.Close()
+	}
+}
+
 type pgCfg struct {
 	MaxOpenConns    int
 	MaxIdleConns    int
@@ -38,9 +61,15 @@ func New(ctx context.Context, dsn string, cfg any) (*Store, error) {
 		if v.MaxOpenConns > 0 {
 			pcfg.MaxConns = int32(v.MaxOpenConns)
 		}
+		// Mapear MaxIdleConns → MinConns (pgxpool)
+		if v.MaxIdleConns > 0 {
+			pcfg.MinConns = int32(v.MaxIdleConns)
+		}
 		if v.ConnMaxLifetime != "" {
 			if d, err := time.ParseDuration(v.ConnMaxLifetime); err == nil {
 				pcfg.MaxConnLifetime = d
+				// También configurar MaxConnIdleTime si queremos
+				pcfg.MaxConnIdleTime = d
 			}
 		}
 	}

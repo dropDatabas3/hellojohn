@@ -41,6 +41,7 @@ type SMTPSettings struct {
 	Port        int    `json:"port" yaml:"port"`
 	Username    string `json:"username,omitempty" yaml:"username,omitempty"`
 	PasswordEnc string `json:"passwordEnc,omitempty" yaml:"passwordEnc,omitempty"` // Encrypt(...)
+	Password    string `json:"password,omitempty" yaml:"-"`                        // Plain input (no persiste)
 	FromEmail   string `json:"fromEmail,omitempty" yaml:"fromEmail,omitempty"`
 	UseTLS      bool   `json:"useTLS,omitempty" yaml:"useTLS,omitempty"`
 }
@@ -49,6 +50,7 @@ type SMTPSettings struct {
 type UserDBSettings struct {
 	Driver string `json:"driver,omitempty" yaml:"driver,omitempty"` // pg|mysql|mongo|...
 	DSNEnc string `json:"dsnEnc,omitempty" yaml:"dsnEnc,omitempty"` // Encrypt(...)
+	DSN    string `json:"dsn,omitempty" yaml:"-"`                   // Plain input (no persiste)
 	Schema string `json:"schema,omitempty" yaml:"schema,omitempty"` // p.ej. schema por tenant
 }
 

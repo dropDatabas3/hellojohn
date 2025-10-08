@@ -349,6 +349,137 @@ func (p *FSProvider) IsScopeAllowed(c *cp.OIDCClient, s string) bool {
 	return cp.DefaultIsScopeAllowed(c, s)
 }
 
+// ===== Raw helpers para Admin API con versionado =====
+
+// GetTenantRaw retorna el tenant y el YAML raw para versionado
+func (p *FSProvider) GetTenantRaw(ctx context.Context, slug string) (*cp.Tenant, []byte, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.getTenantRawUnsafe(ctx, slug)
+}
+
+// getTenantRawUnsafe versión sin lock para uso interno
+func (p *FSProvider) getTenantRawUnsafe(ctx context.Context, slug string) (*cp.Tenant, []byte, error) {
+	tf := p.tenantFile(slug)
+	rawData, err := os.ReadFile(tf)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil, ErrTenantNotFound
+		}
+		return nil, nil, err
+	}
+
+	var t cp.Tenant
+	if err := yaml.Unmarshal(rawData, &t); err != nil {
+		return nil, nil, err
+	}
+
+	// cargar clients/scopes si existen
+	var clients []cp.OIDCClient
+	if err := readYAML(p.clientsFile(slug), &clients); err != nil && !os.IsNotExist(err) {
+		return nil, nil, err
+	}
+	var scopes []cp.Scope
+	if err := readYAML(p.scopesFile(slug), &scopes); err != nil && !os.IsNotExist(err) {
+		return nil, nil, err
+	}
+	t.Clients = clients
+	t.Scopes = scopes
+
+	return &t, rawData, nil
+}
+
+// GetTenantSettingsRaw retorna solo los settings y el YAML raw del tenant completo
+func (p *FSProvider) GetTenantSettingsRaw(ctx context.Context, slug string) (*cp.TenantSettings, []byte, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.getTenantSettingsRawUnsafe(ctx, slug)
+}
+
+// getTenantSettingsRawUnsafe versión sin lock para uso interno
+func (p *FSProvider) getTenantSettingsRawUnsafe(ctx context.Context, slug string) (*cp.TenantSettings, []byte, error) {
+	tenant, rawData, err := p.getTenantRawUnsafe(ctx, slug)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &tenant.Settings, rawData, nil
+}
+
+// UpdateTenantSettings actualiza solo los settings con cifrado de campos sensibles
+func (p *FSProvider) UpdateTenantSettings(ctx context.Context, slug string, settings *cp.TenantSettings) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if err := ensureTenantLayout(p.root, slug); err != nil {
+		return err
+	}
+
+	// Leer el tenant actual para preservar otros campos (sin lock adicional)
+	tenant, _, err := p.getTenantRawUnsafe(ctx, slug)
+	if err != nil && err != ErrTenantNotFound {
+		return err
+	}
+
+	if tenant == nil {
+		// Si no existe el tenant, creamos uno básico
+		now := time.Now().UTC()
+		tenant = &cp.Tenant{
+			ID:        slug, // usar slug como ID por simplicidad en MVP
+			Name:      slug,
+			Slug:      slug,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+	}
+
+	// Cifrar campos sensibles en settings
+	if settings != nil {
+		encryptedSettings := *settings
+
+		// Cifrar SMTP password si viene en plain
+		if encryptedSettings.SMTP != nil {
+			if plainPwd := strings.TrimSpace(encryptedSettings.SMTP.Password); plainPwd != "" {
+				if encrypted, err := sec.Encrypt(plainPwd); err == nil {
+					encryptedSettings.SMTP.PasswordEnc = encrypted
+					encryptedSettings.SMTP.Password = "" // Limpiar campo plain
+				} else {
+					return fmt.Errorf("failed to encrypt SMTP password: %w", err)
+				}
+			}
+		}
+
+		// Cifrar UserDB DSN si viene en plain
+		if encryptedSettings.UserDB != nil {
+			if plainDSN := strings.TrimSpace(encryptedSettings.UserDB.DSN); plainDSN != "" {
+				if encrypted, err := sec.Encrypt(plainDSN); err == nil {
+					encryptedSettings.UserDB.DSNEnc = encrypted
+					encryptedSettings.UserDB.DSN = "" // Limpiar campo plain
+				} else {
+					return fmt.Errorf("failed to encrypt UserDB DSN: %w", err)
+				}
+			}
+		}
+
+		tenant.Settings = encryptedSettings
+	}
+
+	// Actualizar timestamp
+	tenant.UpdatedAt = time.Now().UTC()
+
+	// Escritura atómica con el mismo patrón que keystore
+	return p.writeYAMLAtomic(p.tenantFile(slug), tenant)
+}
+
+// writeYAMLAtomic implementa el mismo patrón de escritura segura que el keystore
+func (p *FSProvider) writeYAMLAtomic(path string, v any) error {
+	data, err := yaml.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("marshal yaml: %w", err)
+	}
+
+	return atomicWriteFile(path, data, 0600)
+}
+
 // ===== utils =====
 
 func uniqueStrings(in []string) []string {

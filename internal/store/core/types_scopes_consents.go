@@ -20,4 +20,6 @@ type UserConsent struct {
 	GrantedScopes []string   `json:"granted_scopes"`
 	GrantedAt     time.Time  `json:"granted_at"`
 	RevokedAt     *time.Time `json:"revoked_at,omitempty"`
+	// Schema Cut: Tenant+Client directo (sin FK)
+	TenantID string `db:"tenant_id" json:"tenantId,omitempty"`
 }

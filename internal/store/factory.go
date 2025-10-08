@@ -115,13 +115,18 @@ func openPGPool(ctx context.Context, dsn string, pc struct {
 	if pc.MaxOpenConns > 0 {
 		cfg.MaxConns = int32(pc.MaxOpenConns)
 	}
-	// pgxpool no maneja "idle conns" como tal; ignoramos MaxIdleConns.
+	// Mapear MaxIdleConns → MinConns (pgxpool)
+	if pc.MaxIdleConns > 0 {
+		cfg.MinConns = int32(pc.MaxIdleConns)
+	}
 
 	if pc.ConnMaxLifetime != "" {
 		if dur, err := time.ParseDuration(pc.ConnMaxLifetime); err == nil {
 			// pgxpool no expone directamente ConnMaxLifetime como en database/sql,
 			// pero podemos usar MaxConnLifetime para reciclar conexiones.
 			cfg.MaxConnLifetime = dur
+			// También configurar MaxConnIdleTime si queremos
+			cfg.MaxConnIdleTime = dur
 		}
 	}
 

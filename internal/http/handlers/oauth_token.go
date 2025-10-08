@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
+	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
@@ -25,9 +26,32 @@ func atHash(accessToken string) string {
 
 func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Timeout de 3s para endpoint crítico
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		r = r.WithContext(ctx)
+
 		if r.Method != http.MethodPost {
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo POST", 1000)
 			return
+		}
+
+		// Resolver store con precedencia: tenantDB > globalDB
+		var activeStore core.Repository
+		var hasStore bool
+
+		if c.TenantSQLManager != nil {
+			// Intentar obtener store del tenant actual
+			tenantSlug := cpctx.ResolveTenant(r)
+			if tenantStore, err := c.TenantSQLManager.GetPG(r.Context(), tenantSlug); err == nil && tenantStore != nil {
+				activeStore = tenantStore
+				hasStore = true
+			}
+		}
+		// Fallback a global store si no hay tenant store
+		if !hasStore && c.Store != nil {
+			activeStore = c.Store
+			hasStore = true
 		}
 		// OAuth2: application/x-www-form-urlencoded
 		r.Body = http.MaxBytesReader(w, r.Body, 64<<10) // 64KB
@@ -128,13 +152,13 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			std, custom = applyAccessClaimsHook(ctx, c, ac.TenantID, clientID, ac.UserID, reqScopes, ac.AMR, std, custom)
 
 			// SYS namespace a partir de metadata + RBAC (Fase 2)
-			if u, err := c.Store.GetUserByID(ctx, ac.UserID); err == nil && u != nil {
+			if u, err := activeStore.GetUserByID(ctx, ac.UserID); err == nil && u != nil {
 				type rbacReader interface {
 					GetUserRoles(ctx context.Context, userID string) ([]string, error)
 					GetUserPermissions(ctx context.Context, userID string) ([]string, error)
 				}
 				var roles, perms []string
-				if rr, ok := c.Store.(rbacReader); ok {
+				if rr, ok := activeStore.(rbacReader); ok {
 					roles, _ = rr.GetUserRoles(ctx, ac.UserID)
 					perms, _ = rr.GetUserPermissions(ctx, ac.UserID)
 				}
@@ -148,16 +172,37 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			}
 
 			// Refresh (rotación igual que en /v1/auth/*)
-			rawRT, err := tokens.GenerateOpaqueToken(32)
-			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 2211)
+			var rawRT string
+			if !hasStore {
+				httpx.WriteError(w, http.StatusServiceUnavailable, "db_not_configured", "no hay base de datos configurada para emitir refresh tokens", 2212)
 				return
 			}
-			hash := tokens.SHA256Base64URL(rawRT)
-			if _, err := c.Store.CreateRefreshToken(ctx, ac.UserID, cl.ID, hash, time.Now().Add(refreshTTL), nil); err != nil {
-				log.Printf("oauth token: create refresh err: %v", err)
-				httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 2212)
-				return
+
+			type tc interface {
+				CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
+			}
+			if tcs, ok := activeStore.(tc); ok {
+				// preferir TC
+				tok, err := tcs.CreateRefreshTokenTC(ctx, ac.TenantID, cl.ID, ac.UserID, refreshTTL)
+				if err != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 2212)
+					return
+				}
+				rawRT = tok // ya viene raw (tu TC genera el token)
+			} else {
+				// legacy
+				var err error
+				rawRT, err = tokens.GenerateOpaqueToken(32)
+				if err != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 2211)
+					return
+				}
+				hash := tokens.SHA256Base64URL(rawRT)
+				if _, err := activeStore.CreateRefreshToken(ctx, ac.UserID, cl.ID, hash, time.Now().Add(refreshTTL), nil); err != nil {
+					log.Printf("oauth token: create refresh err: %v", err)
+					httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 2212)
+					return
+				}
 			}
 
 			// ID Token (sin SYS_NS)
@@ -206,6 +251,11 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 
 			ctx := r.Context()
 
+			if !hasStore {
+				httpx.WriteError(w, http.StatusServiceUnavailable, "db_not_configured", "no hay base de datos configurada para refrescar tokens", 2222)
+				return
+			}
+
 			client, tenantSlug, err := helpers.LookupClient(ctx, r, clientID)
 			if err != nil {
 				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client not found", 2221)
@@ -221,14 +271,34 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			}
 			_ = tenantSlug
 
-			hash := tokens.SHA256Base64URL(refreshToken)
-			rt, err := c.Store.GetRefreshTokenByHash(ctx, hash)
-			if err != nil {
-				status := http.StatusInternalServerError
-				if err == core.ErrNotFound {
-					status = http.StatusBadRequest
+			type tcRefresh interface {
+				CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
+				RevokeRefreshTokensByUserClientTC(ctx context.Context, tenantID, clientID, userID string) (int64, error)
+			}
+			type legacyGet interface {
+				GetRefreshTokenByHash(ctx context.Context, tokenHash string) (*core.RefreshToken, error)
+			}
+
+			var rt *core.RefreshToken
+			if _, ok := activeStore.(tcRefresh); ok {
+				// Para TC el token es opaco raw (no hash). Validación depende de tu diseño.
+				// Si mantenés hash-only, podés agregar GetRefreshTokenByRawTC(ctx, tenantID, clientID, raw) en PG.
+				httpx.WriteError(w, http.StatusNotImplemented, "not_implemented", "refresh_token TC aún no soportado en GET/validate", 2222)
+				return
+			} else if lg, ok := activeStore.(legacyGet); ok {
+				// legacy tal como hoy...
+				hash := tokens.SHA256Base64URL(refreshToken)
+				rt, err = lg.GetRefreshTokenByHash(ctx, hash)
+				if err != nil {
+					status := http.StatusInternalServerError
+					if err == core.ErrNotFound {
+						status = http.StatusBadRequest
+					}
+					httpx.WriteError(w, status, "invalid_grant", "refresh inválido", 2222)
+					return
 				}
-				httpx.WriteError(w, status, "invalid_grant", "refresh inválido", 2222)
+			} else {
+				httpx.WriteError(w, http.StatusServiceUnavailable, "store_not_supported", "store no soporta refresh tokens", 2222)
 				return
 			}
 			now := time.Now()
@@ -246,13 +316,13 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			custom := map[string]any{}
 
 			std, custom = applyAccessClaimsHook(ctx, c, cl.TenantID, clientID, rt.UserID, []string{}, []string{"refresh"}, std, custom)
-			if u, err := c.Store.GetUserByID(ctx, rt.UserID); err == nil && u != nil {
+			if u, err := activeStore.GetUserByID(ctx, rt.UserID); err == nil && u != nil {
 				type rbacReader interface {
 					GetUserRoles(ctx context.Context, userID string) ([]string, error)
 					GetUserPermissions(ctx context.Context, userID string) ([]string, error)
 				}
 				var roles, perms []string
-				if rr, ok := c.Store.(rbacReader); ok {
+				if rr, ok := activeStore.(rbacReader); ok {
 					roles, _ = rr.GetUserRoles(ctx, rt.UserID)
 					perms, _ = rr.GetUserPermissions(ctx, rt.UserID)
 				}
@@ -265,17 +335,29 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				return
 			}
 
-			newRT, err := tokens.GenerateOpaqueToken(32)
-			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 2225)
-				return
+			var newRT string
+			if tcs, ok := activeStore.(tcRefresh); ok {
+				// TC: revocar tokens del usuario+cliente y crear uno nuevo
+				_, _ = tcs.RevokeRefreshTokensByUserClientTC(ctx, cl.TenantID, cl.ID, rt.UserID)
+				newRT, err = tcs.CreateRefreshTokenTC(ctx, cl.TenantID, cl.ID, rt.UserID, refreshTTL)
+				if err != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh TC", 2226)
+					return
+				}
+			} else {
+				// legacy
+				newRT, err = tokens.GenerateOpaqueToken(32)
+				if err != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 2225)
+					return
+				}
+				newHash := tokens.SHA256Base64URL(newRT)
+				if _, err := activeStore.CreateRefreshToken(ctx, rt.UserID, cl.ID, newHash, now.Add(refreshTTL), &rt.ID); err != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 2226)
+					return
+				}
+				_ = activeStore.RevokeRefreshToken(ctx, rt.ID)
 			}
-			newHash := tokens.SHA256Base64URL(newRT)
-			if _, err := c.Store.CreateRefreshToken(ctx, rt.UserID, cl.ID, newHash, now.Add(refreshTTL), &rt.ID); err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 2226)
-				return
-			}
-			_ = c.Store.RevokeRefreshToken(ctx, rt.ID)
 
 			// Evitar cache
 			w.Header().Set("Cache-Control", "no-store")

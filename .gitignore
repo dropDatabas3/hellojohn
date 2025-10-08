@@ -13,6 +13,8 @@ dump_code.ps1
 dump_code_*.txt
 code_dump_*.txt
 seed_data.*
+test_*.ps1
+test-*.ps1
 
 
 # ───────── OS / Tooling ─────────
@@ -21,9 +23,12 @@ seed_data.*
 *.DS_Store
 Thumbs.db
 
-# ───────── Build / Cache (future) ─────────
+# ───────── Build / Cache ─────────
 bin/
 dist/
 coverage/
+*.exe
+migrate.exe
+hellojohn-service*.exe
 
 security_password_blacklist.txt
