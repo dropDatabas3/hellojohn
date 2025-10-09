@@ -55,7 +55,7 @@ func NewOAuthIntrospectHandler(c *app.Container, auth clientBasicAuth) http.Hand
 				"active":     active,
 				"token_type": "refresh_token",
 				"sub":        rt.UserID, // string
-				"client_id":  rt.ClientID,
+				"client_id":  rt.ClientIDText,
 				"exp":        rt.ExpiresAt.Unix(),
 				"iat":        rt.IssuedAt.Unix(), // IssuedAt existe; no CreatedAt
 			}

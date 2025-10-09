@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -68,9 +69,19 @@ func NewConsentAcceptHandler(c *app.Container) http.HandlerFunc {
 			httpx.WriteError(w, http.StatusNotImplemented, "not_implemented", "scopes/consents no soportado", 2305)
 			return
 		}
-		if _, err := c.ScopesConsents.UpsertConsent(r.Context(),
-			payload.UserID, payload.ClientID, payload.RequestedScopes,
-		); err != nil {
+
+		// Intentar usar método TC primero
+		type tcConsent interface {
+			UpsertConsentTC(ctx context.Context, tenantID, clientID, userID string, scopes []string) error
+		}
+		var err error
+		if tc, ok := c.ScopesConsents.(tcConsent); ok {
+			err = tc.UpsertConsentTC(r.Context(), payload.TenantID, payload.ClientID, payload.UserID, payload.RequestedScopes)
+		} else {
+			_, err = c.ScopesConsents.UpsertConsent(r.Context(), payload.UserID, payload.ClientID, payload.RequestedScopes)
+		}
+
+		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "server_error", "no se pudo guardar el consentimiento", 2306)
 			return
 		}

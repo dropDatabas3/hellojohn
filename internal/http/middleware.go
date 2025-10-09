@@ -147,7 +147,7 @@ func WithRecover(next http.Handler) http.Handler {
 		defer func() {
 			if rec := recover(); rec != nil {
 				rid := w.Header().Get("X-Request-ID")
-				log.Printf(`{"level":"error","msg":"panic","request_id":"%s","recover":"%v"}`, rid, rec)
+				log.Printf(`{"level":"error","msg":"panic","request_id":"%s","path":"%s","method":"%s","recover":"%v"}`, rid, r.URL.Path, r.Method, rec)
 				WriteError(w, http.StatusInternalServerError, "internal_error", "panic recover", 1500)
 			}
 		}()
@@ -161,18 +161,24 @@ func WithRecover(next http.Handler) http.Handler {
 
 type statusRecorder struct {
 	http.ResponseWriter
-	status int
-	bytes  int
+	status      int
+	bytes       int
+	wroteHeader bool
 }
 
 func (s *statusRecorder) WriteHeader(code int) {
+	if s.wroteHeader {
+		return // Evitar llamadas múltiples
+	}
 	s.status = code
+	s.wroteHeader = true
 	s.ResponseWriter.WriteHeader(code)
 }
 
 func (s *statusRecorder) Write(b []byte) (int, error) {
-	if s.status == 0 {
+	if !s.wroteHeader {
 		s.status = http.StatusOK
+		s.wroteHeader = true
 	}
 	n, err := s.ResponseWriter.Write(b)
 	s.bytes += n

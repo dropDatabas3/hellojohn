@@ -182,8 +182,8 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
 			}
 			if tcs, ok := activeStore.(tc); ok {
-				// preferir TC
-				tok, err := tcs.CreateRefreshTokenTC(ctx, ac.TenantID, cl.ID, ac.UserID, refreshTTL)
+				// preferir TC con client_id_text (sin FK)
+				tok, err := tcs.CreateRefreshTokenTC(ctx, ac.TenantID, cl.ClientID, ac.UserID, refreshTTL)
 				if err != nil {
 					httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 2212)
 					return
@@ -197,11 +197,25 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 					httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 2211)
 					return
 				}
-				hash := tokens.SHA256Base64URL(rawRT)
-				if _, err := activeStore.CreateRefreshToken(ctx, ac.UserID, cl.ID, hash, time.Now().Add(refreshTTL), nil); err != nil {
-					log.Printf("oauth token: create refresh err: %v", err)
-					httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 2212)
-					return
+
+				// Usar CreateRefreshTokenTC para oauth token endpoint
+				if tcStore, ok := activeStore.(interface {
+					CreateRefreshTokenTC(context.Context, string, string, string, time.Time, *string) (string, error)
+				}); ok {
+					hash := tokens.SHA256Hex(rawRT)
+					if _, err := tcStore.CreateRefreshTokenTC(ctx, ac.TenantID, cl.ClientID, hash, time.Now().Add(refreshTTL), nil); err != nil {
+						log.Printf("oauth token: create refresh TC err: %v", err)
+						httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh TC", 2212)
+						return
+					}
+				} else {
+					// Fallback legacy
+					hash := tokens.SHA256Base64URL(rawRT)
+					if _, err := activeStore.CreateRefreshToken(ctx, ac.UserID, cl.ID, hash, time.Now().Add(refreshTTL), nil); err != nil {
+						log.Printf("oauth token: create refresh err: %v", err)
+						httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 2212)
+						return
+					}
 				}
 			}
 
@@ -273,6 +287,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 
 			type tcRefresh interface {
 				CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
+				GetRefreshTokenByHashTC(ctx context.Context, tenantID, clientIDText, tokenHash string) (*core.RefreshToken, error)
 				RevokeRefreshTokensByUserClientTC(ctx context.Context, tenantID, clientID, userID string) (int64, error)
 			}
 			type legacyGet interface {
@@ -280,11 +295,18 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			}
 
 			var rt *core.RefreshToken
-			if _, ok := activeStore.(tcRefresh); ok {
-				// Para TC el token es opaco raw (no hash). Validación depende de tu diseño.
-				// Si mantenés hash-only, podés agregar GetRefreshTokenByRawTC(ctx, tenantID, clientID, raw) en PG.
-				httpx.WriteError(w, http.StatusNotImplemented, "not_implemented", "refresh_token TC aún no soportado en GET/validate", 2222)
-				return
+			if tcr, ok := activeStore.(tcRefresh); ok {
+				// Usar método TC con tenant+client
+				hash := tokens.SHA256Base64URL(refreshToken)
+				rt, err = tcr.GetRefreshTokenByHashTC(ctx, tenantSlug, client.ClientID, hash)
+				if err != nil {
+					status := http.StatusInternalServerError
+					if err == core.ErrNotFound {
+						status = http.StatusBadRequest
+					}
+					httpx.WriteError(w, status, "invalid_grant", "refresh inválido", 2222)
+					return
+				}
 			} else if lg, ok := activeStore.(legacyGet); ok {
 				// legacy tal como hoy...
 				hash := tokens.SHA256Base64URL(refreshToken)
@@ -302,7 +324,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				return
 			}
 			now := time.Now()
-			if rt.RevokedAt != nil || !now.Before(rt.ExpiresAt) || rt.ClientID != cl.ID {
+			if rt.RevokedAt != nil || !now.Before(rt.ExpiresAt) || rt.ClientIDText != client.ClientID {
 				httpx.WriteError(w, http.StatusBadRequest, "invalid_grant", "refresh revocado/expirado o mismatched client", 2223)
 				return
 			}
@@ -338,8 +360,8 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			var newRT string
 			if tcs, ok := activeStore.(tcRefresh); ok {
 				// TC: revocar tokens del usuario+cliente y crear uno nuevo
-				_, _ = tcs.RevokeRefreshTokensByUserClientTC(ctx, cl.TenantID, cl.ID, rt.UserID)
-				newRT, err = tcs.CreateRefreshTokenTC(ctx, cl.TenantID, cl.ID, rt.UserID, refreshTTL)
+				_, _ = tcs.RevokeRefreshTokensByUserClientTC(ctx, tenantSlug, client.ClientID, rt.UserID)
+				newRT, err = tcs.CreateRefreshTokenTC(ctx, tenantSlug, client.ClientID, rt.UserID, refreshTTL)
 				if err != nil {
 					httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh TC", 2226)
 					return

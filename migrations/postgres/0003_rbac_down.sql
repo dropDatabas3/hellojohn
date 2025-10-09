@@ -1,6 +1,0 @@
-BEGIN;
-DROP TABLE IF EXISTS rbac_user_role;
-DROP TABLE IF EXISTS rbac_role_perm;
-DROP TABLE IF EXISTS rbac_perm;
-DROP TABLE IF EXISTS rbac_role;
-COMMIT;

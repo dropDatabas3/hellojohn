@@ -226,9 +226,15 @@ func Test_01_Auth_Basic(t *testing.T) {
 
 	t.Run("logout revoca refresh actual", func(t *testing.T) {
 		type logoutReq struct {
+			TenantID     string `json:"tenant_id"`
+			ClientID     string `json:"client_id"`
 			RefreshToken string `json:"refresh_token"`
 		}
-		body, _ := json.Marshal(logoutReq{RefreshToken: refresh})
+		body, _ := json.Marshal(logoutReq{
+			TenantID:     seed.Tenant.ID,
+			ClientID:     seed.Clients.Web.ClientID,
+			RefreshToken: refresh,
+		})
 		resp, err := c.Post(baseURL+"/v1/auth/logout", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatal(err)

@@ -91,10 +91,22 @@ func (h *googleHandler) issueSocialTokens(w http.ResponseWriter, r *http.Request
 		httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 1622)
 		return true
 	}
-	hash := tokens.SHA256Base64URL(rawRT)
-	if _, err := h.c.Store.CreateRefreshToken(r.Context(), uid.String(), cl.ID, hash, time.Now().Add(h.issuerTok.refreshTTL), nil); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1624)
-		return true
+	// Usar CreateRefreshTokenTC para social login
+	if tcStore, ok := h.c.Store.(interface {
+		CreateRefreshTokenTC(context.Context, string, string, string, time.Time, *string) (string, error)
+	}); ok {
+		hash := tokens.SHA256Hex(rawRT)
+		if _, err := tcStore.CreateRefreshTokenTC(r.Context(), tid.String(), cl.ClientID, hash, time.Now().Add(h.issuerTok.refreshTTL), nil); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh TC", 1624)
+			return true
+		}
+	} else {
+		// Fallback legacy
+		hash := tokens.SHA256Base64URL(rawRT)
+		if _, err := h.c.Store.CreateRefreshToken(r.Context(), uid.String(), cl.ID, hash, time.Now().Add(h.issuerTok.refreshTTL), nil); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1624)
+			return true
+		}
 	}
 
 	respAuth := AuthLoginResponse{AccessToken: access, TokenType: "Bearer", ExpiresIn: int64(time.Until(exp).Seconds()), RefreshToken: rawRT}

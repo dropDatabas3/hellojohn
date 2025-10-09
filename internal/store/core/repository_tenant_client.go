@@ -10,6 +10,7 @@ import (
 type TenantClientAware interface {
 	// Refresh tokens con tenant+client directo
 	CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
+	GetRefreshTokenByHashTC(ctx context.Context, tenantID, clientIDText, tokenHash string) (*RefreshToken, error)
 	RevokeRefreshTokensByUserClientTC(ctx context.Context, tenantID, clientID, userID string) (int64, error)
 
 	// User consents con tenant+client directo

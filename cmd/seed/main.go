@@ -391,10 +391,10 @@ func main() {
 	devToken, _ := tokens.GenerateOpaqueToken(32)
 	devHash := tokens.SHA256Base64URL(devToken)
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO trusted_device (user_id, device_hash, expires_at)
-		VALUES ($1, $2, $3)
+		INSERT INTO trusted_device (tenant_id, user_id, device_hash, expires_at)
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (user_id, device_hash) DO UPDATE SET expires_at = EXCLUDED.expires_at
-	`, mfa.ID, devHash, now.Add(30*24*time.Hour)); err != nil {
+	`, tenantID, mfa.ID, devHash, now.Add(30*24*time.Hour)); err != nil {
 		log.Fatalf("insert trusted_device: %v", err)
 	}
 
