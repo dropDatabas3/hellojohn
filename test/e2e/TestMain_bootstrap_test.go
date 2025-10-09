@@ -25,6 +25,18 @@ func TestMain(m *testing.M) {
 		_ = os.Setenv("SEED_SCOPES", "openid,email,profile,offline_access,profile:read")
 	}
 
+	// 1.5) Forzar E2E a Postgres (Fase 3) - SIEMPRE en E2E
+	_ = os.Setenv("STORAGE_DRIVER", "postgres")
+	if os.Getenv("STORAGE_DSN") == "" {
+		_ = os.Setenv("STORAGE_DSN", os.Getenv("DATABASE_URL"))
+	}
+	_ = os.Setenv("FLAGS_MIGRATE", "false") // Saltar migraciones en E2E (deben ejecutarse antes)
+	// Configurar límites de conexión muy conservadores para E2E
+	_ = os.Setenv("POSTGRES_MAX_OPEN_CONNS", "3")
+	_ = os.Setenv("POSTGRES_MAX_IDLE_CONNS", "1")
+	// apuntar al folder nuevo "squashed"
+	_ = os.Setenv("MIGRATIONS_DIR", "migrations/postgres")
+
 	// 2) Migrar
 	{
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -103,10 +115,8 @@ func TestMain(m *testing.M) {
 		_ = os.Setenv("SOCIAL_DEBUG_HEADERS", "true")
 	}
 
-	// 4.8) Enable Google provider in tests with dummy credentials so discovery lists it and debug path works.
-	if os.Getenv("GOOGLE_ENABLED") == "" {
-		_ = os.Setenv("GOOGLE_ENABLED", "true")
-	}
+	// 4.8) Deshabilitar Google temporalmente para reducir conexiones DB en testing
+	_ = os.Setenv("GOOGLE_ENABLED", "false")
 	// Provide safe dummy values (they won't be used because debug shortcut short-circuits real exchange).
 	if os.Getenv("GOOGLE_CLIENT_ID") == "" {
 		_ = os.Setenv("GOOGLE_CLIENT_ID", "dummy-google-client-id.apps.googleusercontent.com")

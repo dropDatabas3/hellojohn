@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -56,6 +57,12 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 		req.ClientID = strings.TrimSpace(req.ClientID)
 		if req.TenantID == "" || req.ClientID == "" || req.Email == "" || req.Password == "" {
 			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "tenant_id, client_id, email y password son obligatorios", 1002)
+			return
+		}
+
+		// Guard: verificar que el store esté inicializado
+		if c.Store == nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "store not initialized", 1003)
 			return
 		}
 
@@ -147,11 +154,24 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh token", 1202)
 			return
 		}
-		hash := tokens.SHA256Base64URL(rawRT)
-		if _, err := c.Store.CreateRefreshToken(ctx, u.ID, cl.ID, hash, time.Now().Add(refreshTTL), nil); err != nil {
-			log.Printf("register: create refresh err: %v", err)
-			httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh token", 1203)
-			return
+		// Usar método TC (Tenant+Client) para Phase 3
+		if tcs, ok := c.Store.(interface {
+			CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
+		}); ok {
+			rawRT, err = tcs.CreateRefreshTokenTC(ctx, req.TenantID, req.ClientID, u.ID, refreshTTL)
+			if err != nil {
+				log.Printf("register: create refresh TC err: %v", err)
+				httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh token", 1203)
+				return
+			}
+		} else {
+			// Fallback a método viejo (no debería llegar aquí en Phase 3)
+			hash := tokens.SHA256Base64URL(rawRT)
+			if _, err := c.Store.CreateRefreshToken(ctx, u.ID, cl.ID, hash, time.Now().Add(refreshTTL), nil); err != nil {
+				log.Printf("register: create refresh err: %v", err)
+				httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh token", 1203)
+				return
+			}
 		}
 
 		// evitar cache en respuestas que incluyen tokens

@@ -23,6 +23,7 @@ import (
 	httpmetrics "github.com/dropDatabas3/hellojohn/internal/http"
 	httpserver "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/http/handlers"
+	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
 	"github.com/dropDatabas3/hellojohn/internal/infra/cachefactory"
 	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
@@ -150,8 +151,8 @@ func loadConfigFromEnv() *config.Config {
 	c.Storage.Driver = getenv("STORAGE_DRIVER", "")
 	c.Storage.DSN = getenv("STORAGE_DSN", "")
 	// Mapear MaxIdleConns -> MinConns (pgxpool)
-	c.Storage.Postgres.MaxOpenConns = getenvInt("POSTGRES_MAX_OPEN_CONNS", 30)
-	c.Storage.Postgres.MaxIdleConns = getenvInt("POSTGRES_MAX_IDLE_CONNS", 5) // lo usaremos como MinConns
+	c.Storage.Postgres.MaxOpenConns = getenvInt("POSTGRES_MAX_OPEN_CONNS", 5) // muy reducido para dev/testing
+	c.Storage.Postgres.MaxIdleConns = getenvInt("POSTGRES_MAX_IDLE_CONNS", 2) // lo usaremos como MinConns
 	c.Storage.Postgres.ConnMaxLifetime = getenv("POSTGRES_CONN_MAX_LIFETIME", "30m")
 	c.Storage.MySQL.DSN = getenv("MYSQL_DSN", "")
 	c.Storage.Mongo.URI = getenv("MONGO_URI", "")
@@ -475,8 +476,8 @@ func main() {
 	// --- Tenant SQL Manager (S3/S4) ---
 	tenantSQLManager, err := tenantsql.New(tenantsql.Config{
 		Pool: tenantsql.PoolConfig{
-			MaxOpenConns:    15,
-			MaxIdleConns:    3,
+			MaxOpenConns:    3, // muy reducido para dev/testing
+			MaxIdleConns:    1,
 			ConnMaxLifetime: 30 * time.Minute,
 		},
 		MetricsFunc: httpmetrics.RecordTenantMigration,
@@ -683,7 +684,7 @@ func main() {
 	oauthIntrospectHandler := handlers.NewOAuthIntrospectHandler(&container, introspectAuth)
 
 	var limiter httpserver.RateLimiter
-	var multiLimiter *rate.LimiterPoolAdapter // Nuevo: para rate limits específicos
+	var multiLimiter helpers.MultiLimiter // Nuevo: para rate limits específicos (interfaz genérica)
 	var redisPing func(context.Context) error
 	if cfg.Rate.Enabled && strings.EqualFold(cfg.Cache.Kind, "redis") {
 		rc := rdb.NewClient(&rdb.Options{
@@ -700,6 +701,9 @@ func main() {
 			limiter = redisLimiterAdapter{inner: rl}
 		}
 		redisPing = func(ctx context.Context) error { return rc.Ping(ctx).Err() }
+	} else {
+		// Usar NoopMultiLimiter cuando no hay Redis para evitar panics
+		multiLimiter = rate.NoopMultiLimiter{}
 	}
 
 	// Añadir multiLimiter al container para que los handlers lo puedan usar

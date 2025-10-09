@@ -216,9 +216,9 @@ func (r *ScopesConsentsPG) UpsertConsent(ctx context.Context, userID, clientID s
 
 	// Unión con los existentes al upsert (DISTINCT)
 	const q = `
-INSERT INTO user_consent (user_id, client_id, granted_scopes)
+INSERT INTO user_consent (user_id, client_id_text, granted_scopes)
 VALUES ($1, $2, $3)
-ON CONFLICT (user_id, client_id)
+ON CONFLICT (user_id, client_id_text)
 DO UPDATE SET
 	granted_scopes = (
 		SELECT ARRAY(
@@ -228,29 +228,29 @@ DO UPDATE SET
 	),
 	revoked_at = NULL,
 	granted_at = COALESCE(user_consent.granted_at, now())
-RETURNING id, user_id, client_id, granted_scopes, granted_at, revoked_at;
+RETURNING id, user_id, client_id_text, granted_scopes, granted_at, revoked_at;
 `
 	var uc core.UserConsent
 	err := r.db.QueryRow(ctx, q, userID, clientID, clean).
-		Scan(&uc.ID, &uc.UserID, &uc.ClientID, &uc.GrantedScopes, &uc.GrantedAt, &uc.RevokedAt)
+		Scan(&uc.ID, &uc.UserID, &uc.ClientIDText, &uc.GrantedScopes, &uc.GrantedAt, &uc.RevokedAt)
 	return uc, err
 }
 
 func (r *ScopesConsentsPG) GetConsent(ctx context.Context, userID, clientID string) (core.UserConsent, error) {
 	const q = `
-SELECT id, user_id, client_id, granted_scopes, granted_at, revoked_at
+SELECT id, user_id, client_id_text, granted_scopes, granted_at, revoked_at
 FROM user_consent
-WHERE user_id = $1 AND client_id = $2;
+WHERE user_id = $1 AND client_id_text = $2;
 `
 	var uc core.UserConsent
 	err := r.db.QueryRow(ctx, q, userID, clientID).
-		Scan(&uc.ID, &uc.UserID, &uc.ClientID, &uc.GrantedScopes, &uc.GrantedAt, &uc.RevokedAt)
+		Scan(&uc.ID, &uc.UserID, &uc.ClientIDText, &uc.GrantedScopes, &uc.GrantedAt, &uc.RevokedAt)
 	return uc, err
 }
 
 func (r *ScopesConsentsPG) ListConsentsByUser(ctx context.Context, userID string, activeOnly bool) ([]core.UserConsent, error) {
 	q := `
-SELECT id, user_id, client_id, granted_scopes, granted_at, revoked_at
+SELECT id, user_id, client_id_text, granted_scopes, granted_at, revoked_at
 FROM user_consent
 WHERE user_id = $1`
 	if activeOnly {
@@ -266,7 +266,7 @@ WHERE user_id = $1`
 	var out []core.UserConsent
 	for rows.Next() {
 		var uc core.UserConsent
-		if err := rows.Scan(&uc.ID, &uc.UserID, &uc.ClientID, &uc.GrantedScopes, &uc.GrantedAt, &uc.RevokedAt); err != nil {
+		if err := rows.Scan(&uc.ID, &uc.UserID, &uc.ClientIDText, &uc.GrantedScopes, &uc.GrantedAt, &uc.RevokedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, uc)
@@ -278,7 +278,7 @@ func (r *ScopesConsentsPG) RevokeConsent(ctx context.Context, userID, clientID s
 	const q = `
 UPDATE user_consent
 SET revoked_at = $3
-WHERE user_id = $1 AND client_id = $2;
+WHERE user_id = $1 AND client_id_text = $2;
 `
 	if _, err := r.db.Exec(ctx, q, userID, clientID, at); err != nil {
 		return err
@@ -287,7 +287,7 @@ WHERE user_id = $1 AND client_id = $2;
 	const q2 = `
 UPDATE refresh_token
    SET revoked_at = $3
- WHERE user_id = $1 AND client_id = $2 AND revoked_at IS NULL;`
+ WHERE user_id = $1 AND client_id_text = $2 AND revoked_at IS NULL;`
 	_, err := r.db.Exec(ctx, q2, userID, clientID, at)
 	return err
 }

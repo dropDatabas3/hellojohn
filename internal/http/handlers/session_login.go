@@ -42,6 +42,12 @@ func NewSessionLoginHandler(c *app.Container, cookieName, cookieDomain, sameSite
 			return
 		}
 
+		// Guard: verificar que el store esté inicializado
+		if c.Store == nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "store not initialized", 1003)
+			return
+		}
+
 		ctx := r.Context()
 		u, id, err := c.Store.GetUserByEmail(ctx, req.TenantID, req.Email)
 		if err != nil || id == nil || id.PasswordHash == nil || !c.Store.CheckPassword(id.PasswordHash, req.Password) {

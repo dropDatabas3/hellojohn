@@ -54,6 +54,14 @@ type Stores struct {
 // OpenStores abre el repo principal y, si es Postgres, instancia también
 // el repositorio de Scopes/Consents usando un pgxpool dedicado.
 func OpenStores(ctx context.Context, cfg Config) (*Stores, error) {
+	// Fail-fast: evitar stores nulos si storage está mal configurado
+	if strings.TrimSpace(cfg.Driver) == "" {
+		return nil, fmt.Errorf("storage misconfigured: driver is empty")
+	}
+	if strings.TrimSpace(cfg.DSN) == "" {
+		return nil, fmt.Errorf("storage misconfigured: DSN is empty")
+	}
+
 	d := strings.ToLower(cfg.Driver)
 
 	switch d {
@@ -111,14 +119,19 @@ func openPGPool(ctx context.Context, dsn string, pc struct {
 		return nil, fmt.Errorf("parse pgxpool config: %w", err)
 	}
 
-	// Ajustes razonables desde tu config:
-	if pc.MaxOpenConns > 0 {
-		cfg.MaxConns = int32(pc.MaxOpenConns)
+	// Ajustes conservadores para evitar "too many connections"
+	maxConns := pc.MaxOpenConns
+	if maxConns <= 0 || maxConns > 5 {
+		maxConns = 3 // muy conservador para pools adicionales
 	}
+	cfg.MaxConns = int32(maxConns)
+
 	// Mapear MaxIdleConns → MinConns (pgxpool)
-	if pc.MaxIdleConns > 0 {
-		cfg.MinConns = int32(pc.MaxIdleConns)
+	minConns := pc.MaxIdleConns
+	if minConns <= 0 || minConns > 2 {
+		minConns = 1
 	}
+	cfg.MinConns = int32(minConns)
 
 	if pc.ConnMaxLifetime != "" {
 		if dur, err := time.ParseDuration(pc.ConnMaxLifetime); err == nil {

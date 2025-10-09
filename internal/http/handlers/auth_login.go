@@ -34,10 +34,11 @@ type AuthLoginResponse struct {
 
 func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Timeout de 3s para endpoint crítico
-		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-		defer cancel()
-		r = r.WithContext(ctx)
+		// Debug: log entry
+		log.Printf("DEBUG: auth_login handler entry")
+
+		// Usar context del request directamente por ahora
+		ctx := r.Context()
 
 		if r.Method != http.MethodPost {
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo POST", 1000)
@@ -103,16 +104,35 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		// normalización consistente
 		req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 
+		log.Printf("DEBUG: after email normalization, validating fields")
+
 		if req.TenantID == "" || req.ClientID == "" || req.Email == "" || req.Password == "" {
 			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "tenant_id, client_id, email y password son obligatorios", 1002)
 			return
 		}
 
+		// Debug: check container
+		log.Printf("DEBUG: container=%v, store=%v", c != nil, c != nil && c.Store != nil)
+
+		// Guard: verificar que el store esté inicializado
+		if c == nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "container not initialized", 1003)
+			return
+		}
+		if c.Store == nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "store not initialized", 1004)
+			return
+		}
+
+		log.Printf("DEBUG: passed guards, parsing request")
+
 		// Rate limiting específico para login (endpoint semántico)
+		log.Printf("DEBUG: checking rate limiting, MultiLimiter=%v", c.MultiLimiter != nil)
 		if c.MultiLimiter != nil {
 			// Parseamos la configuración específica para login
 			loginWindow, err := time.ParseDuration(cfg.Rate.Login.Window)
 			if err != nil {
+				log.Printf("DEBUG: rate limit window parse error: %v, using fallback", err)
 				loginWindow = time.Minute // fallback
 			}
 
@@ -121,11 +141,21 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 				Window: loginWindow,
 			}
 
-			if !helpers.EnforceLoginLimit(w, r, c.MultiLimiter, loginCfg, req.TenantID, req.Email) {
+			log.Printf("DEBUG: calling EnforceLoginLimit with limit=%d, window=%s", loginCfg.Limit, loginCfg.Window)
+
+			// Rate limiting
+			rateLimited := !helpers.EnforceLoginLimit(w, r, c.MultiLimiter, loginCfg, req.TenantID, req.Email)
+
+			if rateLimited {
 				// Rate limited - la función ya escribió la respuesta 429
 				return
 			}
 		}
+
+		log.Printf("DEBUG: passed rate limiting")
+
+		// Debug: before store call
+		log.Printf("DEBUG: calling GetUserByEmail with tenant=%s, email=%s", req.TenantID, util.MaskEmail(req.Email))
 
 		// ctx ya está definido con timeout arriba
 		u, id, err := c.Store.GetUserByEmail(r.Context(), req.TenantID, req.Email)
@@ -236,13 +266,17 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			return
 		}
 
-		rawRT, err := tokens.GenerateOpaqueToken(32)
-		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 1205)
+		// Crear refresh token usando método TC
+		tcStore, ok := c.Store.(interface {
+			CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
+		})
+		if !ok {
+			httpx.WriteError(w, http.StatusInternalServerError, "store_not_supported", "store no soporta métodos TC", 1205)
 			return
 		}
-		hash := tokens.SHA256Base64URL(rawRT)
-		if _, err := c.Store.CreateRefreshToken(ctx, u.ID, cl.ID, hash, time.Now().Add(refreshTTL), nil); err != nil {
+
+		rawRT, err := tcStore.CreateRefreshTokenTC(ctx, req.TenantID, req.ClientID, u.ID, refreshTTL)
+		if err != nil {
 			log.Printf("login: create refresh err: %v", err)
 			httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1206)
 			return

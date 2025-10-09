@@ -106,17 +106,33 @@ func (ti tokenIssuerAdapter) IssueTokens(w http.ResponseWriter, r *http.Request,
 	}
 	log.Printf(`{"level":"info","msg":"issuer_issue_access_ok","request_id":"%s","expires_in_sec":%d}`, rid, int(time.Until(exp).Seconds()))
 
-	rawRT, err := tokens.GenerateOpaqueToken(32)
-	if err != nil {
-		log.Printf(`{"level":"error","msg":"issuer_gen_refresh_err","request_id":"%s","err":"%v"}`, rid, err)
-		httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 1205)
-		return nil
-	}
-	hash := tokens.SHA256Base64URL(rawRT)
-	if _, err := ti.c.Store.CreateRefreshToken(r.Context(), userID.String(), cl.ID, hash, time.Now().Add(ti.refreshTTL), nil); err != nil {
-		log.Printf(`{"level":"error","msg":"issuer_persist_refresh_err","request_id":"%s","err":"%v"}`, rid, err)
-		httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1206)
-		return nil
+	var rawRT string
+	// IMPORTANTE: usamos CreateRefreshTokenTC (tenant + client_id_text) que hashea con SHA256+hex.
+	// No volver a CreateRefreshToken (legacy, Base64URL) salvo en fallback cuando el store no implemente TC.
+	if tcs, ok := ti.c.Store.(interface {
+		CreateRefreshTokenTC(ctx context.Context, tenantID, clientIDText, userID string, ttl time.Duration) (string, error)
+	}); ok {
+		// Preferir TC: (tenant + client_id_text) y hash SHA256+hex interno
+		rawRT, err = tcs.CreateRefreshTokenTC(r.Context(), tenantID.String(), clientID, userID.String(), ti.refreshTTL)
+		if err != nil {
+			log.Printf(`{"level":"error","msg":"issuer_persist_refresh_tc_err","request_id":"%s","err":"%v"}`, rid, err)
+			httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1206)
+			return nil
+		}
+	} else {
+		// Fallback legacy (solo si el store no soporta TC)
+		rawRT, err = tokens.GenerateOpaqueToken(32)
+		if err != nil {
+			log.Printf(`{"level":"error","msg":"issuer_gen_refresh_err","request_id":"%s","err":"%v"}`, rid, err)
+			httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 1205)
+			return nil
+		}
+		hash := tokens.SHA256Base64URL(rawRT)
+		if _, err := ti.c.Store.CreateRefreshToken(r.Context(), userID.String(), cl.ID, hash, time.Now().Add(ti.refreshTTL), nil); err != nil {
+			log.Printf(`{"level":"error","msg":"issuer_persist_refresh_legacy_err","request_id":"%s","err":"%v"}`, rid, err)
+			httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1206)
+			return nil
+		}
 	}
 	log.Printf(`{"level":"info","msg":"issuer_refresh_ok","request_id":"%s"}`, rid)
 
@@ -240,7 +256,7 @@ func BuildEmailFlowHandlers(
 		log.Printf(`{"level":"info","msg":"email_wiring_rate","enabled":false}`)
 	}
 
-	// Stores dedicados para los flows
+	// Stores: reusar pool existente si es posible para evitar "too many connections"
 	pgxConn, err := pgx.Connect(ctx, cfg.Storage.DSN)
 	if err != nil {
 		log.Printf(`{"level":"error","msg":"email_wiring_pgx_connect_err","err":"%v"}`, err)
