@@ -14,6 +14,7 @@ import (
 	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane"
 	cpfs "github.com/dropDatabas3/hellojohn/internal/controlplane/fs"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
+	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
 )
 
 var (
@@ -122,6 +123,123 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 
 			slug := parts[0]
 
+			// PUT /v1/admin/tenants/{slug} -> Upsert tenant (id, slug, settings)
+			if len(parts) == 1 && r.Method == http.MethodPut {
+				var in struct {
+					ID       string                      `json:"id"`
+					Slug     string                      `json:"slug"`
+					Name     string                      `json:"name"`
+					Settings controlplane.TenantSettings `json:"settings"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+					httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "JSON inválido", 5030)
+					return
+				}
+				if strings.TrimSpace(in.Slug) == "" {
+					in.Slug = slug
+				}
+				if !validSlug(in.Slug) || in.Slug != slug {
+					httpx.WriteError(w, http.StatusBadRequest, "invalid_slug", "slug inválido o mismatch con path", 5031)
+					return
+				}
+				now := time.Now().UTC()
+				t := &controlplane.Tenant{
+					ID:        strings.TrimSpace(in.ID),
+					Name:      strings.TrimSpace(in.Name),
+					Slug:      in.Slug,
+					CreatedAt: now,
+					UpdatedAt: now,
+					Settings:  in.Settings,
+				}
+				if strings.TrimSpace(t.ID) == "" {
+					// fallback: usar slug como id en MVP
+					t.ID = in.Slug
+				}
+				if err := fsProvider.UpsertTenant(r.Context(), t); err != nil {
+					httpx.WriteError(w, http.StatusBadRequest, "upsert_failed", err.Error(), 5032)
+					return
+				}
+				// Si llegaron settings con DSN en claro, UpsertTenant preserva settings; para cifrado fino usamos UpdateTenantSettings
+				if (in.Settings != controlplane.TenantSettings{}) {
+					if err := fsProvider.UpdateTenantSettings(r.Context(), slug, &in.Settings); err != nil {
+						// no fatal; devolvemos 200 con warning implícito
+					}
+				}
+				httpx.WriteJSON(w, http.StatusOK, t)
+				return
+			}
+
+			// ─── Admin: per-tenant user-store ───
+			// POST /v1/admin/tenants/{slug}/user-store/test-connection
+			// POST /v1/admin/tenants/{slug}/user-store/migrate
+			if len(parts) >= 2 && parts[1] == "user-store" {
+				if c.TenantSQLManager == nil {
+					httpx.WriteError(w, http.StatusNotImplemented, "tenant_sql_manager_required", "TenantSQLManager no inicializado", 5025)
+					return
+				}
+
+				if len(parts) == 3 && parts[2] == "test-connection" {
+					if r.Method != http.MethodPost {
+						httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo POST", 5026)
+						return
+					}
+					// First, verify tenant exists in FS; admin over nonexistent tenant -> 404
+					if _, err := fsProvider.GetTenantBySlug(r.Context(), slug); err != nil {
+						if err == cpfs.ErrTenantNotFound {
+							httpx.WriteError(w, http.StatusNotFound, "tenant_not_found", "tenant no encontrado", 5011)
+							return
+						}
+						httpx.WriteError(w, http.StatusInternalServerError, "get_failed", err.Error(), 5012)
+						return
+					}
+					store, err := c.TenantSQLManager.GetPG(r.Context(), slug)
+					if err != nil {
+						if tenantsql.IsNoDBForTenant(err) {
+							httpx.WriteTenantDBMissing(w)
+							return
+						}
+						httpx.WriteTenantDBError(w, err.Error())
+						return
+					}
+					if pingErr := store.Ping(r.Context()); pingErr != nil {
+						httpx.WriteTenantDBError(w, pingErr.Error())
+						return
+					}
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
+
+				if len(parts) == 3 && parts[2] == "migrate" {
+					if r.Method != http.MethodPost {
+						httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo POST", 5027)
+						return
+					}
+					// Verify tenant exists (404 if not)
+					if _, err := fsProvider.GetTenantBySlug(r.Context(), slug); err != nil {
+						if err == cpfs.ErrTenantNotFound {
+							httpx.WriteError(w, http.StatusNotFound, "tenant_not_found", "tenant no encontrado", 5011)
+							return
+						}
+						httpx.WriteError(w, http.StatusInternalServerError, "get_failed", err.Error(), 5012)
+						return
+					}
+					// Nota: GetPG ya corre migraciones on-demand con lock.
+					if _, err := c.TenantSQLManager.GetPG(r.Context(), slug); err != nil {
+						if tenantsql.IsNoDBForTenant(err) {
+							httpx.WriteTenantDBMissing(w)
+							return
+						}
+						httpx.WriteTenantDBError(w, err.Error())
+						return
+					}
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
+
+				httpx.WriteError(w, http.StatusNotFound, "not_found", "", 5028)
+				return
+			}
+
 			if len(parts) == 1 && r.Method == http.MethodGet {
 				// GET /v1/admin/tenants/{slug}
 				tenant, raw, err := fsProvider.GetTenantRaw(r.Context(), slug)
@@ -204,6 +322,43 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 					httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo GET/PUT", 5021)
 					return
 				}
+			}
+
+			// Under tenant: clients CRUD via FS
+			if len(parts) >= 2 && parts[1] == "clients" {
+				// PUT /v1/admin/tenants/{slug}/clients/{clientID}
+				if len(parts) == 3 && r.Method == http.MethodPut {
+					var in controlplane.ClientInput
+					if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+						httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "JSON inválido", 5040)
+						return
+					}
+					in.ClientID = parts[2]
+					c, err := cpctx.Provider.UpsertClient(r.Context(), slug, in)
+					if err != nil {
+						httpx.WriteError(w, http.StatusBadRequest, "upsert_failed", err.Error(), 5041)
+						return
+					}
+					httpx.WriteJSON(w, http.StatusOK, c)
+					return
+				}
+			}
+
+			// Under tenant: scopes bulk upsert (simple array)
+			if len(parts) == 2 && parts[1] == "scopes" && (r.Method == http.MethodPut || r.Method == http.MethodPost) {
+				var in struct {
+					Scopes []controlplane.Scope `json:"scopes"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+					httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "JSON inválido", 5050)
+					return
+				}
+				// naive: replace one by one using UpsertScope
+				for _, s := range in.Scopes {
+					_ = cpctx.Provider.UpsertScope(r.Context(), slug, controlplane.Scope{Name: strings.TrimSpace(s.Name), Description: s.Description})
+				}
+				httpx.WriteJSON(w, http.StatusOK, map[string]any{"updated": true})
+				return
 			}
 
 			httpx.WriteError(w, http.StatusNotFound, "not_found", "", 5010)

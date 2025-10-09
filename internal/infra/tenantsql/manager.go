@@ -20,7 +20,11 @@ var (
 	ErrNoDBForTenant           = errors.New("no database configured for tenant")
 	ErrResolverNotConfigured   = errors.New("tenant resolver not configured")
 	ErrControlPlaneUnavailable = errors.New("control plane provider not initialized")
+	ErrTenantNotFound          = errors.New("tenant not found")
 )
+
+// IsNoDBForTenant indicates whether the error means a tenant lacks DB configuration.
+func IsNoDBForTenant(err error) bool { return errors.Is(err, ErrNoDBForTenant) }
 
 // TenantConnection representa la configuración mínima necesaria para abrir un pool.
 type TenantConnection struct {
@@ -114,7 +118,8 @@ func defaultResolver(ctx context.Context, slug string) (*TenantConnection, error
 
 	tenant, err := cpctx.Provider.GetTenantBySlug(ctx, slug)
 	if err != nil {
-		return nil, err
+		// Unknown tenant in control-plane
+		return nil, ErrTenantNotFound
 	}
 	if tenant == nil {
 		return nil, ErrNoDBForTenant

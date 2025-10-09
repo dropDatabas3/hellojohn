@@ -67,6 +67,7 @@ type OIDCClient struct {
 	Type            ClientType    `json:"type" yaml:"type"`                                         // public|confidential
 	RedirectURIs    []string      `json:"redirectUris" yaml:"redirectUris"`                         // match exacto; https salvo localhost
 	AllowedOrigins  []string      `json:"allowedOrigins,omitempty" yaml:"allowedOrigins,omitempty"` // CORS
+	Providers       []string      `json:"providers,omitempty" yaml:"providers,omitempty"`           // ej: ["password","google"]
 	Scopes          []string      `json:"scopes,omitempty" yaml:"scopes,omitempty"`                 // p.ej. ["openid","email","profile","admin"]
 	SecretEnc       string        `json:"secretEnc,omitempty" yaml:"secretEnc,omitempty"`           // Encrypt(...), solo para confidential
 	SocialProviders *SocialConfig `json:"socialProviders,omitempty" yaml:"socialProviders,omitempty"`
@@ -102,6 +103,7 @@ type ClientInput struct {
 	Type           ClientType `json:"type" yaml:"type"`
 	RedirectURIs   []string   `json:"redirectUris" yaml:"redirectUris"`
 	AllowedOrigins []string   `json:"allowedOrigins,omitempty" yaml:"allowedOrigins,omitempty"`
+	Providers      []string   `json:"providers,omitempty" yaml:"providers,omitempty"`
 	Scopes         []string   `json:"scopes,omitempty" yaml:"scopes,omitempty"`
 	Secret         string     `json:"secret,omitempty" yaml:"secret,omitempty"` // plain entrante; se cifra al persistir
 }

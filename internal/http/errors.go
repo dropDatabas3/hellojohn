@@ -53,3 +53,26 @@ func ReadJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	}
 	return true
 }
+
+// ─────────────────────── Custom error helpers ───────────────────────
+
+const (
+	ErrCodeTenantDBMissing      = 2601
+	ErrCodeTenantDBError        = 2602
+	ErrCodeTenantDBPingError    = 2603 // optional, reserved
+	ErrCodeTenantDBMigrateError = 2604 // optional, reserved
+)
+
+// WriteTenantDBMissing writes a 501 Not Implemented with a clear message that the tenant has no configured DB.
+func WriteTenantDBMissing(w http.ResponseWriter) {
+	WriteError(w, http.StatusNotImplemented, "tenant_db_missing", "Este tenant no tiene DB configurada o validada.", ErrCodeTenantDBMissing)
+}
+
+// WriteTenantDBError writes a 500 when opening the tenant DB or running migrations failed.
+func WriteTenantDBError(w http.ResponseWriter, detail string) {
+	msg := "Fallo abriendo pool/migraciones del tenant."
+	if strings.TrimSpace(detail) != "" {
+		msg = msg + " " + detail
+	}
+	WriteError(w, http.StatusInternalServerError, "tenant_db_error", msg, ErrCodeTenantDBError)
+}
