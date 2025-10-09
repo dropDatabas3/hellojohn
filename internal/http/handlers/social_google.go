@@ -54,11 +54,16 @@ func (h *googleHandler) issueSocialTokens(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	std := map[string]any{"tid": tid.String(), "amr": amr, "acr": acr}
+	// Scopes placeholder: use client default scopes for scp
+	scopes := []string{}
+	if cl, _, e2 := h.c.Store.GetClientByClientID(r.Context(), cid); e2 == nil && cl != nil && strings.EqualFold(cl.TenantID, tid.String()) {
+		scopes = append(scopes, cl.Scopes...)
+	}
+	std := map[string]any{"tid": tid.String(), "amr": amr, "acr": acr, "scp": strings.Join(scopes, " ")}
 	custom := map[string]any{}
 
 	// Hook + SYS_NS + roles/perms (best-effort)
-	std, custom = applyAccessClaimsHook(r.Context(), h.c, tid.String(), cid, uid.String(), []string{}, amr, std, custom)
+	std, custom = applyAccessClaimsHook(r.Context(), h.c, tid.String(), cid, uid.String(), scopes, amr, std, custom)
 	if u, err := h.c.Store.GetUserByID(r.Context(), uid.String()); err == nil && u != nil {
 		type rbacReader interface {
 			GetUserRoles(ctx context.Context, userID string) ([]string, error)

@@ -112,17 +112,47 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		}
 
 		// Debug: check container
-		log.Printf("DEBUG: container=%v, store=%v", c != nil, c != nil && c.Store != nil)
+		log.Printf("DEBUG: container=%v, tenantSQLMgr=%v", c != nil, c != nil && c.TenantSQLManager != nil)
 
-		// Guard: verificar que el store esté inicializado
-		if c == nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "container not initialized", 1003)
+		// Primero: resolver client desde FS. Si falla, devolver 401 invalid_client y no abrir DB.
+		// Resolve client. Prefer FS control-plane; if unavailable, we'll try DB client catalog later only if repo opens.
+		var (
+			fsClient        helpers.FSClient
+			clientScopes    []string
+			clientProviders []string
+			haveFSClient    bool
+		)
+		if fsc, err := helpers.ResolveClientFSBySlug(ctx, req.TenantID, req.ClientID); err == nil {
+			fsClient = fsc
+			clientScopes = append([]string{}, fsClient.Scopes...)
+			clientProviders = append([]string{}, fsClient.Providers...)
+			haveFSClient = true
+		}
+
+		// Abrir repo por tenant solo después de tener un client válido (o si no hay en FS, intentaremos fallback DB más abajo)
+		// Compatibility: if per-tenant DB is not configured, fall back to global store (if available).
+		var repoCore core.Repository
+		if c == nil || c.TenantSQLManager == nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "tenant manager not initialized", 1004)
 			return
 		}
-		if c.Store == nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "store not initialized", 1004)
+		if rc, err := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, req.TenantID); err != nil {
+			// Phase 4: gate by tenant DB. No fallback to global store in FS-only mode.
+			if helpers.IsTenantNotFound(err) {
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "tenant inválido", 2100)
+				return
+			}
+			if helpers.IsNoDBForTenant(err) {
+				httpx.WriteTenantDBMissing(w)
+				return
+			}
+			httpx.WriteTenantDBError(w, err.Error())
 			return
+		} else {
+			repoCore = rc
 		}
+		// Optional: cache repo in request context for downstream calls
+		ctx = helpers.WithTenantRepo(ctx, repoCore)
 
 		log.Printf("DEBUG: passed guards, parsing request")
 
@@ -154,11 +184,50 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 
 		log.Printf("DEBUG: passed rate limiting")
 
-		// Debug: before store call
+		// Si no teníamos client en FS, intentar lookup en DB solo ahora que repo está abierto
+		if !haveFSClient {
+			// Fallback: try DB client lookup (works with global repo)
+			type clientGetter interface {
+				GetClientByClientID(ctx context.Context, clientID string) (*core.Client, *core.ClientVersion, error)
+			}
+			if cg, ok := any(repoCore).(clientGetter); ok {
+				if cdb, _, e2 := cg.GetClientByClientID(ctx, req.ClientID); e2 == nil && cdb != nil {
+					clientScopes = append([]string{}, cdb.Scopes...)
+					clientProviders = append([]string{}, cdb.Providers...)
+					// synthesize minimal fsClient for downstream fields if needed
+					fsClient = helpers.FSClient{TenantSlug: req.TenantID, ClientID: cdb.ClientID}
+				} else {
+					httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1203)
+					return
+				}
+			} else {
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1203)
+				return
+			}
+		}
+
+		// Provider gating: ensure password login is allowed for this client.
+		// If providers are defined (FS or DB), require "password".
+		if len(clientProviders) > 0 {
+			allowed := false
+			for _, p := range clientProviders {
+				if strings.EqualFold(p, "password") {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "password login deshabilitado para este client", 1207)
+				return
+			}
+		}
+
+		// Debug: before repo call
 		log.Printf("DEBUG: calling GetUserByEmail with tenant=%s, email=%s", req.TenantID, util.MaskEmail(req.Email))
 
 		// ctx ya está definido con timeout arriba
-		u, id, err := c.Store.GetUserByEmail(r.Context(), req.TenantID, req.Email)
+		repo, _ := helpers.GetTenantRepo(ctx)
+		u, id, err := repo.GetUserByEmail(ctx, req.TenantID, req.Email)
 		if err != nil {
 			status := http.StatusInternalServerError
 			if err == core.ErrNotFound {
@@ -175,17 +244,12 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			httpx.WriteError(w, http.StatusLocked, "user_disabled", "usuario deshabilitado", 1210)
 			return
 		}
-		if id == nil || id.PasswordHash == nil || *id.PasswordHash == "" || !c.Store.CheckPassword(id.PasswordHash, req.Password) {
+		if id == nil || id.PasswordHash == nil || *id.PasswordHash == "" || !repo.CheckPassword(id.PasswordHash, req.Password) {
 			log.Printf("auth login: verify=false (tenant=%s email=%s)", req.TenantID, util.MaskEmail(req.Email))
 			httpx.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "usuario o password inválidos", 1202)
 			return
 		}
-
-		cl, _, err := c.Store.GetClientByClientID(ctx, req.ClientID)
-		if err != nil || cl == nil || cl.TenantID != req.TenantID {
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1203)
-			return
-		}
+		// Client already validated by FS; nothing else to load from DB here
 
 		// MFA (pre-issue) hook: si el usuario tiene MFA TOTP confirmada y no se detecta trusted device => bifurca flujo.
 		// Requiere métodos stub en Store: GetMFATOTP, IsTrustedDevice. Si no existen aún, este bloque no compilará hasta implementarlos.
@@ -196,10 +260,10 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			IsTrustedDevice(ctx context.Context, userID, deviceHash string, now time.Time) (bool, error)
 		}
 		trustedByCookie := false
-		if mg, ok := c.Store.(mfaGetter); ok {
+		if mg, ok := any(repo).(mfaGetter); ok {
 			if m, _ := mg.GetMFATOTP(ctx, u.ID); m != nil && m.ConfirmedAt != nil { // usuario tiene MFA configurada
 				if devCookie, err := r.Cookie("mfa_trust"); err == nil && devCookie != nil {
-					if tc, ok2 := c.Store.(trustedChecker); ok2 {
+					if tc, ok2 := any(repo).(trustedChecker); ok2 {
 						dh := tokens.SHA256Base64URL(devCookie.Value)
 						if ok3, _ := tc.IsTrustedDevice(ctx, u.ID, dh, time.Now()); ok3 {
 							trustedByCookie = true
@@ -238,25 +302,28 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			amrSlice = []string{"pwd", "mfa"}
 			acrVal = "urn:hellojohn:loa:2"
 		}
+		// Scopes placeholder: grant client default scopes for now (Phase 4 minimal)
+		grantedScopes := append([]string{}, clientScopes...)
 		std := map[string]any{
 			"tid": req.TenantID,
 			"amr": amrSlice,
 			"acr": acrVal,
+			"scp": strings.Join(grantedScopes, " "),
 		}
 		custom := map[string]any{}
 
 		// Hook opcional (CEL/webhook/etc.)
-		std, custom = applyAccessClaimsHook(ctx, c, req.TenantID, req.ClientID, u.ID, []string{}, amrSlice, std, custom)
+		std, custom = applyAccessClaimsHook(ctx, c, req.TenantID, req.ClientID, u.ID, grantedScopes, amrSlice, std, custom)
 
-		// ── RBAC (Fase 2): roles/perms opcionales si el store los implementa
+		// ── RBAC (Fase 2): roles/perms opcionales si el repo per-tenant los implementa
 		type rbacReader interface {
 			GetUserRoles(ctx context.Context, userID string) ([]string, error)
 			GetUserPermissions(ctx context.Context, userID string) ([]string, error)
 		}
 		var roles, perms []string
-		if rr, ok := c.Store.(rbacReader); ok {
-			roles, _ = rr.GetUserRoles(ctx, u.ID)
-			perms, _ = rr.GetUserPermissions(ctx, u.ID)
+		if repoRR, ok := any(repo).(rbacReader); ok {
+			roles, _ = repoRR.GetUserRoles(ctx, u.ID)
+			perms, _ = repoRR.GetUserPermissions(ctx, u.ID)
 		}
 		custom = helpers.PutSystemClaimsV2(custom, c.Issuer.Iss, u.Metadata, roles, perms)
 
@@ -267,7 +334,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		}
 
 		// Crear refresh token usando método TC
-		tcStore, ok := c.Store.(interface {
+		tcStore, ok := any(repo).(interface {
 			CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
 		})
 		if !ok {

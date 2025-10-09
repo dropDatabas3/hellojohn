@@ -9,8 +9,6 @@ import (
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 )
 
-const maxJSONBody = 64 << 10 // 64KB
-
 func readStrictJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	ct := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
 	if !strings.Contains(ct, "application/json") {
@@ -18,7 +16,8 @@ func readStrictJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 		return false
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
+	// limitar body a 64KB
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	defer r.Body.Close()
 
 	dec := json.NewDecoder(r.Body)

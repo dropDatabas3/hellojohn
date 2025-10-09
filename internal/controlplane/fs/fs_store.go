@@ -284,6 +284,7 @@ func (p *FSProvider) UpsertClient(ctx context.Context, slug string, in cp.Client
 	found.Type = in.Type
 	found.RedirectURIs = uniqueStrings(in.RedirectURIs)
 	found.AllowedOrigins = uniqueStrings(in.AllowedOrigins)
+	found.Providers = uniqueStrings(in.Providers)
 	found.Scopes = uniqueStrings(in.Scopes)
 
 	// secreto: si vino plain en input, cifrar y guardar

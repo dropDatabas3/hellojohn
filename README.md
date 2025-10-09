@@ -352,6 +352,36 @@ El servicio puede ejecutar migraciones al arrancar si `FLAGS_MIGRATE=true`.
 ## 14. Pruebas E2E
 La suite `test/e2e` cubre registro/login, refresh, email flows, OAuth2, social (login_code), MFA, introspección, blacklist y administración (clients, scopes, consents, users disable/enable).
 
+### 14.1 Habilitar un tenant (FS -> DB)
+Pasos típicos para crear/habilitar un tenant y su user‑store por API admin (enviar siempre Content-Type: application/json):
+
+1) Crear/actualizar tenant en FS (idempotente)
+- Método: PUT /v1/admin/tenants/{slug}
+- Header: Content-Type: application/json
+- Body ejemplo:
+  {"name":"Acme Inc","status":"active"}
+
+2) Upsert cliente público
+- Método: PUT /v1/admin/tenants/{slug}/clients/{client_id}
+- Body ejemplo:
+  {"name":"Web","client_type":"public","redirect_uris":["http://localhost/cb"],"providers":["password"],"scopes":["openid","email","profile"]}
+
+3) Definir scopes disponibles
+- Método: PUT /v1/admin/tenants/{slug}/scopes
+- Body ejemplo:
+  {"scopes":[{"name":"openid","description":""},{"name":"email"},{"name":"profile"}]}
+
+4) Probar conexión al user‑store (501 si falta DSN)
+- Método: POST /v1/admin/tenants/{slug}/user-store/test-connection
+
+5) Migrar el user‑store (aplica schema por tenant)
+- Método: POST /v1/admin/tenants/{slug}/user-store/migrate
+
+Notas
+- Si el tenant no existe en FS ⇒ 404 en test-connection/migrate.
+- Si el tenant existe pero no tiene DSN ⇒ 501 tenant_db_missing (appcode 2601).
+- Errores reales de DB ⇒ 500 tenant_db_error (appcode 2602).
+
 ---
 
 ## 15. Operación y salud

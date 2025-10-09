@@ -78,8 +78,8 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 				// Para tenant stores, por ahora usar fallback a global consent (TODO: implementar per-tenant consent)
 			}
 		}
-		// Fallback a global store/consents si no hay tenant
-		if activeScopesConsents == nil && c.ScopesConsents != nil {
+		// Fallback a global consents
+		if c.ScopesConsents != nil {
 			activeScopesConsents = c.ScopesConsents
 		}
 		if activeStore == nil && c.Store != nil {
@@ -117,7 +117,8 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 			return
 		}
 		if err := helpers.ValidateRedirectURI(client, redirectURI); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "redirect_uri mismatch", 2105)
+			// If redirect_uri is present but doesn't match, RFC says invalid_redirect_uri
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_redirect_uri", "redirect_uri not allowed for this client", 2105)
 			return
 		}
 
@@ -303,14 +304,12 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 					}
 
 					// Preferir TC si está disponible
-					if raw := any(activeScopesConsents); raw != nil {
-						if utc, ok := raw.(upTC); ok {
-							upErr = utc.UpsertConsentTC(ctx, tid, cl.ID, sub, reqScopes)
-						} else if u1, ok := raw.(up1); ok {
-							upErr = u1.UpsertConsent(ctx, tid, sub, cl.ID, reqScopes)
-						} else if u2, ok := raw.(up2); ok {
-							upErr = u2.UpsertConsent(ctx, sub, cl.ID, reqScopes)
-						}
+					if utc, ok := any(activeScopesConsents).(upTC); ok {
+						upErr = utc.UpsertConsentTC(ctx, tid, cl.ID, sub, reqScopes)
+					} else if u1, ok := any(activeScopesConsents).(up1); ok {
+						upErr = u1.UpsertConsent(ctx, tid, sub, cl.ID, reqScopes)
+					} else if u2, ok := any(activeScopesConsents).(up2); ok {
+						upErr = u2.UpsertConsent(ctx, sub, cl.ID, reqScopes)
 					}
 					if upErr == nil {
 						needConsentResponse = false // éxito: continuamos flujo normal

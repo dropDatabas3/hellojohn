@@ -290,6 +290,7 @@ func BuildEmailFlowHandlers(
 		AutoLoginReset: cfg.Auth.Reset.AutoLogin,
 		DebugEchoLinks: cfg.Email.DebugEchoLinks,
 		BlacklistPath:  cfg.Security.PasswordBlacklistPath,
+		TenantMgr:      c.TenantSQLManager,
 	}
 	if strings.TrimSpace(cfg.Security.PasswordBlacklistPath) != "" {
 		log.Printf(`{"level":"info","msg":"email_wiring_blacklist","path":"%s"}`, cfg.Security.PasswordBlacklistPath)

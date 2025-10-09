@@ -18,7 +18,7 @@ import (
 
 type RefreshRequest struct {
 	TenantID     string `json:"tenant_id,omitempty"` // aceptado por contrato; no usado para lógica
-	ClientID     string `json:"client_id"`
+	ClientID     string `json:"client_id,omitempty"`
 	RefreshToken string `json:"refresh_token"`
 }
 
@@ -41,97 +41,125 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 		if !httpx.ReadJSON(w, r, &req) {
 			return
 		}
-		req.ClientID = strings.TrimSpace(req.ClientID)
 		req.RefreshToken = strings.TrimSpace(req.RefreshToken)
-		if req.ClientID == "" || req.RefreshToken == "" {
+		req.ClientID = strings.TrimSpace(req.ClientID)
+		if req.RefreshToken == "" || req.ClientID == "" {
 			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "client_id y refresh_token son obligatorios", 1002)
-			return
-		}
-
-		// Guard: verificar que el store esté inicializado
-		if c.Store == nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "store not initialized", 1003)
 			return
 		}
 
 		ctx := r.Context()
 
-		// Primero obtenemos el client para tener el tenant_id
-		cl, _, err := c.Store.GetClientByClientID(ctx, req.ClientID)
-		if err != nil {
-			status := http.StatusInternalServerError
-			if err == core.ErrNotFound {
-				status = http.StatusUnauthorized
-			}
-			httpx.WriteError(w, status, "invalid_client", "client inválido", 1403)
+		// 0) Resolver tenant slug en este orden: body.tenant_id -> cpctx.ResolveTenant(r) -> helpers.ResolveTenantSlug(r)
+		tenantSlug := strings.TrimSpace(req.TenantID)
+		if tenantSlug == "" {
+			tenantSlug = helpers.ResolveTenantSlug(r)
+		}
+		if strings.TrimSpace(tenantSlug) == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "tenant_id o contexto de tenant requerido", 1002)
 			return
 		}
 
-		// Obtener y validar refresh token (usar método TC si está disponible)
-		var rt *core.RefreshToken
-		tcStore, ok := c.Store.(interface {
-			GetRefreshTokenTC(ctx context.Context, tenantID, clientID, token string) (*core.RefreshToken, error)
-		})
-		if ok {
-			// Usar método TC
-			rt, err = tcStore.GetRefreshTokenTC(ctx, cl.TenantID, req.ClientID, req.RefreshToken)
-		} else {
-			// Fallback al método viejo
-			hash := tokens.SHA256Base64URL(req.RefreshToken)
-			rt, err = c.Store.GetRefreshTokenByHash(ctx, hash)
-		}
+		// 1) Cargar RT como fuente de verdad (por hash). No usar c.Store en runtime.
+		var (
+			rt  *core.RefreshToken
+			err error
+		)
+		// hash en HEX (alineado con store PG)
+		sum := sha256.Sum256([]byte(req.RefreshToken))
+		hashHex := hex.EncodeToString(sum[:])
 
+		// Intentar en el repo del tenant resuelto
+		if c.TenantSQLManager == nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "tenant manager not initialized", 1003)
+			return
+		}
+		repo, err := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, tenantSlug)
 		if err != nil {
-			status := http.StatusInternalServerError
-			if err == core.ErrNotFound {
-				status = http.StatusUnauthorized
+			if helpers.IsTenantNotFound(err) {
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "tenant inválido", 2100)
+				return
 			}
-			httpx.WriteError(w, status, "invalid_refresh", "refresh inválido", 1401)
+			if helpers.IsNoDBForTenant(err) {
+				httpx.WriteTenantDBMissing(w)
+				return
+			}
+			httpx.WriteTenantDBError(w, err.Error())
+			return
+		}
+		if rtx, e2 := repo.GetRefreshTokenByHash(ctx, hashHex); e2 == nil {
+			rt = rtx
+		}
+		if rt == nil {
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_grant", "refresh inválido", 1401)
 			return
 		}
 
 		now := time.Now()
 		if rt.RevokedAt != nil || !now.Before(rt.ExpiresAt) {
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid_refresh", "refresh revocado o expirado", 1402)
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_grant", "refresh revocado o expirado", 1402)
 			return
 		}
 
-		// Validar que el refresh pertenece al client (solo necesario para método viejo)
-		if !ok && rt.ClientIDText != cl.ClientID {
-			httpx.WriteError(w, http.StatusUnauthorized, "mismatched_client", "refresh no pertenece al client", 1404)
+		// 2) ClientID desde RT si no vino en request; si vino y no coincide, invalid_client
+		clientID := rt.ClientIDText
+		if req.ClientID != "" && !strings.EqualFold(req.ClientID, clientID) {
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "cliente inválido", 1403)
 			return
+		}
+
+		// 3) Si el RT pertenece a otro tenant, reabrir repo por rt.TenantID (RT define el tenant)
+		if !strings.EqualFold(rt.TenantID, tenantSlug) {
+			repo2, e2 := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, rt.TenantID)
+			if e2 != nil {
+				if helpers.IsNoDBForTenant(e2) {
+					httpx.WriteTenantDBMissing(w)
+					return
+				}
+				httpx.WriteTenantDBError(w, e2.Error())
+				return
+			}
+			repo = repo2
 		}
 
 		// Rechazar refresh si el usuario está deshabilitado
-		if u, err := c.Store.GetUserByID(ctx, rt.UserID); err == nil && u != nil {
+		if u, err := repo.GetUserByID(ctx, rt.UserID); err == nil && u != nil {
 			if u.DisabledAt != nil {
 				httpx.WriteError(w, http.StatusUnauthorized, "user_disabled", "usuario deshabilitado", 1410)
 				return
 			}
 		}
 
+		// Scopes: intentar desde FS (hint). Si no, fallback a openid.
+		var grantedScopes []string
+		if fsc2, err2 := helpers.ResolveClientFSBySlug(ctx, rt.TenantID, clientID); err2 == nil {
+			grantedScopes = append([]string{}, fsc2.Scopes...)
+		} else {
+			grantedScopes = []string{"openid"}
+		}
 		std := map[string]any{
-			"tid": cl.TenantID,
+			"tid": rt.TenantID,
 			"amr": []string{"refresh"},
+			"scp": strings.Join(grantedScopes, " "),
 		}
 		// Hook + SYS namespace
 		custom := map[string]any{}
-		std, custom = applyAccessClaimsHook(r.Context(), c, cl.TenantID, req.ClientID, rt.UserID, []string{}, []string{"refresh"}, std, custom)
+		std, custom = applyAccessClaimsHook(r.Context(), c, rt.TenantID, clientID, rt.UserID, grantedScopes, []string{"refresh"}, std, custom)
 		// derivar is_admin + RBAC (Fase 2)
-		if u, err := c.Store.GetUserByID(r.Context(), rt.UserID); err == nil && u != nil {
+		if u, err := repo.GetUserByID(r.Context(), rt.UserID); err == nil && u != nil {
 			type rbacReader interface {
 				GetUserRoles(ctx context.Context, userID string) ([]string, error)
 				GetUserPermissions(ctx context.Context, userID string) ([]string, error)
 			}
 			var roles, perms []string
-			if rr, ok := c.Store.(rbacReader); ok {
+			if rr, ok := any(repo).(rbacReader); ok {
 				roles, _ = rr.GetUserRoles(r.Context(), rt.UserID)
 				perms, _ = rr.GetUserPermissions(r.Context(), rt.UserID)
 			}
 			custom = helpers.PutSystemClaimsV2(custom, c.Issuer.Iss, u.Metadata, roles, perms)
 		}
 
-		token, exp, err := c.Issuer.IssueAccess(rt.UserID, req.ClientID, std, custom)
+		token, exp, err := c.Issuer.IssueAccess(rt.UserID, clientID, std, custom)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 1405)
 			return
@@ -139,12 +167,12 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 
 		// Crear nuevo refresh token usando método TC si está disponible
 		var rawRT string
-		tcCreateStore, tcOk := c.Store.(interface {
+		tcCreateStore, tcOk := any(repo).(interface {
 			CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
 		})
 		if tcOk {
-			// Usar método TC para crear el nuevo
-			rawRT, err = tcCreateStore.CreateRefreshTokenTC(ctx, cl.TenantID, req.ClientID, rt.UserID, refreshTTL)
+			// Usar método TC para crear el nuevo sobre el mismo tenant del RT
+			rawRT, err = tcCreateStore.CreateRefreshTokenTC(ctx, rt.TenantID, clientID, rt.UserID, refreshTTL)
 			if err != nil {
 				log.Printf("refresh: create new rt TC err: %v", err)
 				httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir nuevo refresh", 1407)
@@ -161,17 +189,17 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 			expiresAt := now.Add(refreshTTL)
 
 			// Usar CreateRefreshTokenTC para rotación
-			if tcStore, ok := c.Store.(interface {
+			if tcStore, ok := any(repo).(interface {
 				CreateRefreshTokenTC(context.Context, string, string, string, time.Time, *string) (string, error)
 			}); ok {
-				if _, err := tcStore.CreateRefreshTokenTC(ctx, rt.TenantID, cl.ClientID, newHash, expiresAt, &rt.ID); err != nil {
+				if _, err := tcStore.CreateRefreshTokenTC(ctx, rt.TenantID, clientID, newHash, expiresAt, &rt.ID); err != nil {
 					log.Printf("refresh: create new rt TC err: %v", err)
 					httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir nuevo refresh", 1407)
 					return
 				}
 			} else {
 				// Fallback legacy
-				if _, err := c.Store.CreateRefreshToken(ctx, rt.UserID, cl.ID, newHash, expiresAt, &rt.ID); err != nil {
+				if _, err := repo.CreateRefreshToken(ctx, rt.UserID, clientID, newHash, expiresAt, &rt.ID); err != nil {
 					log.Printf("refresh: create new rt err: %v", err)
 					httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir nuevo refresh", 1407)
 					return
@@ -180,7 +208,7 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 		}
 
 		// Revocar el token viejo
-		if err := c.Store.RevokeRefreshToken(ctx, rt.ID); err != nil {
+		if err := repo.RevokeRefreshToken(ctx, rt.ID); err != nil {
 			log.Printf("refresh: revoke old rt err: %v", err)
 		}
 
@@ -200,17 +228,12 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 // ------- LOGOUT -------
 
 type LogoutRequest struct {
-	TenantID     string `json:"tenant_id"`
+	TenantID     string `json:"tenant_id,omitempty"`
 	ClientID     string `json:"client_id"`
 	RefreshToken string `json:"refresh_token"`
 }
 
 func NewAuthLogoutHandler(c *app.Container) http.HandlerFunc {
-	type revoker interface {
-		RevokeRefreshByHashTC(ctx context.Context, tenantID, clientIDText, tokenHash string) (int64, error)
-	}
-	rv, _ := c.Store.(revoker)
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo POST", 1000)
@@ -223,8 +246,8 @@ func NewAuthLogoutHandler(c *app.Container) http.HandlerFunc {
 		req.RefreshToken = strings.TrimSpace(req.RefreshToken)
 		req.ClientID = strings.TrimSpace(req.ClientID)
 		req.TenantID = strings.TrimSpace(req.TenantID)
-		if req.RefreshToken == "" || req.ClientID == "" || req.TenantID == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "tenant_id, client_id y refresh_token son obligatorios", 1002)
+		if req.RefreshToken == "" || req.ClientID == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "client_id y refresh_token son obligatorios", 1002)
 			return
 		}
 
@@ -233,14 +256,65 @@ func NewAuthLogoutHandler(c *app.Container) http.HandlerFunc {
 		sum := sha256.Sum256([]byte(req.RefreshToken))
 		hash := hex.EncodeToString(sum[:])
 
-		if rv != nil {
-			// Usar método TC para revocar por (tenant, client_id_text, token_hash)
-			_, _ = rv.RevokeRefreshByHashTC(ctx, req.TenantID, req.ClientID, hash)
-		} else {
-			// Fallback al método viejo si no está disponible
-			if rt, err := c.Store.GetRefreshTokenByHash(ctx, hash); err == nil && rt != nil {
-				_ = c.Store.RevokeRefreshToken(ctx, rt.ID)
+		// Resolver tenant: body -> contexto -> fallback
+		tenantSlug := req.TenantID
+		if tenantSlug == "" {
+			tenantSlug = helpers.ResolveTenantSlug(r)
+		}
+		if tenantSlug == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "tenant_id o contexto de tenant requerido", 1002)
+			return
+		}
+
+		// Resolver repo y buscar RT para validar client y potencial cruce de tenant
+		if c.TenantSQLManager == nil {
+			httpx.WriteTenantDBError(w, "tenant manager not initialized")
+			return
+		}
+		repo, err := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, tenantSlug)
+		if err != nil {
+			if helpers.IsTenantNotFound(err) {
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "tenant inválido", 2100)
+				return
 			}
+			if helpers.IsNoDBForTenant(err) {
+				httpx.WriteTenantDBMissing(w)
+				return
+			}
+			httpx.WriteTenantDBError(w, err.Error())
+			return
+		}
+
+		// Intentar obtener RT por hash
+		rt, _ := repo.GetRefreshTokenByHash(ctx, hash)
+		if rt == nil {
+			// Idempotente: no filtrar existencia
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		// Validar client id coincida
+		if !strings.EqualFold(req.ClientID, rt.ClientIDText) {
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client_id no coincide", 2101)
+			return
+		}
+		// Reabrir repo si el RT pertenece a otro tenant
+		if !strings.EqualFold(rt.TenantID, tenantSlug) {
+			repo2, e2 := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, rt.TenantID)
+			if e2 != nil {
+				if helpers.IsNoDBForTenant(e2) {
+					httpx.WriteTenantDBMissing(w)
+					return
+				}
+				httpx.WriteTenantDBError(w, e2.Error())
+				return
+			}
+			repo = repo2
+		}
+		type revoker interface {
+			RevokeRefreshByHashTC(ctx context.Context, tenantID, clientIDText, tokenHash string) (int64, error)
+		}
+		if rv, ok := any(repo).(revoker); ok {
+			_, _ = rv.RevokeRefreshByHashTC(ctx, rt.TenantID, rt.ClientIDText, hash)
 		}
 
 		w.WriteHeader(http.StatusNoContent) // 204

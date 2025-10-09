@@ -10,6 +10,7 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
+	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
 	"github.com/dropDatabas3/hellojohn/internal/security/password"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
@@ -60,30 +61,76 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			return
 		}
 
-		// Guard: verificar que el store esté inicializado
-		if c.Store == nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "store not initialized", 1003)
-			return
+		// Primero: resolver client desde FS; si no existe, intentaremos fallback a catálogo DB más adelante.
+		ctx := r.Context()
+		var (
+			fsClient        helpers.FSClient
+			haveFSClient    bool
+			clientProviders []string
+			clientScopes    []string
+		)
+		if fsc, err := helpers.ResolveClientFSBySlug(ctx, req.TenantID, req.ClientID); err == nil {
+			fsClient = fsc
+			haveFSClient = true
+			clientProviders = append([]string{}, fsClient.Providers...)
+			clientScopes = append([]string{}, fsClient.Scopes...)
 		}
 
-		ctx := r.Context()
+		// Abrir repo por tenant (gating por DSN) con fallback a global store si está presente.
+		if c == nil || c.TenantSQLManager == nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "tenant manager not initialized", 1003)
+			return
+		}
+		var repo core.Repository
+		if rc, err := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, req.TenantID); err != nil {
+			// Phase 4: gate by tenant DB. Do not fallback to global store when tenant DB is missing.
+			if helpers.IsTenantNotFound(err) {
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "tenant inválido", 2100)
+				return
+			}
+			if helpers.IsNoDBForTenant(err) {
+				httpx.WriteTenantDBMissing(w)
+				return
+			}
+			httpx.WriteTenantDBError(w, err.Error())
+			return
+		} else {
+			repo = rc
+		}
+		ctx = helpers.WithTenantRepo(ctx, repo)
 
-		cl, _, err := c.Store.GetClientByClientID(ctx, req.ClientID)
-		if err != nil {
-			if err == core.ErrNotFound {
+		// Si no hay client en FS, intentar obtenerlo desde DB (modo compat)
+		if !haveFSClient {
+			type clientGetter interface {
+				GetClientByClientID(ctx context.Context, clientID string) (*core.Client, *core.ClientVersion, error)
+			}
+			if cg, ok := any(repo).(clientGetter); ok {
+				if cdb, _, e2 := cg.GetClientByClientID(ctx, req.ClientID); e2 == nil && cdb != nil {
+					clientProviders = append([]string{}, cdb.Providers...)
+					clientScopes = append([]string{}, cdb.Scopes...)
+					fsClient = helpers.FSClient{TenantSlug: req.TenantID, ClientID: cdb.ClientID}
+				} else {
+					httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1102)
+					return
+				}
+			} else {
 				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1102)
 				return
 			}
-			httpx.WriteError(w, http.StatusInternalServerError, "store_error", "error interno", 1500)
-			return
 		}
-		if cl.TenantID != req.TenantID {
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid_tenant", "el client no pertenece al tenant", 1101)
-			return
-		}
-		if !contains(cl.Providers, "password") {
-			httpx.WriteError(w, http.StatusForbidden, "password_disabled_for_client", "el client no permite login por password", 1104)
-			return
+		// Provider gating: if Providers exists and doesn't include password, block
+		if len(clientProviders) > 0 {
+			allowed := false
+			for _, p := range clientProviders {
+				if strings.EqualFold(p, "password") {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "password login deshabilitado para este client", 1104)
+				return
+			}
 		}
 
 		// Blacklist opcional
@@ -110,13 +157,13 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			EmailVerified: false,
 			Metadata:      map[string]any{},
 		}
-		if err := c.Store.CreateUser(ctx, u); err != nil {
+		if err := repo.CreateUser(ctx, u); err != nil {
 			log.Printf("register: create user err: %v", err)
 			httpx.WriteError(w, http.StatusInternalServerError, "register_failed", "no se pudo crear el usuario", 1204)
 			return
 		}
 
-		if err := c.Store.CreatePasswordIdentity(ctx, u.ID, req.Email, false, phc); err != nil {
+		if err := repo.CreatePasswordIdentity(ctx, u.ID, req.Email, false, phc); err != nil {
 			if err == core.ErrConflict {
 				httpx.WriteError(w, http.StatusConflict, "email_taken", "ya existe un usuario con ese email", 1409)
 				return
@@ -133,15 +180,18 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 		}
 
 		// Auto-login + refresh inicial
+		// Scopes placeholder: client default scopes
+		grantedScopes := append([]string{}, clientScopes...)
 		std := map[string]any{
 			"tid": req.TenantID,
 			"amr": []string{"pwd"},
 			"acr": "urn:hellojohn:loa:1",
+			"scp": strings.Join(grantedScopes, " "),
 		}
 		custom := map[string]any{}
 
 		// Hook opcional
-		std, custom = applyAccessClaimsHook(ctx, c, req.TenantID, req.ClientID, u.ID, []string{}, []string{"pwd"}, std, custom)
+		std, custom = applyAccessClaimsHook(ctx, c, req.TenantID, req.ClientID, u.ID, grantedScopes, []string{"pwd"}, std, custom)
 
 		token, exp, err := c.Issuer.IssueAccess(u.ID, req.ClientID, std, custom)
 		if err != nil {
@@ -155,7 +205,7 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			return
 		}
 		// Usar método TC (Tenant+Client) para Phase 3
-		if tcs, ok := c.Store.(interface {
+		if tcs, ok := any(repo).(interface {
 			CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
 		}); ok {
 			rawRT, err = tcs.CreateRefreshTokenTC(ctx, req.TenantID, req.ClientID, u.ID, refreshTTL)
@@ -167,7 +217,7 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 		} else {
 			// Fallback a método viejo (no debería llegar aquí en Phase 3)
 			hash := tokens.SHA256Base64URL(rawRT)
-			if _, err := c.Store.CreateRefreshToken(ctx, u.ID, cl.ID, hash, time.Now().Add(refreshTTL), nil); err != nil {
+			if _, err := repo.CreateRefreshToken(ctx, u.ID, req.ClientID, hash, time.Now().Add(refreshTTL), nil); err != nil {
 				log.Printf("register: create refresh err: %v", err)
 				httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh token", 1203)
 				return

@@ -25,11 +25,15 @@ func (h *adminClientsFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	base := "/v1/admin/clients"
 
-	// Tenant slug: header > query > "local"
+	// Tenant slug: header > query. Accept both slug and id param names. Default "local".
 	slug := "local"
 	if v := r.Header.Get("X-Tenant-Slug"); v != "" {
 		slug = v
+	} else if v := r.Header.Get("X-Tenant-ID"); v != "" {
+		slug = v
 	} else if v := r.URL.Query().Get("tenant"); v != "" {
+		slug = v
+	} else if v := r.URL.Query().Get("tenant_id"); v != "" {
 		slug = v
 	}
 

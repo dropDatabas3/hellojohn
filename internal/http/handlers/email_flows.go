@@ -15,6 +15,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/dropDatabas3/hellojohn/internal/email"
+	httpx "github.com/dropDatabas3/hellojohn/internal/http"
+	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
+	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
 	"github.com/dropDatabas3/hellojohn/internal/security/password"
 	"github.com/dropDatabas3/hellojohn/internal/store"
 )
@@ -52,6 +55,9 @@ type EmailFlowsHandler struct {
 	Auth          CurrentUserProvider
 	Limiter       RateLimiter
 	BlacklistPath string
+
+	// Phase 4.1: per-tenant DB gating for email flows
+	TenantMgr *tenantsql.Manager
 
 	BaseURL        string
 	VerifyTTL      time.Duration
@@ -121,6 +127,19 @@ func (h *EmailFlowsHandler) verifyEmailStart(w http.ResponseWriter, r *http.Requ
 		log.Printf(`{"level":"warn","msg":"verify_start_missing_fields","request_id":"%s"}`, rid)
 		writeErr(w, "missing_fields", "tenant_id and client_id required", http.StatusBadRequest)
 		return
+	}
+
+	// Gate by tenant DB availability (Phase 4.1). If TenantMgr is present, try opening repo.
+	if h.TenantMgr != nil {
+		if _, err := helpers.OpenTenantRepo(r.Context(), h.TenantMgr, in.TenantID.String()); err != nil {
+			// Mirror 501/500 semantics
+			if helpers.IsNoDBForTenant(err) {
+				httpx.WriteTenantDBMissing(w)
+				return
+			}
+			httpx.WriteTenantDBError(w, err.Error())
+			return
+		}
 	}
 
 	if h.rlOr429(w, "verify_start:"+clientIPOrEmpty(r)) {
@@ -281,12 +300,33 @@ func (h *EmailFlowsHandler) forgot(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "invalid_json", "Malformed body", http.StatusBadRequest)
 		return
 	}
+	if h.TenantMgr != nil {
+		if _, err := helpers.OpenTenantRepo(r.Context(), h.TenantMgr, in.TenantID.String()); err != nil {
+			if helpers.IsNoDBForTenant(err) {
+				httpx.WriteTenantDBMissing(w)
+				return
+			}
+			httpx.WriteTenantDBError(w, err.Error())
+			return
+		}
+	}
 	log.Printf(`{"level":"info","msg":"forgot_begin","request_id":"%s","tenant_id":"%s","client_id":"%s","email":"%s","redirect":"%s"}`, rid, in.TenantID, in.ClientID, in.Email, in.Redirect)
 
 	if in.TenantID == uuid.Nil || in.ClientID == "" || in.Email == "" {
 		log.Printf(`{"level":"warn","msg":"forgot_missing_fields","request_id":"%s"}`, rid)
 		writeErr(w, "missing_fields", "tenant_id, client_id, email required", http.StatusBadRequest)
 		return
+	}
+
+	if h.TenantMgr != nil {
+		if _, err := h.TenantMgr.GetPG(r.Context(), in.TenantID.String()); err != nil {
+			if helpers.IsNoDBForTenant(err) {
+				httpx.WriteTenantDBMissing(w)
+				return
+			}
+			httpx.WriteTenantDBError(w, err.Error())
+			return
+		}
 	}
 
 	if h.rlOr429(w, "forgot:"+in.TenantID.String()+":"+strings.ToLower(in.Email)) {
@@ -356,12 +396,34 @@ func (h *EmailFlowsHandler) reset(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "invalid_json", "Malformed body", http.StatusBadRequest)
 		return
 	}
+	// Phase 4.1: per-tenant gating for reset as well
+	if h.TenantMgr != nil {
+		if _, err := helpers.OpenTenantRepo(r.Context(), h.TenantMgr, in.TenantID.String()); err != nil {
+			if helpers.IsNoDBForTenant(err) {
+				httpx.WriteTenantDBMissing(w)
+				return
+			}
+			httpx.WriteTenantDBError(w, err.Error())
+			return
+		}
+	}
 	log.Printf(`{"level":"info","msg":"reset_begin","request_id":"%s","tenant_id":"%s","client_id":"%s"}`, rid, in.TenantID, in.ClientID)
 
 	if in.TenantID == uuid.Nil || in.ClientID == "" || in.Token == "" || in.NewPassword == "" {
 		log.Printf(`{"level":"warn","msg":"reset_missing_fields","request_id":"%s"}`, rid)
 		writeErr(w, "missing_fields", "tenant_id, client_id, token, new_password required", http.StatusBadRequest)
 		return
+	}
+
+	if h.TenantMgr != nil {
+		if _, err := h.TenantMgr.GetPG(r.Context(), in.TenantID.String()); err != nil {
+			if helpers.IsNoDBForTenant(err) {
+				httpx.WriteTenantDBMissing(w)
+				return
+			}
+			httpx.WriteTenantDBError(w, err.Error())
+			return
+		}
 	}
 
 	if h.rlOr429(w, "reset:"+clientIPOrEmpty(r)) {
