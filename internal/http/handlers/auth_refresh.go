@@ -10,10 +10,14 @@ import (
 	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
+	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	"github.com/dropDatabas3/hellojohn/internal/controlplane"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
+	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	jwtv5 "github.com/golang-jwt/jwt/v5"
 )
 
 type RefreshRequest struct {
@@ -59,6 +63,8 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "tenant_id o contexto de tenant requerido", 1002)
 			return
 		}
+		// Resolve UUID too if needed later; source of truth remains RT
+		_, _ = helpers.ResolveTenantSlugAndID(ctx, tenantSlug)
 
 		// 1) Cargar RT como fuente de verdad (por hash). No usar c.Store en runtime.
 		var (
@@ -110,7 +116,9 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 
 		// 3) Si el RT pertenece a otro tenant, reabrir repo por rt.TenantID (RT define el tenant)
 		if !strings.EqualFold(rt.TenantID, tenantSlug) {
-			repo2, e2 := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, rt.TenantID)
+			// rt.TenantID is UUID; open repo by its slug equivalent
+			slug2, _ := helpers.ResolveTenantSlugAndID(ctx, rt.TenantID)
+			repo2, e2 := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, slug2)
 			if e2 != nil {
 				if helpers.IsNoDBForTenant(e2) {
 					httpx.WriteTenantDBMissing(w)
@@ -145,6 +153,15 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 		// Hook + SYS namespace
 		custom := map[string]any{}
 		std, custom = applyAccessClaimsHook(r.Context(), c, rt.TenantID, clientID, rt.UserID, grantedScopes, []string{"refresh"}, std, custom)
+		// Resolver issuer efectivo del tenant (para SYS y firma)
+		effIss := c.Issuer.Iss
+		if cpctx.Provider != nil {
+			// Resolve slug from RT tenant UUID to compute issuer
+			slug2, _ := helpers.ResolveTenantSlugAndID(ctx, rt.TenantID)
+			if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, slug2); errTen == nil && ten != nil {
+				effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+			}
+		}
 		// derivar is_admin + RBAC (Fase 2)
 		if u, err := repo.GetUserByID(r.Context(), rt.UserID); err == nil && u != nil {
 			type rbacReader interface {
@@ -156,10 +173,50 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 				roles, _ = rr.GetUserRoles(r.Context(), rt.UserID)
 				perms, _ = rr.GetUserPermissions(r.Context(), rt.UserID)
 			}
-			custom = helpers.PutSystemClaimsV2(custom, c.Issuer.Iss, u.Metadata, roles, perms)
+			custom = helpers.PutSystemClaimsV2(custom, effIss, u.Metadata, roles, perms)
 		}
 
-		token, exp, err := c.Issuer.IssueAccess(rt.UserID, clientID, std, custom)
+		// Per-tenant signing key (tenant comes from RT)
+		now2 := time.Now().UTC()
+		exp := now2.Add(c.Issuer.AccessTTL)
+		// Keys: por-tenant sólo si el issuer del tenant está en modo Path; caso contrario, global
+		slugForKeys, _ := helpers.ResolveTenantSlugAndID(ctx, rt.TenantID)
+		var (
+			kid  string
+			priv any
+			kerr error
+		)
+		if cpctx.Provider != nil {
+			if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, slugForKeys); errTen == nil && ten != nil && ten.Settings.IssuerMode == controlplane.IssuerModePath {
+				kid, priv, _, kerr = c.Issuer.Keys.ActiveForTenant(slugForKeys)
+			} else {
+				kid, priv, _, kerr = c.Issuer.Keys.Active()
+			}
+		} else {
+			kid, priv, _, kerr = c.Issuer.Keys.Active()
+		}
+		if kerr != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo obtener clave de firma", 1405)
+			return
+		}
+		claims := jwtv5.MapClaims{
+			"iss": effIss,
+			"sub": rt.UserID,
+			"aud": clientID,
+			"iat": now2.Unix(),
+			"nbf": now2.Unix(),
+			"exp": exp.Unix(),
+		}
+		for k, v := range std {
+			claims[k] = v
+		}
+		if custom != nil {
+			claims["custom"] = custom
+		}
+		tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
+		tk.Header["kid"] = kid
+		tk.Header["typ"] = "JWT"
+		token, err := tk.SignedString(priv)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 1405)
 			return
@@ -171,7 +228,7 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 			CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
 		})
 		if tcOk {
-			// Usar método TC para crear el nuevo sobre el mismo tenant del RT
+			// Usar método TC para crear el nuevo sobre el mismo tenant del RT (UUID)
 			rawRT, err = tcCreateStore.CreateRefreshTokenTC(ctx, rt.TenantID, clientID, rt.UserID, refreshTTL)
 			if err != nil {
 				log.Printf("refresh: create new rt TC err: %v", err)

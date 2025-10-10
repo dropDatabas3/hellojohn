@@ -1,11 +1,16 @@
 package handlers
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -123,6 +128,50 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 
 			slug := parts[0]
 
+			// POST /v1/admin/tenants/{slug}/keys/rotate
+			if len(parts) == 3 && parts[1] == "keys" && parts[2] == "rotate" {
+				if r.Method != http.MethodPost {
+					httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo POST", 5060)
+					return
+				}
+				// Verificar tenant existe (404 si no)
+				if _, err := fsProvider.GetTenantBySlug(r.Context(), slug); err != nil {
+					if err == cpfs.ErrTenantNotFound {
+						httpx.WriteError(w, http.StatusNotFound, "tenant_not_found", "tenant no encontrado", 5011)
+						return
+					}
+					httpx.WriteError(w, http.StatusInternalServerError, "get_failed", err.Error(), 5012)
+					return
+				}
+
+				// Leer graceSeconds: query param tiene prioridad, luego ENV KEY_ROTATION_GRACE_SECONDS, default 60
+				var grace int64 = 60
+				if env := strings.TrimSpace(os.Getenv("KEY_ROTATION_GRACE_SECONDS")); env != "" {
+					if v, err := strconv.ParseInt(env, 10, 64); err == nil && v >= 0 {
+						grace = v
+					}
+				}
+				if qs := r.URL.Query().Get("graceSeconds"); qs != "" {
+					if v, err := strconv.ParseInt(qs, 10, 64); err == nil && v >= 0 {
+						grace = v
+					}
+				}
+
+				// Rotar clave por tenant
+				sk, err := c.Issuer.Keys.RotateFor(slug, grace)
+				if err != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "server_error", err.Error(), 5061)
+					return
+				}
+				// invalidar cache de JWKS
+				if c.JWKSCache != nil {
+					c.JWKSCache.Invalidate(slug)
+				}
+				setNoStore(w)
+				httpx.WriteJSON(w, http.StatusOK, map[string]any{"kid": sk.KID})
+				return
+			}
+
 			// PUT /v1/admin/tenants/{slug} -> Upsert tenant (id, slug, settings)
 			if len(parts) == 1 && r.Method == http.MethodPut {
 				var in struct {
@@ -140,6 +189,11 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 				}
 				if !validSlug(in.Slug) || in.Slug != slug {
 					httpx.WriteError(w, http.StatusBadRequest, "invalid_slug", "slug inválido o mismatch con path", 5031)
+					return
+				}
+				// Validar issuerMode (permite vacío como "global").
+				if err := validateIssuerMode(in.Settings.IssuerMode); err != nil {
+					httpx.WriteError(w, http.StatusBadRequest, "invalid_issuer_mode", err.Error(), 5033)
 					return
 				}
 				now := time.Now().UTC()
@@ -184,7 +238,8 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 						return
 					}
 					// First, verify tenant exists in FS; admin over nonexistent tenant -> 404
-					if _, err := fsProvider.GetTenantBySlug(r.Context(), slug); err != nil {
+					t, err := fsProvider.GetTenantBySlug(r.Context(), slug)
+					if err != nil {
 						if err == cpfs.ErrTenantNotFound {
 							httpx.WriteError(w, http.StatusNotFound, "tenant_not_found", "tenant no encontrado", 5011)
 							return
@@ -201,8 +256,11 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 						httpx.WriteTenantDBError(w, err.Error())
 						return
 					}
-					if pingErr := store.Ping(r.Context()); pingErr != nil {
-						httpx.WriteTenantDBError(w, pingErr.Error())
+					// Ejecutar ping bajo el lock (misma conexión)
+					if err := tenantsql.WithTenantMigrationLock(r.Context(), store.Pool(), t.ID, 5*time.Second, func(ctx context.Context) error {
+						return store.Ping(ctx)
+					}); err != nil {
+						httpx.WriteTenantDBError(w, err.Error())
 						return
 					}
 					w.WriteHeader(http.StatusNoContent)
@@ -215,7 +273,8 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 						return
 					}
 					// Verify tenant exists (404 if not)
-					if _, err := fsProvider.GetTenantBySlug(r.Context(), slug); err != nil {
+					t, err := fsProvider.GetTenantBySlug(r.Context(), slug)
+					if err != nil {
 						if err == cpfs.ErrTenantNotFound {
 							httpx.WriteError(w, http.StatusNotFound, "tenant_not_found", "tenant no encontrado", 5011)
 							return
@@ -223,10 +282,35 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 						httpx.WriteError(w, http.StatusInternalServerError, "get_failed", err.Error(), 5012)
 						return
 					}
-					// Nota: GetPG ya corre migraciones on-demand con lock.
-					if _, err := c.TenantSQLManager.GetPG(r.Context(), slug); err != nil {
+					// Short-circuit: if no pending migrations, return 204 immediately
+					if c.TenantSQLManager != nil {
+						if has, herr := c.TenantSQLManager.HasPendingMigrations(r.Context(), t.ID); herr == nil && !has {
+							w.WriteHeader(http.StatusNoContent)
+							return
+						}
+					}
+					// Nota: GetPG ya corre migraciones on-demand con lock; aún así forzamos bajo lock explícito para evitar colisiones externas
+					store, err := c.TenantSQLManager.GetPG(r.Context(), slug)
+					errHandled := false
+					if err != nil {
 						if tenantsql.IsNoDBForTenant(err) {
 							httpx.WriteTenantDBMissing(w)
+							errHandled = true
+						}
+						if !errHandled {
+							httpx.WriteTenantDBError(w, err.Error())
+						}
+						return
+					}
+					if err := tenantsql.WithTenantMigrationLock(r.Context(), store.Pool(), t.ID, 5*time.Second, func(ctx context.Context) error {
+						// Ejecutar migraciones sin re-adquirir lock (ya estamos bajo lock)
+						_, e := tenantsql.RunMigrations(ctx, store.Pool(), "migrations/postgres")
+						return e
+					}); err != nil {
+						// Si fue timeout/contención, devolver 409 con Retry-After (mejor UX que 500)
+						if errors.Is(err, context.DeadlineExceeded) {
+							w.Header().Set("Retry-After", "5")
+							httpx.WriteError(w, http.StatusConflict, "conflict", "migration lock busy, retry later", 2605)
 							return
 						}
 						httpx.WriteTenantDBError(w, err.Error())
@@ -305,6 +389,10 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 						httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "JSON inválido", 5019)
 						return
 					}
+					if err := validateIssuerMode(newSettings.IssuerMode); err != nil {
+						httpx.WriteError(w, http.StatusBadRequest, "invalid_issuer_mode", err.Error(), 5033)
+						return
+					}
 
 					// Actualizar settings (con cifrado automático)
 					if err := fsProvider.UpdateTenantSettings(r.Context(), slug, &newSettings); err != nil {
@@ -369,4 +457,14 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 			return
 		}
 	})
+}
+
+// validateIssuerMode valida el enum aceptando vacío como "global".
+func validateIssuerMode(m controlplane.IssuerMode) error {
+	switch m {
+	case "", controlplane.IssuerModeGlobal, controlplane.IssuerModePath, controlplane.IssuerModeDomain:
+		return nil
+	default:
+		return fmt.Errorf("invalid issuerMode: %q", m)
+	}
 }

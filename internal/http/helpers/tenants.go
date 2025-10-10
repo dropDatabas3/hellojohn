@@ -65,3 +65,22 @@ func IsNoDBForTenant(err error) bool {
 func IsTenantNotFound(err error) bool {
 	return errors.Is(err, tenantsql.ErrTenantNotFound)
 }
+
+// ResolveTenantSlugAndID returns canonical slug and UUID for a given identifier (slug or UUID).
+// If the tenant is unknown, it returns the original identifier for both values.
+func ResolveTenantSlugAndID(ctx context.Context, ident string) (slug, id string) {
+	if cpctx.Provider == nil {
+		return ident, ident
+	}
+	if t, err := cpctx.Provider.GetTenantBySlug(ctx, ident); err == nil && t != nil {
+		return t.Slug, t.ID
+	}
+	if tenants, err := cpctx.Provider.ListTenants(ctx); err == nil {
+		for _, t := range tenants {
+			if t.ID == ident {
+				return t.Slug, t.ID
+			}
+		}
+	}
+	return ident, ident
+}

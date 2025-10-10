@@ -26,14 +26,23 @@ type Tenant struct {
 
 // TenantSettings: branding, SMTP, base de datos del user-plane, políticas, etc.
 type TenantSettings struct {
-	LogoURL      string          `json:"logoUrl,omitempty" yaml:"logoUrl,omitempty"`
-	BrandColor   string          `json:"brandColor,omitempty" yaml:"brandColor,omitempty"`
-	SMTP         *SMTPSettings   `json:"smtp,omitempty" yaml:"smtp,omitempty"`
-	UserDB       *UserDBSettings `json:"userDb,omitempty" yaml:"userDb,omitempty"`
-	Security     *SecurityPolicy `json:"security,omitempty" yaml:"security,omitempty"`
-	IssuerMode   string          `json:"issuerMode,omitempty" yaml:"issuerMode,omitempty"` // futuro: global|per-tenant
-	CustomIssuer string          `json:"customIssuer,omitempty" yaml:"customIssuer,omitempty"`
+	LogoURL        string          `json:"logoUrl,omitempty" yaml:"logoUrl,omitempty"`
+	BrandColor     string          `json:"brandColor,omitempty" yaml:"brandColor,omitempty"`
+	SMTP           *SMTPSettings   `json:"smtp,omitempty" yaml:"smtp,omitempty"`
+	UserDB         *UserDBSettings `json:"userDb,omitempty" yaml:"userDb,omitempty"`
+	Security       *SecurityPolicy `json:"security,omitempty" yaml:"security,omitempty"`
+	IssuerMode     IssuerMode      `json:"issuerMode,omitempty" yaml:"issuerMode,omitempty"`
+	IssuerOverride string          `json:"issuerOverride,omitempty" yaml:"issuerOverride,omitempty"`
 }
+
+// IssuerMode configura cómo se construye el issuer/JWKS por tenant.
+type IssuerMode string
+
+const (
+	IssuerModeGlobal IssuerMode = "global" // default (compat hacia atrás)
+	IssuerModePath   IssuerMode = "path"   // MVP F5: iss = {base}/t/{slug}; jwks = /.well-known/jwks/{slug}.json
+	IssuerModeDomain IssuerMode = "domain" // futuro (no bloquea F5)
+)
 
 // SMTPSettings: credenciales cifradas con secretbox (passwordEnc).
 type SMTPSettings struct {

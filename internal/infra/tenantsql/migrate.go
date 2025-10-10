@@ -2,8 +2,6 @@ package tenantsql
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/binary"
 	"fmt"
 	"log"
 	"os"
@@ -12,46 +10,77 @@ import (
 	"strings"
 	"time"
 
+	"hash/fnv"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// tenantLockID genera un ID único para pg_advisory_lock basado en el tenant slug
-func tenantLockID(slug string) int64 {
-	h := sha256.Sum256([]byte("tenant_migration:" + slug))
-	// Usar los primeros 8 bytes como int64
-	return int64(binary.BigEndian.Uint64(h[:8]))
+// lockIDForTenant genera un ID determinístico (64-bit) a partir del tenantID (UUID preferido)
+func lockIDForTenant(tenantID string) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("hj:migrate:"))
+	_, _ = h.Write([]byte(strings.TrimSpace(tenantID)))
+	return int64(h.Sum64())
 }
 
-// RunMigrationsWithLock ejecuta migraciones con advisory lock para evitar race conditions
-func RunMigrationsWithLock(ctx context.Context, pool *pgxpool.Pool, dir, tenantSlug string) (int, error) {
-	lockID := tenantLockID(tenantSlug)
+// WithTenantMigrationLock adquiere un advisory lock por tenant en la MISMA conexión y lo libera al salir.
+// Ejecuta fn dentro de la sección crítica. Usa tenantID (UUID recomendado) para evitar colisiones por slug.
+func WithTenantMigrationLock(ctx context.Context, pool *pgxpool.Pool, tenantID string, wait time.Duration, fn func(ctx context.Context) error) error {
+	lockID := lockIDForTenant(tenantID)
 
-	// Intentar obtener el advisory lock con timeout
-	lockCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	// 1) tomar una conexión dedicada
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+
+	// 2) establecer timeout de espera
+	if wait <= 0 {
+		wait = 30 * time.Second
+	}
+	lctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 
-	var acquired bool
-	if err := pool.QueryRow(lockCtx, "SELECT pg_try_advisory_lock($1)", lockID).Scan(&acquired); err != nil {
-		return 0, fmt.Errorf("failed to acquire migration lock for tenant %s: %w", tenantSlug, err)
+	// 3) intentar non-blocking primero
+	var got bool
+	if err := conn.QueryRow(lctx, "select pg_try_advisory_lock($1)", lockID).Scan(&got); err != nil {
+		return err
 	}
-
-	if !acquired {
-		log.Printf("Migration lock for tenant %s is already held by another process, waiting...", tenantSlug)
-		// Si no podemos obtener try_lock, usar lock bloqueante con timeout
-		if err := pool.QueryRow(lockCtx, "SELECT pg_advisory_lock($1)", lockID).Scan(&acquired); err != nil {
-			return 0, fmt.Errorf("failed to wait for migration lock for tenant %s: %w", tenantSlug, err)
+	if !got {
+		log.Printf("Migration lock is already held, waiting... (lock_id: %d)", lockID)
+		// 4) bloqueo hasta liberar o timeout
+		if _, err := conn.Exec(lctx, "select pg_advisory_lock($1)", lockID); err != nil {
+			return err
 		}
 	}
 
-	// Asegurar que liberamos el lock al final
+	// 5) siempre liberar al final en la MISMA conexión
 	defer func() {
-		if _, err := pool.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", lockID); err != nil {
-			log.Printf("Warning: failed to release migration lock for tenant %s: %v", tenantSlug, err)
+		if _, err := conn.Exec(context.Background(), "select pg_advisory_unlock($1)", lockID); err != nil {
+			log.Printf("Warning: failed to release migration lock (lock_id: %d): %v", lockID, err)
+		} else {
+			log.Printf("Released migration lock (lock_id: %d)", lockID)
 		}
 	}()
 
-	log.Printf("Acquired migration lock for tenant %s (lock_id: %d)", tenantSlug, lockID)
-	return runMigrationsUnsafe(ctx, pool, dir)
+	log.Printf("Acquired migration lock (lock_id: %d)", lockID)
+	// 6) ejecutar lo crítico
+	return fn(ctx)
+}
+
+// RunMigrationsWithLock (compat) ahora usa WithTenantMigrationLock; el parámetro identifica al tenant
+func RunMigrationsWithLock(ctx context.Context, pool *pgxpool.Pool, dir, tenantIdent string) (int, error) {
+	var applied int
+	err := WithTenantMigrationLock(ctx, pool, tenantIdent, 30*time.Second, func(c context.Context) error {
+		var e error
+		applied, e = runMigrationsUnsafe(c, pool, dir)
+		return e
+	})
+	if err != nil {
+		return 0, err
+	}
+	return applied, nil
 }
 
 // RunMigrations ejecuta todos los *_up.sql del dir (ordenados lexicográficamente)

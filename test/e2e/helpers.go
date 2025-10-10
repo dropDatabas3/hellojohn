@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"testing"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -324,6 +325,12 @@ func decodeJWT(jwt string) (map[string]any, map[string]any, error) {
 	}
 	return hdr, pld, nil
 }
+
+// DecodeJWTUnverified is a small exported wrapper used by some tests to parse header/payload without verifying.
+func DecodeJWTUnverified(_ *testing.T, jwt string) (map[string]any, map[string]any) {
+	h, p, _ := decodeJWT(jwt)
+	return h, p
+}
 func jwtHeaderPayload(jwt string) (map[string]any, map[string]any) {
 	parts := strings.Split(jwt, ".")
 	if len(parts) < 2 {
@@ -335,6 +342,18 @@ func jwtHeaderPayload(jwt string) (map[string]any, map[string]any) {
 	_ = json.Unmarshal(hb, &hdr)
 	_ = json.Unmarshal(pb, &pld)
 	return hdr, pld
+}
+
+// GetKID extracts the kid from a JWT header for tests.
+func GetKID(_ *testing.T, jwt string) string {
+	h, _ := jwtHeaderPayload(jwt)
+	if h == nil {
+		return ""
+	}
+	if s, _ := h["kid"].(string); s != "" {
+		return s
+	}
+	return ""
 }
 func asString(v any) string {
 	if s, ok := v.(string); ok {

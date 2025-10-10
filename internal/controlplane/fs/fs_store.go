@@ -13,6 +13,7 @@ import (
 
 	cp "github.com/dropDatabas3/hellojohn/internal/controlplane"
 	sec "github.com/dropDatabas3/hellojohn/internal/security/secretbox"
+	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 )
 
@@ -71,6 +72,24 @@ func ensureTenantLayout(root string, slug string) error {
 	return os.MkdirAll(dir, 0o755)
 }
 
+// ensureTenantID assigns a UUID to the tenant if it's missing. Returns true if it changed.
+func ensureTenantID(t *cp.Tenant) bool {
+	if t == nil {
+		return false
+	}
+	id := strings.TrimSpace(t.ID)
+	if id == "" {
+		t.ID = uuid.NewString()
+		return true
+	}
+	// If the ID isn't a valid UUID (e.g., legacy files with id=slug), replace it
+	if _, err := uuid.Parse(id); err != nil {
+		t.ID = uuid.NewString()
+		return true
+	}
+	return false
+}
+
 // ===== ControlPlane impl =====
 
 func (p *FSProvider) ListTenants(ctx context.Context) ([]cp.Tenant, error) {
@@ -117,8 +136,12 @@ func (p *FSProvider) GetTenantBySlug(ctx context.Context, slug string) (*cp.Tena
 }
 
 func (p *FSProvider) UpsertTenant(ctx context.Context, t *cp.Tenant) error {
-	if strings.TrimSpace(t.Slug) == "" || strings.TrimSpace(t.ID) == "" || strings.TrimSpace(t.Name) == "" {
-		return fmt.Errorf("%w: tenant id/name/slug required", ErrBadInput)
+	if strings.TrimSpace(t.Slug) == "" || strings.TrimSpace(t.Name) == "" {
+		return fmt.Errorf("%w: tenant name/slug required", ErrBadInput)
+	}
+	// Validar issuer mode (permite vacío como "global")
+	if err := validateIssuerMode(t.Settings.IssuerMode); err != nil {
+		return err
 	}
 	if err := ensureTenantLayout(p.root, t.Slug); err != nil {
 		return err
@@ -127,6 +150,8 @@ func (p *FSProvider) UpsertTenant(ctx context.Context, t *cp.Tenant) error {
 	if t.CreatedAt.IsZero() {
 		t.CreatedAt = now
 	}
+	// Backfill/ensure UUID ID
+	_ = ensureTenantID(t)
 	t.UpdatedAt = now
 	return writeYAML(p.tenantFile(t.Slug), t)
 }
@@ -425,7 +450,7 @@ func (p *FSProvider) UpdateTenantSettings(ctx context.Context, slug string, sett
 		// Si no existe el tenant, creamos uno básico
 		now := time.Now().UTC()
 		tenant = &cp.Tenant{
-			ID:        slug, // usar slug como ID por simplicidad en MVP
+			ID:        uuid.NewString(),
 			Name:      slug,
 			Slug:      slug,
 			CreatedAt: now,
@@ -433,8 +458,15 @@ func (p *FSProvider) UpdateTenantSettings(ctx context.Context, slug string, sett
 		}
 	}
 
+	// Backfill/ensure UUID ID when missing or invalid
+	_ = ensureTenantID(tenant)
+
 	// Cifrar campos sensibles en settings
 	if settings != nil {
+		// Validar issuer mode
+		if err := validateIssuerMode(settings.IssuerMode); err != nil {
+			return err
+		}
 		encryptedSettings := *settings
 
 		// Cifrar SMTP password si viene en plain
@@ -498,4 +530,14 @@ func uniqueStrings(in []string) []string {
 		out = append(out, s)
 	}
 	return out
+}
+
+// ----- validations (local) -----
+func validateIssuerMode(m cp.IssuerMode) error {
+	switch m {
+	case "", cp.IssuerModeGlobal, cp.IssuerModePath, cp.IssuerModeDomain:
+		return nil
+	default:
+		return fmt.Errorf("invalid issuerMode: %q", m)
+	}
 }

@@ -154,6 +154,102 @@ func VerifyJWTWithJWKS(ctx context.Context, baseURL, token, expectedIss, expecte
 	return claims, header, nil
 }
 
+// VerifyWithJWKS verifies only the signature of token against the provided JWKS URL.
+// It does not enforce iss/aud/time claims; intended for negative/positive tests comparing global vs tenant JWKS.
+func VerifyWithJWKS(jwksURL, token string) error {
+	if token == "" {
+		return errors.New("empty token")
+	}
+	header, _, err := splitJWT(token)
+	if err != nil {
+		return fmt.Errorf("parse header: %w", err)
+	}
+	alg, _ := header["alg"].(string)
+	if alg == "" {
+		return fmt.Errorf("missing alg in header")
+	}
+	if !equalsAnyFold(alg, "RS256", "EdDSA") {
+		return fmt.Errorf("unexpected alg %q", alg)
+	}
+	kid, _ := header["kid"].(string)
+
+	// Fetch JWKS
+	req, _ := http.NewRequest(http.MethodGet, jwksURL, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("fetch jwks: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("jwks status=%d", resp.StatusCode)
+	}
+	var jwks struct {
+		Keys []jwk `json:"keys"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+		return fmt.Errorf("decode jwks: %w", err)
+	}
+	if len(jwks.Keys) == 0 {
+		return errors.New("empty JWKS")
+	}
+
+	var candidates []jwk
+	if kid != "" {
+		for _, k := range jwks.Keys {
+			if k.Kid == kid {
+				candidates = append(candidates, k)
+				break
+			}
+		}
+		if len(candidates) == 0 {
+			return fmt.Errorf("kid %q not found in JWKS", kid)
+		}
+	} else {
+		candidates = jwks.Keys
+	}
+
+	keyFunc := func(t *jwt.Token) (any, error) {
+		if t.Method.Alg() != alg {
+			return nil, fmt.Errorf("alg mismatch: token=%s parser=%s", t.Method.Alg(), alg)
+		}
+		var lastErr error
+		for _, k := range candidates {
+			switch {
+			case equalsAnyFold(alg, "RS256") && strings.EqualFold(k.Kty, "RSA"):
+				pk, err := k.asRSAPublicKey()
+				if err != nil {
+					lastErr = err
+					continue
+				}
+				return pk, nil
+			case equalsAnyFold(alg, "EdDSA") && (strings.EqualFold(k.Kty, "OKP") || strings.EqualFold(k.Crv, "Ed25519")):
+				pk, err := k.asEd25519PublicKey()
+				if err != nil {
+					lastErr = err
+					continue
+				}
+				return pk, nil
+			default:
+				lastErr = fmt.Errorf("no compatible key (kty=%s crv=%s) for alg=%s", k.Kty, k.Crv, alg)
+			}
+		}
+		if lastErr == nil {
+			lastErr = errors.New("no candidate key usable")
+		}
+		return nil, lastErr
+	}
+
+	claims := jwt.MapClaims{}
+	parsed, err := jwt.ParseWithClaims(token, claims, keyFunc, jwt.WithValidMethods([]string{"RS256", "EdDSA"}))
+	if err != nil {
+		return fmt.Errorf("parse/verify: %w", err)
+	}
+	if !parsed.Valid {
+		return errors.New("token invalid")
+	}
+	return nil
+}
+
 type jwk struct {
 	Kty string `json:"kty"`
 	Kid string `json:"kid"`

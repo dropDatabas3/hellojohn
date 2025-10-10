@@ -7,7 +7,7 @@ import (
 
 func NewMux(
 	// Core / health
-	jwksHandler stdhttp.Handler,
+	jwksHandler any, // *handlers.JWKSHandler
 	authLoginHandler stdhttp.Handler,
 	authRegisterHandler stdhttp.Handler,
 	authRefreshHandler stdhttp.Handler,
@@ -78,10 +78,20 @@ func NewMux(
 	mux.Handle("/readyz", readyz)
 
 	// JWKS
-	mux.Handle("/.well-known/jwks.json", jwksHandler)
+	if h, ok := jwksHandler.(interface {
+		GetGlobal(stdhttp.ResponseWriter, *stdhttp.Request)
+	}); ok {
+		mux.HandleFunc("/.well-known/jwks.json", h.GetGlobal)
+	}
+	if h, ok := jwksHandler.(interface {
+		GetByTenant(stdhttp.ResponseWriter, *stdhttp.Request)
+	}); ok {
+		mux.HandleFunc("/.well-known/jwks/", h.GetByTenant) // expects /{slug}.json
+	}
 
 	// OIDC Discovery
 	mux.Handle("/.well-known/openid-configuration", oidcDiscovery)
+	// Nota: per-tenant discovery se registra fuera, usando el handler concreto en main
 
 	// OAuth2/OIDC
 	mux.Handle("/oauth2/authorize", oauthAuthorize)

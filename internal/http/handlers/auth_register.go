@@ -9,11 +9,15 @@ import (
 	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
+	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	"github.com/dropDatabas3/hellojohn/internal/controlplane"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
+	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/security/password"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	jwtv5 "github.com/golang-jwt/jwt/v5"
 )
 
 type AuthRegisterRequest struct {
@@ -63,13 +67,16 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 
 		// Primero: resolver client desde FS; si no existe, intentaremos fallback a catálogo DB más adelante.
 		ctx := r.Context()
+
+		// Resolver slug + UUID a partir del identificador provisto
+		tenantSlug, tenantUUID := helpers.ResolveTenantSlugAndID(ctx, req.TenantID)
 		var (
 			fsClient        helpers.FSClient
 			haveFSClient    bool
 			clientProviders []string
 			clientScopes    []string
 		)
-		if fsc, err := helpers.ResolveClientFSBySlug(ctx, req.TenantID, req.ClientID); err == nil {
+		if fsc, err := helpers.ResolveClientFSBySlug(ctx, tenantSlug, req.ClientID); err == nil {
 			fsClient = fsc
 			haveFSClient = true
 			clientProviders = append([]string{}, fsClient.Providers...)
@@ -82,7 +89,7 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			return
 		}
 		var repo core.Repository
-		if rc, err := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, req.TenantID); err != nil {
+		if rc, err := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, tenantSlug); err != nil {
 			// Phase 4: gate by tenant DB. Do not fallback to global store when tenant DB is missing.
 			if helpers.IsTenantNotFound(err) {
 				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "tenant inválido", 2100)
@@ -108,7 +115,7 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 				if cdb, _, e2 := cg.GetClientByClientID(ctx, req.ClientID); e2 == nil && cdb != nil {
 					clientProviders = append([]string{}, cdb.Providers...)
 					clientScopes = append([]string{}, cdb.Scopes...)
-					fsClient = helpers.FSClient{TenantSlug: req.TenantID, ClientID: cdb.ClientID}
+					fsClient = helpers.FSClient{TenantSlug: tenantSlug, ClientID: cdb.ClientID}
 				} else {
 					httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1102)
 					return
@@ -152,7 +159,7 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 		}
 
 		u := &core.User{
-			TenantID:      req.TenantID,
+			TenantID:      tenantUUID,
 			Email:         req.Email,
 			EmailVerified: false,
 			Metadata:      map[string]any{},
@@ -183,7 +190,7 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 		// Scopes placeholder: client default scopes
 		grantedScopes := append([]string{}, clientScopes...)
 		std := map[string]any{
-			"tid": req.TenantID,
+			"tid": tenantUUID,
 			"amr": []string{"pwd"},
 			"acr": "urn:hellojohn:loa:1",
 			"scp": strings.Join(grantedScopes, " "),
@@ -191,9 +198,54 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 		custom := map[string]any{}
 
 		// Hook opcional
-		std, custom = applyAccessClaimsHook(ctx, c, req.TenantID, req.ClientID, u.ID, grantedScopes, []string{"pwd"}, std, custom)
+		std, custom = applyAccessClaimsHook(ctx, c, tenantUUID, req.ClientID, u.ID, grantedScopes, []string{"pwd"}, std, custom)
 
-		token, exp, err := c.Issuer.IssueAccess(u.ID, req.ClientID, std, custom)
+		// Per-tenant issuer + signing key
+		effIss := c.Issuer.Iss
+		if cpctx.Provider != nil {
+			if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil {
+				effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+			}
+		}
+		// Build JWT manually to control iss and key selection
+		now := time.Now().UTC()
+		exp := now.Add(c.Issuer.AccessTTL)
+		var (
+			kid  string
+			priv any
+			kerr error
+		)
+		if cpctx.Provider != nil {
+			if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil && ten.Settings.IssuerMode == controlplane.IssuerModePath {
+				kid, priv, _, kerr = c.Issuer.Keys.ActiveForTenant(tenantSlug)
+			} else {
+				kid, priv, _, kerr = c.Issuer.Keys.Active()
+			}
+		} else {
+			kid, priv, _, kerr = c.Issuer.Keys.Active()
+		}
+		if kerr != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo obtener clave de firma", 1201)
+			return
+		}
+		claims := jwtv5.MapClaims{
+			"iss": effIss,
+			"sub": u.ID,
+			"aud": req.ClientID,
+			"iat": now.Unix(),
+			"nbf": now.Unix(),
+			"exp": exp.Unix(),
+		}
+		for k, v := range std {
+			claims[k] = v
+		}
+		if custom != nil {
+			claims["custom"] = custom
+		}
+		tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
+		tk.Header["kid"] = kid
+		tk.Header["typ"] = "JWT"
+		token, err := tk.SignedString(priv)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 1201)
 			return
@@ -208,7 +260,7 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 		if tcs, ok := any(repo).(interface {
 			CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
 		}); ok {
-			rawRT, err = tcs.CreateRefreshTokenTC(ctx, req.TenantID, req.ClientID, u.ID, refreshTTL)
+			rawRT, err = tcs.CreateRefreshTokenTC(ctx, tenantUUID, req.ClientID, u.ID, refreshTTL)
 			if err != nil {
 				log.Printf("register: create refresh TC err: %v", err)
 				httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh token", 1203)
