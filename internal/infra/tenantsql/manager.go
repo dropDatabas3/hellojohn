@@ -215,7 +215,14 @@ func (m *Manager) createStore(ctx context.Context, slug string) (*pg.Store, erro
 	}
 
 	start := time.Now()
-	applied, err := RunMigrationsWithLock(ctx, store.Pool(), m.migrationsDir, slug)
+	// Preferir tenantID UUID si está disponible desde el control-plane; fallback al slug
+	tenantID := slug
+	if cpctx.Provider != nil {
+		if t, terr := cpctx.Provider.GetTenantBySlug(ctx, slug); terr == nil && t != nil && strings.TrimSpace(t.ID) != "" {
+			tenantID = t.ID
+		}
+	}
+	applied, err := RunMigrationsWithLock(ctx, store.Pool(), m.migrationsDir, tenantID)
 	migrationDuration := time.Since(start)
 
 	if err != nil {
@@ -240,6 +247,57 @@ func (m *Manager) createStore(ctx context.Context, slug string) (*pg.Store, erro
 
 	log.Printf(`{"level":"info","msg":"tenant_pg_pool_ready","tenant":"%s","max_conns":%d}`, slug, m.poolCfg.MaxOpenConns)
 	return store, nil
+}
+
+// HasPendingMigrations returns whether the tenant likely has pending migrations.
+// Heuristic MVP: if the critical table from 0001_init (app_user) exists, assume no pending.
+// Accepts either tenant slug or UUID; resolves to slug when needed.
+func (m *Manager) HasPendingMigrations(ctx context.Context, ident string) (bool, error) {
+	// Resolve ident -> slug if needed
+	slug := strings.TrimSpace(ident)
+	if slug == "" {
+		slug = "local"
+	}
+	if cpctx.Provider != nil {
+		if _, err := cpctx.Provider.GetTenantBySlug(ctx, slug); err != nil {
+			// Try map UUID->slug
+			if tenants, lerr := cpctx.Provider.ListTenants(ctx); lerr == nil {
+				for _, t := range tenants {
+					if t.ID == ident {
+						slug = t.Slug
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// Resolve connection using the configured resolver (no migrations)
+	conn, err := m.resolver(ctx, slug)
+	if err != nil {
+		return false, err
+	}
+	if conn == nil || strings.TrimSpace(conn.DSN) == "" {
+		return false, ErrNoDBForTenant
+	}
+
+	// Open a transient, tiny pool; do not cache it in Manager
+	store, err := pg.New(ctx, conn.DSN, struct {
+		MaxOpenConns, MaxIdleConns int
+		ConnMaxLifetime            string
+	}{MaxOpenConns: 1, MaxIdleConns: 0, ConnMaxLifetime: "1m"})
+	if err != nil {
+		return false, err
+	}
+	defer store.Close()
+
+	// Check existence of a critical table from 0001_init_up.sql
+	var exists bool
+	if err := store.Pool().QueryRow(ctx, "select to_regclass('app_user') is not null").Scan(&exists); err != nil {
+		return false, err
+	}
+	// If exists -> assume no pending; else -> pending
+	return !exists, nil
 }
 
 // PoolCount retorna el número de pools activos.

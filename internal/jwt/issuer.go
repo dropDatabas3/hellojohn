@@ -3,8 +3,11 @@ package jwt
 import (
 	"crypto/ed25519"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
+	"github.com/dropDatabas3/hellojohn/internal/controlplane"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 )
 
@@ -117,10 +120,8 @@ func (i *Issuer) IssueIDToken(sub, aud string, std map[string]any, extra map[str
 	for k, v := range std {
 		claims[k] = v
 	}
-	if extra != nil {
-		for k, v := range extra {
-			claims[k] = v
-		}
+	for k, v := range extra {
+		claims[k] = v
 	}
 
 	tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
@@ -158,4 +159,26 @@ func (i *Issuer) SignEdDSA(claims map[string]any) (string, error) {
 	}
 	signed, _, err := i.SignRaw(mc)
 	return signed, err
+}
+
+// ResolveIssuer construye el issuer efectivo por tenant según settings del control-plane.
+// - Si override no está vacío, lo usa tal cual (sin trailing slash)
+// - Path:   {base}/t/{slug}
+// - Domain: futuro (por ahora igual que Path)
+// - Global: base
+func ResolveIssuer(baseURL string, mode controlplane.IssuerMode, tenantSlug, override string) string {
+	if override != "" {
+		return strings.TrimRight(override, "/")
+	}
+	base := strings.TrimRight(baseURL, "/")
+	switch mode {
+	case controlplane.IssuerModePath:
+		return fmt.Sprintf("%s/t/%s", base, tenantSlug)
+	case controlplane.IssuerModeDomain:
+		// futuro: slug subdominio (requiere DNS)
+		// return fmt.Sprintf("https://%s.%s", tenantSlug, strings.TrimPrefix(base, "https://"))
+		return fmt.Sprintf("%s/t/%s", base, tenantSlug) // por ahora
+	default:
+		return base // global
+	}
 }

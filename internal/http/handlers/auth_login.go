@@ -10,12 +10,16 @@ import (
 	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
+	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/config"
+	"github.com/dropDatabas3/hellojohn/internal/controlplane"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
+	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
 	"github.com/dropDatabas3/hellojohn/internal/util"
+	jwtv5 "github.com/golang-jwt/jwt/v5"
 )
 
 type AuthLoginRequest struct {
@@ -114,6 +118,9 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		// Debug: check container
 		log.Printf("DEBUG: container=%v, tenantSQLMgr=%v", c != nil, c != nil && c.TenantSQLManager != nil)
 
+		// Resolver slug + UUID del tenant
+		tenantSlug, tenantUUID := helpers.ResolveTenantSlugAndID(ctx, req.TenantID)
+
 		// Primero: resolver client desde FS. Si falla, devolver 401 invalid_client y no abrir DB.
 		// Resolve client. Prefer FS control-plane; if unavailable, we'll try DB client catalog later only if repo opens.
 		var (
@@ -122,7 +129,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			clientProviders []string
 			haveFSClient    bool
 		)
-		if fsc, err := helpers.ResolveClientFSBySlug(ctx, req.TenantID, req.ClientID); err == nil {
+		if fsc, err := helpers.ResolveClientFSBySlug(ctx, tenantSlug, req.ClientID); err == nil {
 			fsClient = fsc
 			clientScopes = append([]string{}, fsClient.Scopes...)
 			clientProviders = append([]string{}, fsClient.Providers...)
@@ -136,7 +143,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "tenant manager not initialized", 1004)
 			return
 		}
-		if rc, err := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, req.TenantID); err != nil {
+		if rc, err := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, tenantSlug); err != nil {
 			// Phase 4: gate by tenant DB. No fallback to global store in FS-only mode.
 			if helpers.IsTenantNotFound(err) {
 				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "tenant inválido", 2100)
@@ -195,7 +202,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 					clientScopes = append([]string{}, cdb.Scopes...)
 					clientProviders = append([]string{}, cdb.Providers...)
 					// synthesize minimal fsClient for downstream fields if needed
-					fsClient = helpers.FSClient{TenantSlug: req.TenantID, ClientID: cdb.ClientID}
+					fsClient = helpers.FSClient{TenantSlug: tenantSlug, ClientID: cdb.ClientID}
 				} else {
 					httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1203)
 					return
@@ -223,11 +230,11 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		}
 
 		// Debug: before repo call
-		log.Printf("DEBUG: calling GetUserByEmail with tenant=%s, email=%s", req.TenantID, util.MaskEmail(req.Email))
+		log.Printf("DEBUG: calling GetUserByEmail with tenant_id=%s, email=%s", tenantUUID, util.MaskEmail(req.Email))
 
 		// ctx ya está definido con timeout arriba
 		repo, _ := helpers.GetTenantRepo(ctx)
-		u, id, err := repo.GetUserByEmail(ctx, req.TenantID, req.Email)
+		u, id, err := repo.GetUserByEmail(ctx, tenantUUID, req.Email)
 		if err != nil {
 			status := http.StatusInternalServerError
 			if err == core.ErrNotFound {
@@ -305,7 +312,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		// Scopes placeholder: grant client default scopes for now (Phase 4 minimal)
 		grantedScopes := append([]string{}, clientScopes...)
 		std := map[string]any{
-			"tid": req.TenantID,
+			"tid": tenantUUID,
 			"amr": amrSlice,
 			"acr": acrVal,
 			"scp": strings.Join(grantedScopes, " "),
@@ -313,7 +320,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		custom := map[string]any{}
 
 		// Hook opcional (CEL/webhook/etc.)
-		std, custom = applyAccessClaimsHook(ctx, c, req.TenantID, req.ClientID, u.ID, grantedScopes, amrSlice, std, custom)
+		std, custom = applyAccessClaimsHook(ctx, c, tenantUUID, req.ClientID, u.ID, grantedScopes, amrSlice, std, custom)
 
 		// ── RBAC (Fase 2): roles/perms opcionales si el repo per-tenant los implementa
 		type rbacReader interface {
@@ -325,9 +332,57 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			roles, _ = repoRR.GetUserRoles(ctx, u.ID)
 			perms, _ = repoRR.GetUserPermissions(ctx, u.ID)
 		}
-		custom = helpers.PutSystemClaimsV2(custom, c.Issuer.Iss, u.Metadata, roles, perms)
+		// issuer se ajusta más abajo según tenant
 
-		token, exp, err := c.Issuer.IssueAccess(u.ID, req.ClientID, std, custom)
+		// Resolver issuer efectivo por tenant y firmar con clave del tenant si existe
+		effIss := c.Issuer.Iss
+		if cpctx.Provider != nil {
+			if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil {
+				effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+			}
+		}
+		// Actualizar system claims con el issuer efectivo
+		custom = helpers.PutSystemClaimsV2(custom, effIss, u.Metadata, roles, perms)
+
+		now := time.Now().UTC()
+		exp := now.Add(c.Issuer.AccessTTL)
+		var (
+			kid  string
+			priv any
+			kerr error
+		)
+		// Elegir clave según modo del issuer: Path => por tenant; Global/Default => global
+		if cpctx.Provider != nil {
+			if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil && ten.Settings.IssuerMode == controlplane.IssuerModePath {
+				kid, priv, _, kerr = c.Issuer.Keys.ActiveForTenant(tenantSlug)
+			} else {
+				kid, priv, _, kerr = c.Issuer.Keys.Active()
+			}
+		} else {
+			kid, priv, _, kerr = c.Issuer.Keys.Active()
+		}
+		if kerr != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo obtener clave de firma", 1204)
+			return
+		}
+		claims := jwtv5.MapClaims{
+			"iss": effIss,
+			"sub": u.ID,
+			"aud": req.ClientID,
+			"iat": now.Unix(),
+			"nbf": now.Unix(),
+			"exp": exp.Unix(),
+		}
+		for k, v := range std {
+			claims[k] = v
+		}
+		if custom != nil {
+			claims["custom"] = custom
+		}
+		tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
+		tk.Header["kid"] = kid
+		tk.Header["typ"] = "JWT"
+		token, err := tk.SignedString(priv)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 1204)
 			return
@@ -342,7 +397,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			return
 		}
 
-		rawRT, err := tcStore.CreateRefreshTokenTC(ctx, req.TenantID, req.ClientID, u.ID, refreshTTL)
+		rawRT, err := tcStore.CreateRefreshTokenTC(ctx, tenantUUID, req.ClientID, u.ID, refreshTTL)
 		if err != nil {
 			log.Printf("login: create refresh err: %v", err)
 			httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1206)

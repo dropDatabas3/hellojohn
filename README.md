@@ -8,6 +8,96 @@ Autenticación unificada (password, OAuth2/OIDC, social Google, MFA TOTP), gesti
 
 ---
 
+## Issuer/JWKS por tenant (Fase 5)
+
+Objetivo: cada tenant emite tokens con su propio iss y su propio JWKS.
+
+Modos:
+- global (default, compat): iss = {baseURL}, .well-known/jwks.json global.
+- path (MVP F5): iss = {baseURL}/t/{slug}, jwks_uri = {baseURL}/.well-known/jwks/{slug}.json.
+
+### Activación por tenant
+
+```bash
+# Habilitar modo path para el tenant acme
+curl -sS -H "X-Admin-API-Key: dev-key" -H "If-Match: *" \
+  -X PUT "$BASE/v1/admin/tenants/acme" \
+  -d '{"slug":"acme","settings":{"issuerMode":"path"}}' | jq .settings.issuerMode
+```
+
+### Discovery por tenant
+
+```bash
+curl -s "$BASE/t/acme/.well-known/openid-configuration" | jq '{issuer,jwks_uri,authorization_endpoint,token_endpoint}'
+# -> issuer:   {base}/t/acme
+# -> jwks_uri: {base}/.well-known/jwks/acme.json
+```
+
+Los endpoints authorize/token/userinfo se mantienen globales por compatibilidad.
+
+### JWKS
+
+```bash
+# Por tenant
+curl -s "$BASE/.well-known/jwks/acme.json" | jq -r '.keys[].kid'
+
+# Global (compat)
+curl -s "$BASE/.well-known/jwks.json" | jq -r '.keys[].kid'
+```
+
+### Emisión y verificación
+
+```bash
+# Login en acme -> iss por tenant + kid del tenant
+TOK=$(curl -s -X POST "$BASE/v1/auth/login" \
+  -d '{"tenantId":"acme","clientId":"web-frontend","email":"u@acme.test","password":"Passw0rd!"}' \
+  | jq -r .access_token)
+
+python - <<'PY'
+import os,jwt
+t=os.environ["TOK"]; h=jwt.get_unverified_header(t); p=jwt.decode(t, options={"verify_signature":False})
+print("kid:",h.get("kid")); print("iss:",p.get("iss"))
+PY
+```
+
+### Rotación de claves por tenant
+
+```bash
+# Rota la clave del tenant (mantiene ventana de gracia para validar tokens viejos)
+curl -s -H "X-Admin-API-Key: dev-key" \
+  -X POST "$BASE/v1/admin/tenants/acme/keys/rotate" | jq .
+
+# Durante la gracia, JWKS del tenant incluye old+new kid
+curl -s "$BASE/.well-known/jwks/acme.json" | jq -r '.keys[].kid'
+```
+
+Notas de seguridad:
+
+- Cache-Control: no-store en .well-known y flujos sensibles.
+- Los JWKS y la firma usan llaves aisladas por tenant en modo path.
+- Rotación con ventana de gracia configurable.
+
+---
+
+### Config – ejemplo (opcional)
+
+Agregar ejemplo en configs/config.example.yaml o en README:
+
+```yaml
+# Admin API (MVP)
+ADMIN_API_ENABLED: true
+ADMIN_API_KEY: dev-key
+
+# Fase 5: rotación
+KEY_ROTATION_GRACE_SECONDS: 60
+
+# Ejemplo de tenant (control-plane FS) con issuerMode path:
+# data/hellojohn/tenants/acme/tenant.yaml
+# slug: acme
+# settings:
+#   issuerMode: path
+#   # issuerOverride: ""   # reservado futuro (domain/override)
+```
 ## Índice
 - [1. Introducción](#1-introducción)
 - [2. Características](#2-características)

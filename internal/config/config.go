@@ -167,6 +167,9 @@ type Config struct {
 			AllowedClients []string `yaml:"allowed_clients"`
 		} `yaml:"google"`
 	} `yaml:"providers"`
+
+	// Key rotation grace window for exposing both old (retiring) and new (active) keys
+	KeyRotationGraceSeconds int `yaml:"key_rotation_grace_seconds" json:"keyRotationGraceSeconds"`
 }
 
 func Load(path string) (*Config, error) {
@@ -274,6 +277,11 @@ func Load(path string) (*Config, error) {
 		c.Providers.LoginCodeTTL = 60 * time.Second
 	}
 
+	// Key rotation grace default
+	if c.KeyRotationGraceSeconds == 0 {
+		c.KeyRotationGraceSeconds = 60
+	}
+
 	// validate string durations
 	if c.Storage.Postgres.ConnMaxLifetime != "" {
 		if _, err := time.ParseDuration(c.Storage.Postgres.ConnMaxLifetime); err != nil {
@@ -329,6 +337,11 @@ func Load(path string) (*Config, error) {
 
 	// Overrides por env + salvaguarda prod
 	c.applyEnvOverrides()
+
+	// Optional override for rotation grace via env (KEY_ROTATION_GRACE_SECONDS)
+	if v, ok := getEnvInt("KEY_ROTATION_GRACE_SECONDS"); ok {
+		c.KeyRotationGraceSeconds = v
+	}
 
 	// Validation
 	if err := c.Validate(); err != nil {

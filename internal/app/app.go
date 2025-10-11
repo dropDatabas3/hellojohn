@@ -16,6 +16,7 @@ type Container struct {
 	Store          core.Repository
 	Issuer         *jwtx.Issuer
 	Cache          cache.Cache
+	JWKSCache      *jwtx.JWKSCache
 	Stores         *store.Stores                 // wrapper opcional con Close()
 	ScopesConsents core.ScopesConsentsRepository // puede ser nil si driver != postgres
 

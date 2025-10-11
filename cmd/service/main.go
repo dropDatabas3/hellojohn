@@ -16,6 +16,8 @@ import (
 	"github.com/joho/godotenv"
 	promhttp "github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"encoding/json"
+
 	"github.com/dropDatabas3/hellojohn/internal/app"
 	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/config"
@@ -566,7 +568,14 @@ func main() {
 		if !ok {
 			log.Fatalf("signing keys: se esperaba Postgres store")
 		}
-		ks = jwtx.NewPersistentKeystore(ctx, pgRepo)
+		// Usar un store híbrido: global desde PG, por-tenant desde FS para asegurar aislamiento
+		keysDir := filepath.Join(cfg.ControlPlane.FSRoot, "keys")
+		fileStore, err := jwtx.NewFileSigningKeyStore(keysDir)
+		if err != nil {
+			log.Fatalf("create file signing keystore: %v", err)
+		}
+		hybrid := jwtx.NewHybridSigningKeyStore(pgRepo, fileStore)
+		ks = jwtx.NewPersistentKeystore(ctx, hybrid)
 	} else {
 		// FS-only: usar FileSigningKeyStore para persistencia
 		keysDir := filepath.Join(cfg.ControlPlane.FSRoot, "keys")
@@ -630,7 +639,31 @@ func main() {
 		sessionTTL = 12 * time.Hour
 	}
 
-	jwksHandler := handlers.NewJWKSHandler(&container)
+	// JWKS per-tenant cache (15s TTL), loader delegates to keystore per-tenant JWKS
+	container.JWKSCache = jwtx.NewJWKSCache(15*time.Second, func(tenant string) (json.RawMessage, error) {
+		if strings.TrimSpace(tenant) == "" || strings.EqualFold(tenant, "global") {
+			b, err := issuer.Keys.JWKSJSON()
+			if err != nil {
+				return nil, err
+			}
+			return json.RawMessage(b), nil
+		}
+		// Intentar JWKS por tenant; si no existe, forzar bootstrap generando una clave activa primero
+		if b, err := issuer.Keys.JWKSJSONForTenant(tenant); err == nil {
+			return json.RawMessage(b), nil
+		}
+		// bootstrap: solicitar clave activa por tenant (forzará creación en FS store)
+		if _, _, _, err := issuer.Keys.ActiveForTenant(tenant); err != nil {
+			return nil, err
+		}
+		b2, err2 := issuer.Keys.JWKSJSONForTenant(tenant)
+		if err2 != nil {
+			return nil, err2
+		}
+		return json.RawMessage(b2), nil
+	})
+
+	jwksHandler := handlers.NewJWKSHandler(container.JWKSCache)
 	authLoginHandler := handlers.NewAuthLoginHandler(&container, cfg, refreshTTL)
 	authRegisterHandler := handlers.NewAuthRegisterHandler(&container, cfg.Register.AutoLogin, refreshTTL, cfg.Security.PasswordBlacklistPath)
 	authRefreshHandler := handlers.NewAuthRefreshHandler(&container, refreshTTL)
@@ -712,6 +745,7 @@ func main() {
 	readyzHandler := handlers.NewReadyzHandler(&container, redisPing)
 
 	oidcDiscoveryHandler := handlers.NewOIDCDiscoveryHandler(&container)
+	tenantOIDCDiscoveryHandler := handlers.NewTenantOIDCDiscoveryHandler(&container)
 	oauthAuthorizeHandler := handlers.NewOAuthAuthorizeHandler(&container, cfg.Auth.Session.CookieName, cfg.Auth.AllowBearerSession)
 	oauthTokenHandler := handlers.NewOAuthTokenHandler(&container, refreshTTL)
 	userInfoHandler := handlers.NewUserInfoHandler(&container)
@@ -861,6 +895,10 @@ func main() {
 
 	// Register /metrics route
 	mux.Handle("/metrics", promhttp.Handler())
+
+	// Per-tenant OIDC Discovery (MVP compatible):
+	// Keep global endpoints; expose issuer/jwks per-tenant under /t/{slug}/.well-known/openid-configuration
+	mux.Handle("/t/", tenantOIDCDiscoveryHandler) // handler validates the exact suffix
 
 	// Rutas Google (solo si está habilitado)
 	if googleStart != nil {
