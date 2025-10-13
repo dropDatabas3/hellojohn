@@ -288,20 +288,32 @@ Salud:
 ### 8.1 Administración (JWT admin)
 API base `/v1/admin/*` protegida por RequireAuth + RequireSysAdmin (ver sección 9).
 
-Scopes & Consents introducen persistencia dinámica de permisos por usuario/cliente, con validación estricta y borrado seguro.
+En la fase 5 se consolidó el layout per‑tenant para CRUD de Tenants, Clients y Scopes bajo `/v1/admin/tenants/{slug}`:
+
+- Tenants
+  - GET `/v1/admin/tenants/{slug}` → obtiene tenant
+  - PUT `/v1/admin/tenants/{slug}` → crea/actualiza tenant (idempotente)
+
+- Clients por tenant
+  - GET `/v1/admin/tenants/{slug}/clients` → lista
+  - PUT `/v1/admin/tenants/{slug}/clients/{client_id}` → upsert (public/confidential)
+  - DELETE `/v1/admin/tenants/{slug}/clients/{client_id}` → delete o revoca sesiones si `?soft=true`
+
+- Scopes por tenant
+  - GET `/v1/admin/tenants/{slug}/scopes` → lista
+  - PUT `/v1/admin/tenants/{slug}/scopes` → reemplazo/merge de catálogo (validación regex/minúsculas)
+
+- User‑store por tenant (DB de usuarios):
+  - POST `/v1/admin/tenants/{slug}/user-store/test-connection`
+  - POST `/v1/admin/tenants/{slug}/user-store/migrate`
+
+- Rotación de claves por tenant
+  - POST `/v1/admin/tenants/{slug}/keys/rotate` → mueve active→retiring (grace), crea nueva active
+
+Consents y RBAC se mantienen bajo `/v1/admin/*` (globales respecto al issuer actual) y siguen las mismas reglas documentadas:
 
 | Método | Path | Descripción | Notas |
 |--------|------|-------------|-------|
-| GET | /v1/admin/clients?tenant_id= | Lista clientes por tenant | Filtro `q` opcional |
-| POST | /v1/admin/clients | Crea cliente | Requiere tenant_id, client_id, name, client_type |
-| GET | /v1/admin/clients/{id} | Obtiene cliente + versión activa | id UUID |
-| PUT | /v1/admin/clients/{id} | Actualiza (sin cambiar client_id) | 204 |
-| DELETE | /v1/admin/clients/{id}?soft=true | Elimina o solo revoca sesiones | Revoca refresh antes |
-| POST | /v1/admin/clients/{id}/revoke | Revoca todas las sesiones del cliente | Idempotente |
-| GET | /v1/admin/scopes?tenant_id= | Lista scopes | Orden alfabético |
-| POST | /v1/admin/scopes | Crea scope | Valida regex/minúsculas, 409 si existe |
-| PUT | /v1/admin/scopes/{id} | Actualiza descripción | No renombra |
-| DELETE | /v1/admin/scopes/{id} | Elimina si no está en uso | 409 si en uso |
 | POST | /v1/admin/consents/upsert | Inserta o amplía consentimiento | Acepta client_id público o UUID |
 | GET | /v1/admin/consents?user_id=&client_id=&active_only= | Filtra consentimientos | user+client ⇒ 0..1 |
 | GET | /v1/admin/consents/by-user/{userID} | Lista consentimientos de usuario | `active_only` opcional |
