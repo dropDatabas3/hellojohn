@@ -5,14 +5,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/dropDatabas3/hellojohn/internal/app"
 	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
-	"github.com/dropDatabas3/hellojohn/internal/claims"
+	claimsNS "github.com/dropDatabas3/hellojohn/internal/claims"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
+	jwtv5 "github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 type clientBasicAuth interface {
@@ -64,20 +64,33 @@ func NewOAuthIntrospectHandler(c *app.Container, auth clientBasicAuth) http.Hand
 			return
 		}
 
-		// Caso 2: access JWT firmado (EdDSA). Validar firma per-tenant sin fijar issuer y luego comparar issuer.
-		tclaims, err := jwtx.ParseEdDSA(tok, c.Issuer.Keys, "")
-		if err != nil {
+		// Caso 2: access JWT firmado (EdDSA).
+		// Validar firma per-tenant (derivar tenant desde claims/iss) y luego comparar issuer esperado.
+		parsed, err := jwtv5.Parse(tok, c.Issuer.KeyfuncFromTokenClaims(), jwtv5.WithValidMethods([]string{"EdDSA"}))
+		if err != nil || !parsed.Valid {
 			httpx.WriteJSON(w, http.StatusOK, map[string]any{"active": false})
 			return
 		}
-		expF, _ := tclaims["exp"].(float64)
-		iatF, _ := tclaims["iat"].(float64)
-		amr, _ := tclaims["amr"].([]any)
-		sub, _ := tclaims["sub"].(string)
-		clientID, _ := tclaims["aud"].(string)
-		scopeRaw, _ := tclaims["scope"].(string)
-		tid, _ := tclaims["tid"].(string)
-		acr, _ := tclaims["acr"].(string)
+		claims, ok := parsed.Claims.(jwtv5.MapClaims)
+		if !ok {
+			httpx.WriteJSON(w, http.StatusOK, map[string]any{"active": false})
+			return
+		}
+
+		expF, _ := claims["exp"].(float64)
+		iatF, _ := claims["iat"].(float64)
+		amr, _ := claims["amr"].([]any)
+		sub, _ := claims["sub"].(string)
+		clientID, _ := claims["aud"].(string)
+		// Aceptar tanto "scope" como "scp" (espacio-separado)
+		scopeRaw, _ := claims["scope"].(string)
+		if scopeRaw == "" {
+			if scp, ok := claims["scp"].(string); ok {
+				scopeRaw = scp
+			}
+		}
+		tid, _ := claims["tid"].(string)
+		acr, _ := claims["acr"].(string)
 		var scope []string
 		if scopeRaw != "" {
 			scope = strings.Fields(scopeRaw)
@@ -88,6 +101,28 @@ func NewOAuthIntrospectHandler(c *app.Container, auth clientBasicAuth) http.Hand
 		for _, v := range amr {
 			if s, ok := v.(string); ok {
 				amrVals = append(amrVals, s)
+			}
+		}
+
+		// Verificar que el issuer del token coincida con el esperado para el slug derivado de iss (modo path)
+		if iss, ok := claims["iss"].(string); ok && iss != "" && cpctx.Provider != nil {
+			parts := strings.Split(strings.Trim(iss, "/"), "/")
+			slug := ""
+			for i := 0; i < len(parts)-1; i++ {
+				if parts[i] == "t" && i+1 < len(parts) {
+					slug = parts[i+1]
+				}
+			}
+			if slug == "" && len(parts) > 0 {
+				slug = parts[len(parts)-1]
+			}
+			if slug != "" {
+				if ten, err := cpctx.Provider.GetTenantBySlug(r.Context(), slug); err == nil && ten != nil {
+					expected := jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+					if expected != iss {
+						active = false
+					}
+				}
 			}
 		}
 
@@ -106,43 +141,20 @@ func NewOAuthIntrospectHandler(c *app.Container, auth clientBasicAuth) http.Hand
 			resp["acr"] = acr
 		}
 		// Opcional: introspection puede incluir jti, iss, etc., si existen.
-		if jti, ok := tclaims["jti"].(string); ok {
+		if jti, ok := claims["jti"].(string); ok {
 			resp["jti"] = jti
 		}
-		if iss, ok := tclaims["iss"].(string); ok {
+		if iss, ok := claims["iss"].(string); ok {
 			resp["iss"] = iss
-			// Verificar que el issuer coincida con el esperado del tenant (derivado del propio iss)
-			if cpctx.Provider != nil {
-				parts := strings.Split(strings.Trim(iss, "/"), "/")
-				slug := ""
-				for i := 0; i < len(parts)-1; i++ {
-					if parts[i] == "t" && i+1 < len(parts) {
-						slug = parts[i+1]
-					}
-				}
-				if slug == "" && len(parts) > 0 {
-					slug = parts[len(parts)-1]
-				}
-				if slug != "" {
-					if ten, err := cpctx.Provider.GetTenantBySlug(r.Context(), slug); err == nil && ten != nil {
-						expected := jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
-						if expected != iss {
-							httpx.WriteJSON(w, http.StatusOK, map[string]any{"active": false})
-							return
-						}
-					}
-				}
-			}
 		}
 
 		// Si ?include_sys=1, exponemos roles/perms del namespace de sistema cuando el token está activo.
 		if active {
 			if v := r.URL.Query().Get("include_sys"); v == "1" || strings.EqualFold(v, "true") {
 				var roles, perms []string
-
-				if m, ok := tclaims["custom"].(map[string]any); ok {
+				if m, ok := claims["custom"].(map[string]any); ok {
 					// 1) clave recomendada (namespace de sistema)
-					if sys, ok := m[claims.SystemNamespace(c.Issuer.Iss)].(map[string]any); ok {
+					if sys, ok := m[claimsNS.SystemNamespace(c.Issuer.Iss)].(map[string]any); ok {
 						if rr, ok := sys["roles"].([]any); ok {
 							for _, it := range rr {
 								if s, ok := it.(string); ok && s != "" {
@@ -183,14 +195,15 @@ func NewOAuthIntrospectHandler(c *app.Container, auth clientBasicAuth) http.Hand
 						}
 					}
 				}
-
 				resp["roles"] = roles
 				resp["perms"] = perms
 			}
 		}
-		// Validación ligera de formato UUID en sub si parece UUID.
+
+		// Validación ligera de formato UUID en sub si parece UUID (no aborta en error)
 		if _, err := uuid.Parse(sub); err != nil { /* ignore */
 		}
+
 		httpx.WriteJSON(w, http.StatusOK, resp)
 	}
 }

@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/controlplane"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 // Issuer firma tokens usando la clave activa del keystore persistente.
@@ -284,36 +286,57 @@ func (i *Issuer) KeyfuncFromTokenClaims() jwtv5.Keyfunc {
 		if kid == "" {
 			return nil, errors.New("kid_missing")
 		}
-		// Intentar leer tid
-		var tenant string
+
+		// Derivar el slug del tenant preferentemente desde el issuer (modo path),
+		// y como alternativa mapear tid (UUID) -> slug vía el control-plane.
+		var tenantSlug string
 		if mc, ok := t.Claims.(jwtv5.MapClaims); ok {
-			if v, ok2 := mc["tid"].(string); ok2 && v != "" {
-				tenant = v
-			} else if issRaw, ok3 := mc["iss"].(string); ok3 && issRaw != "" {
-				// Si el issuer es path-mode .../t/{slug}, intentar extraer el slug final
+			// 1) Intentar desde iss: .../t/{slug}
+			if issRaw, okIss := mc["iss"].(string); okIss && issRaw != "" {
 				if u, err := url.Parse(issRaw); err == nil {
-					// ruta como /.../t/{slug}
 					parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-					// Buscar patrón "t/{slug}" al final
 					for idx := 0; idx < len(parts)-1; idx++ {
 						if parts[idx] == "t" && idx+1 < len(parts) {
-							tenant = parts[idx+1]
+							tenantSlug = parts[idx+1]
 						}
 					}
 				}
-				if tenant == "" {
+				if tenantSlug == "" {
 					// Fallback: última parte del path
 					segs := strings.Split(strings.Trim(issRaw, "/"), "/")
 					if len(segs) > 0 {
-						tenant = segs[len(segs)-1]
+						tenantSlug = segs[len(segs)-1]
+					}
+				}
+			}
+
+			// 2) Si no se obtuvo desde iss, usar tid. Si parece UUID, mapear a slug; si no, tratarlo como slug.
+			if tenantSlug == "" {
+				if v, okTid := mc["tid"].(string); okTid && v != "" {
+					if _, err := uuid.Parse(v); err == nil {
+						// tid es UUID; intentar mapear a slug a través del provider si está disponible
+						if cpctx.Provider != nil {
+							if tenants, err := cpctx.Provider.ListTenants(i.Keys.ctx); err == nil {
+								for _, tn := range tenants {
+									if tn.ID == v {
+										tenantSlug = tn.Slug
+										break
+									}
+								}
+							}
+						}
+					} else {
+						// tid parece un slug
+						tenantSlug = v
 					}
 				}
 			}
 		}
-		if tenant == "" {
+
+		if tenantSlug == "" {
 			return nil, errors.New("tenant_unresolved")
 		}
-		pub, err := i.Keys.PublicKeyByKIDForTenant(tenant, kid)
+		pub, err := i.Keys.PublicKeyByKIDForTenant(tenantSlug, kid)
 		if err != nil {
 			return nil, err
 		}
