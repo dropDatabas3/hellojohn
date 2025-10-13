@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
+	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/claims"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
@@ -63,8 +64,8 @@ func NewOAuthIntrospectHandler(c *app.Container, auth clientBasicAuth) http.Hand
 			return
 		}
 
-		// Caso 2: access JWT firmado (EdDSA). Validar firma/issuer/exp.
-		tclaims, err := jwtx.ParseEdDSA(tok, c.Issuer.Keys, c.Issuer.Iss)
+		// Caso 2: access JWT firmado (EdDSA). Validar firma per-tenant sin fijar issuer y luego comparar issuer.
+		tclaims, err := jwtx.ParseEdDSA(tok, c.Issuer.Keys, "")
 		if err != nil {
 			httpx.WriteJSON(w, http.StatusOK, map[string]any{"active": false})
 			return
@@ -110,6 +111,28 @@ func NewOAuthIntrospectHandler(c *app.Container, auth clientBasicAuth) http.Hand
 		}
 		if iss, ok := tclaims["iss"].(string); ok {
 			resp["iss"] = iss
+			// Verificar que el issuer coincida con el esperado del tenant (derivado del propio iss)
+			if cpctx.Provider != nil {
+				parts := strings.Split(strings.Trim(iss, "/"), "/")
+				slug := ""
+				for i := 0; i < len(parts)-1; i++ {
+					if parts[i] == "t" && i+1 < len(parts) {
+						slug = parts[i+1]
+					}
+				}
+				if slug == "" && len(parts) > 0 {
+					slug = parts[len(parts)-1]
+				}
+				if slug != "" {
+					if ten, err := cpctx.Provider.GetTenantBySlug(r.Context(), slug); err == nil && ten != nil {
+						expected := jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+						if expected != iss {
+							httpx.WriteJSON(w, http.StatusOK, map[string]any{"active": false})
+							return
+						}
+					}
+				}
+			}
 		}
 
 		// Si ?include_sys=1, exponemos roles/perms del namespace de sistema cuando el token está activo.

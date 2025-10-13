@@ -175,6 +175,29 @@ func (k *PersistentKeystore) PublicKeyByKID(kid string) (ed25519.PublicKey, erro
 	return nil, errors.New("kid_not_found")
 }
 
+// PublicKeyByKIDForTenant devuelve la pubkey para un KID dentro del ámbito de un tenant específico.
+// Si la store es tenant-aware, busca en las claves públicas del tenant (active/retiring) y devuelve error si no hay match.
+// Si la store no es tenant-aware, cae en PublicKeyByKID (global).
+func (k *PersistentKeystore) PublicKeyByKIDForTenant(tenant, kid string) (ed25519.PublicKey, error) {
+	if kid == "" {
+		return nil, errors.New("kid_missing")
+	}
+	if ts, ok := k.store.(tenantSigningKeyStore); ok {
+		recs, err := ts.ListPublicSigningKeysForTenant(k.ctx, tenant)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range recs {
+			if r.KID == kid {
+				return ed25519.PublicKey(r.PublicKey), nil
+			}
+		}
+		return nil, errors.New("kid_not_found")
+	}
+	// Fallback a global si no hay store tenant-aware
+	return k.PublicKeyByKID(kid)
+}
+
 // JWKSJSON construye JWKS a partir de DB (cache corto).
 func (k *PersistentKeystore) JWKSJSON() ([]byte, error) {
 	k.mu.RLock()

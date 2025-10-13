@@ -14,6 +14,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
+	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
 )
@@ -151,6 +152,14 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 
 			std, custom = applyAccessClaimsHook(ctx, c, ac.TenantID, clientID, ac.UserID, reqScopes, ac.AMR, std, custom)
 
+			// Resolver issuer efectivo por tenant (para SYS namespace y firma)
+			effIss := c.Issuer.Iss
+			if cpctx.Provider != nil {
+				if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil {
+					effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+				}
+			}
+
 			// SYS namespace a partir de metadata + RBAC (Fase 2)
 			if u, err := activeStore.GetUserByID(ctx, ac.UserID); err == nil && u != nil {
 				type rbacReader interface {
@@ -162,10 +171,10 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 					roles, _ = rr.GetUserRoles(ctx, ac.UserID)
 					perms, _ = rr.GetUserPermissions(ctx, ac.UserID)
 				}
-				custom = helpers.PutSystemClaimsV2(custom, c.Issuer.Iss, u.Metadata, roles, perms)
+				custom = helpers.PutSystemClaimsV2(custom, effIss, u.Metadata, roles, perms)
 			}
 
-			access, exp, err := c.Issuer.IssueAccess(ac.UserID, clientID, std, custom)
+			access, exp, err := c.Issuer.IssueAccessForTenant(tenantSlug, effIss, ac.UserID, clientID, std, custom)
 			if err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 2210)
 				return
@@ -233,7 +242,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			}
 			idStd, idExtra = applyIDClaimsHook(ctx, c, ac.TenantID, clientID, ac.UserID, reqScopes, ac.AMR, idStd, idExtra)
 
-			idToken, _, err := c.Issuer.IssueIDToken(ac.UserID, clientID, idStd, idExtra)
+			idToken, _, err := c.Issuer.IssueIDTokenForTenant(tenantSlug, effIss, ac.UserID, clientID, idStd, idExtra)
 			if err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el id_token", 2213)
 				return
@@ -348,10 +357,24 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 					roles, _ = rr.GetUserRoles(ctx, rt.UserID)
 					perms, _ = rr.GetUserPermissions(ctx, rt.UserID)
 				}
-				custom = helpers.PutSystemClaimsV2(custom, c.Issuer.Iss, u.Metadata, roles, perms)
+				// Resolver issuer efectivo
+				effIss := c.Issuer.Iss
+				if cpctx.Provider != nil {
+					if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil {
+						effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+					}
+				}
+				custom = helpers.PutSystemClaimsV2(custom, effIss, u.Metadata, roles, perms)
 			}
 
-			access, exp, err := c.Issuer.IssueAccess(rt.UserID, clientID, std, custom)
+			// Emitir usando clave del tenant y issuer efectivo
+			effIss := c.Issuer.Iss
+			if cpctx.Provider != nil {
+				if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil {
+					effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+				}
+			}
+			access, exp, err := c.Issuer.IssueAccessForTenant(tenantSlug, effIss, rt.UserID, clientID, std, custom)
 			if err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir access", 2224)
 				return
