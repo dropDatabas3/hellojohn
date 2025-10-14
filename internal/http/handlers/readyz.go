@@ -28,6 +28,7 @@ type HealthResponse struct {
 	Commit      string                  `json:"commit,omitempty"`
 	ActiveKeyID string                  `json:"active_key_id,omitempty"`
 	Timestamp   time.Time               `json:"timestamp"`
+	Cluster     map[string]any          `json:"cluster,omitempty"`
 }
 
 func NewReadyzHandler(c *app.Container, checkRedis func(ctx context.Context) error) http.HandlerFunc {
@@ -174,6 +175,70 @@ func NewReadyzHandler(c *app.Container, checkRedis func(ctx context.Context) err
 			}
 		} else {
 			response.Components["tenant_pools"] = HealthStatus{Status: "disabled"}
+		}
+
+		// Cluster info (non-breaking enrichment)
+		{
+			// Determine mode based on container presence
+			mode := "off"
+			if c != nil && c.ClusterNode != nil {
+				mode = "embedded"
+			}
+
+			clusterInfo := map[string]any{
+				"mode": mode,
+			}
+			if mode == "embedded" && c != nil && c.ClusterNode != nil {
+				role := "follower"
+				if c.ClusterNode.IsLeader() {
+					role = "leader"
+				}
+				st := c.ClusterNode.Stats()
+				raftBlock := map[string]any{}
+				if v, ok := st["applied_index"]; ok {
+					raftBlock["applied_index"] = v
+				}
+				if v, ok := st["commit_index"]; ok {
+					raftBlock["commit_index"] = v
+				}
+				if v, ok := st["last_log_index"]; ok {
+					raftBlock["last_log_index"] = v
+				}
+				if v, ok := st["last_snapshot_index"]; ok {
+					raftBlock["last_snapshot_index"] = v
+				}
+				if v, ok := st["num_peers"]; ok {
+					raftBlock["num_peers"] = v
+				}
+				if v, ok := st["state"]; ok {
+					raftBlock["state"] = v
+				}
+				if v, ok := st["last_contact"]; ok {
+					raftBlock["last_contact"] = v
+				}
+
+				clusterInfo["role"] = role
+				clusterInfo["leader_id"] = c.ClusterNode.LeaderID()
+				// If stats exposes an id, include as node_id
+				if v, ok := st["id"]; ok {
+					clusterInfo["node_id"] = v
+				}
+				// Expected peers (static) if available
+				if c.LeaderRedirects != nil && len(c.LeaderRedirects) > 0 {
+					clusterInfo["leader_redirects"] = c.LeaderRedirects
+				}
+				// If Node exposes a peers map, surface its size for operator clarity
+				if n := c.ClusterNode.KnownPeers(); n > 0 {
+					clusterInfo["peers_configured"] = n
+				}
+				if v, ok := st["num_peers"]; ok {
+					clusterInfo["peers_connected"] = v
+				}
+				if len(raftBlock) > 0 {
+					clusterInfo["raft"] = raftBlock
+				}
+			}
+			response.Cluster = clusterInfo
 		}
 
 		// Determinar estado general

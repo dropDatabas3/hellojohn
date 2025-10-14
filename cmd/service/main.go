@@ -20,6 +20,7 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
 	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	"github.com/dropDatabas3/hellojohn/internal/cluster"
 	"github.com/dropDatabas3/hellojohn/internal/config"
 	cpfs "github.com/dropDatabas3/hellojohn/internal/controlplane/fs"
 	httpmetrics "github.com/dropDatabas3/hellojohn/internal/http"
@@ -107,6 +108,30 @@ func splitCSVEnv(s string) []string {
 		p = strings.TrimSpace(p)
 		if p != "" {
 			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// parse key=value;key2=value2 style lists into a map
+func parseKVList(s, sep string) map[string]string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return map[string]string{}
+	}
+	items := strings.Split(s, sep)
+	out := make(map[string]string, len(items))
+	for _, it := range items {
+		it = strings.TrimSpace(it)
+		if it == "" {
+			continue
+		}
+		if i := strings.IndexRune(it, '='); i > 0 {
+			k := strings.TrimSpace(it[:i])
+			v := strings.TrimSpace(it[i+1:])
+			if k != "" && v != "" {
+				out[k] = v
+			}
 		}
 	}
 	return out
@@ -361,6 +386,33 @@ func loadConfigFromEnv() *config.Config {
 		c.Email.DebugEchoLinks = false
 	}
 
+	// --- Cluster (Paso 0) ---
+	c.Cluster.Mode = strings.ToLower(strings.TrimSpace(getenv("CLUSTER_MODE", "off")))
+	c.Cluster.NodeID = strings.TrimSpace(getenv("NODE_ID", c.Cluster.NodeID))
+	c.Cluster.RaftAddr = strings.TrimSpace(getenv("RAFT_ADDR", c.Cluster.RaftAddr))
+	if c.Cluster.Nodes == nil {
+		c.Cluster.Nodes = map[string]string{}
+	}
+	if c.Cluster.LeaderRedirects == nil {
+		c.Cluster.LeaderRedirects = map[string]string{}
+	}
+	if s := getenv("CLUSTER_NODES", ""); s != "" {
+		for k, v := range parseKVList(s, ";") {
+			c.Cluster.Nodes[k] = v
+		}
+	}
+	if s := getenv("LEADER_REDIRECTS", ""); s != "" {
+		for k, v := range parseKVList(s, ";") {
+			c.Cluster.LeaderRedirects[k] = v
+		}
+	}
+	if v := getenvInt("RAFT_SNAPSHOT_EVERY", 0); v > 0 {
+		c.Cluster.SnapshotEvery = v
+	}
+	if v := getenvInt("RAFT_MAX_LOG_MB", 0); v > 0 {
+		c.Cluster.MaxLogMB = v
+	}
+
 	return c
 }
 
@@ -425,9 +477,11 @@ func main() {
 	)
 	flag.Parse()
 
-	if *flagEnvFile != "" && (fileExists(*flagEnvFile) || *flagEnvOnly) {
-		if err := godotenv.Load(*flagEnvFile); err == nil {
-			log.Printf("dotenv: cargado %s", *flagEnvFile)
+	if os.Getenv("DISABLE_DOTENV") != "1" {
+		if *flagEnvFile != "" && (fileExists(*flagEnvFile) || *flagEnvOnly) {
+			if err := godotenv.Load(*flagEnvFile); err == nil {
+				log.Printf("dotenv: cargado %s", *flagEnvFile)
+			}
 		}
 	}
 
@@ -475,6 +529,59 @@ func main() {
 	// --- Control-Plane FS (MVP) ---
 	cpctx.Provider = cpfs.New(cfg.ControlPlane.FSRoot)
 
+	// Placeholder del nodo de clúster (se asigna si CLUSTER_MODE=embedded)
+	var clusterNode *cluster.Node
+
+	// Paso 0 (Fase 6): si CLUSTER_MODE=embedded, preparar carpeta RAFT bajo FS root
+	if strings.EqualFold(strings.TrimSpace(cfg.Cluster.Mode), "embedded") {
+		raftDir := filepath.Join(cfg.ControlPlane.FSRoot, "raft")
+		if err := os.MkdirAll(raftDir, 0o755); err != nil {
+			log.Fatalf("prepare raft dir: %v", err)
+		}
+
+		// Inicializar nodo Raft embebido (mono-nodo por ahora)
+		fsm := cluster.NewFSM()
+		// Allow explicit bootstrap via CLUSTER_BOOTSTRAP=1 for exactly one node
+		bootstrapPreferred := getenvBool("CLUSTER_BOOTSTRAP", false)
+		node, err := cluster.NewNode(cluster.NodeOptions{
+			NodeID:             strings.TrimSpace(cfg.Cluster.NodeID),
+			RaftAddr:           strings.TrimSpace(cfg.Cluster.RaftAddr),
+			RaftDir:            raftDir,
+			FSM:                fsm,
+			Peers:              cfg.Cluster.Nodes,
+			BootstrapPreferred: bootstrapPreferred,
+			// TLS wiring from config (optional)
+			RaftTLSEnable:     cfg.Cluster.RaftTLSEnable,
+			RaftTLSCertFile:   cfg.Cluster.RaftTLSCertFile,
+			RaftTLSKeyFile:    cfg.Cluster.RaftTLSKeyFile,
+			RaftTLSCAFile:     cfg.Cluster.RaftTLSCAFile,
+			RaftTLSServerName: cfg.Cluster.RaftTLSServerName,
+		})
+		if err != nil {
+			log.Fatalf("cluster init: %v", err)
+		}
+		// Guardar para asignar al contenedor luego de su creación
+		clusterNode = node
+
+		// Log de cambios de rol
+		go func() {
+			ch := node.LeaderCh()
+			for ch != nil {
+				isLeader, ok := <-ch
+				if !ok {
+					break
+				}
+				role := "follower"
+				if isLeader {
+					role = "leader"
+				}
+				log.Printf("[cluster] role changed: %s (leaderID=%s)", role, node.LeaderID())
+			}
+		}()
+
+		log.Printf("[cluster] mode=embedded raft_dir=%s addr=%s node_id=%s", raftDir, cfg.Cluster.RaftAddr, cfg.Cluster.NodeID)
+	}
+
 	// --- Tenant SQL Manager (S3/S4) ---
 	tenantSQLManager, err := tenantsql.New(tenantsql.Config{
 		Pool: tenantsql.PoolConfig{
@@ -506,6 +613,8 @@ func main() {
 	}
 
 	ctx := context.Background()
+
+	// Cluster node placeholder declarado anteriormente
 
 	// ───── Detectar si hay DB global y gatear OpenStores + migrations ─────
 	hasGlobalDB := strings.TrimSpace(cfg.Storage.Driver) != "" && strings.TrimSpace(cfg.Storage.DSN) != ""
@@ -628,6 +737,10 @@ func main() {
 		TenantSQLManager: tenantSQLManager,
 		Stores:           stores,
 	}
+	// Asignar cluster node si existe
+	container.ClusterNode = clusterNode
+	// Pasar mapa de redirects para 307 opcional
+	container.LeaderRedirects = cfg.Cluster.LeaderRedirects
 	if stores != nil {
 		container.ScopesConsents = stores.ScopesConsents // nil si no hay DB/PG
 	}
@@ -639,7 +752,7 @@ func main() {
 		sessionTTL = 12 * time.Hour
 	}
 
-	// JWKS per-tenant cache (15s TTL), loader delegates to keystore per-tenant JWKS
+	// JWKS per-tenant cache (15s TTL). For tenants, do NOT auto-bootstrap to avoid divergent keys in HA.
 	container.JWKSCache = jwtx.NewJWKSCache(15*time.Second, func(tenant string) (json.RawMessage, error) {
 		if strings.TrimSpace(tenant) == "" || strings.EqualFold(tenant, "global") {
 			b, err := issuer.Keys.JWKSJSON()
@@ -648,20 +761,20 @@ func main() {
 			}
 			return json.RawMessage(b), nil
 		}
-		// Intentar JWKS por tenant; si no existe, forzar bootstrap generando una clave activa primero
-		if b, err := issuer.Keys.JWKSJSONForTenant(tenant); err == nil {
-			return json.RawMessage(b), nil
-		}
-		// bootstrap: solicitar clave activa por tenant (forzará creación en FS store)
-		if _, _, _, err := issuer.Keys.ActiveForTenant(tenant); err != nil {
+		// Per-tenant: return JWKS only if present; rotation or restore will create files and invalidate cache.
+		b, err := issuer.Keys.JWKSJSONForTenant(tenant)
+		if err != nil {
 			return nil, err
 		}
-		b2, err2 := issuer.Keys.JWKSJSONForTenant(tenant)
-		if err2 != nil {
-			return nil, err2
-		}
-		return json.RawMessage(b2), nil
+		return json.RawMessage(b), nil
 	})
+
+	// Expose JWKS cache invalidation for cluster FSM restore
+	cpctx.InvalidateJWKS = func(tenant string) {
+		if container.JWKSCache != nil {
+			container.JWKSCache.Invalidate(tenant)
+		}
+	}
 
 	jwksHandler := handlers.NewJWKSHandler(container.JWKSCache)
 	authLoginHandler := handlers.NewAuthLoginHandler(&container, cfg, refreshTTL)
@@ -677,15 +790,20 @@ func main() {
 	adminScopes := httpserver.Chain(
 		handlers.NewAdminScopesFSHandler(&container),
 		httpserver.RequireAuth(container.Issuer),
-		httpserver.RequireSysAdmin(container.Issuer))
+		httpserver.RequireSysAdmin(container.Issuer),
+		httpserver.RequireLeader(&container),
+	)
 	adminConsents := httpserver.Chain(
 		handlers.NewAdminConsentsHandler(&container),
 		httpserver.RequireAuth(container.Issuer),
-		httpserver.RequireSysAdmin(container.Issuer))
+		httpserver.RequireSysAdmin(container.Issuer),
+	)
 	adminClients := httpserver.Chain(
 		handlers.NewAdminClientsFSHandler(&container),
 		httpserver.RequireAuth(container.Issuer),
-		httpserver.RequireSysAdmin(container.Issuer))
+		httpserver.RequireSysAdmin(container.Issuer),
+		httpserver.RequireLeader(&container),
+	)
 	// ─── RBAC Admin ───
 	adminRBACUsers := httpserver.Chain(
 		handlers.AdminRBACUsersRolesHandler(&container),
@@ -710,6 +828,7 @@ func main() {
 		handlers.NewAdminTenantsFSHandler(&container),
 		httpserver.RequireAuth(container.Issuer),
 		httpserver.RequireSysAdmin(container.Issuer),
+		httpserver.RequireLeader(&container),
 	)
 
 	// Introspect endurecido con basic auth (si user/pass vacíos ⇒ siempre 401)

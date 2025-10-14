@@ -20,3 +20,7 @@ var ResolveTenant = func(r *http.Request) string {
 	}
 	return "local"
 }
+
+// InvalidateJWKS permite invalidar la caché de JWKS (global o por tenant) desde capas sin acceso al contenedor.
+// Si es nil, las llamadas deben ser no-ops en los consumidores.
+var InvalidateJWKS func(tenant string)

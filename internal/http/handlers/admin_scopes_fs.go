@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
 	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	"github.com/dropDatabas3/hellojohn/internal/cluster"
 	cp "github.com/dropDatabas3/hellojohn/internal/controlplane"
+	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 )
 
 type adminScopesFS struct {
@@ -56,6 +59,16 @@ func (h *adminScopesFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				writeErr(http.StatusBadRequest, "invalid json")
 				return
 			}
+			if h.container != nil && h.container.ClusterNode != nil {
+				payload, _ := json.Marshal(cluster.UpsertScopeDTO{Name: strings.TrimSpace(s.Name), Description: s.Description, System: s.System})
+				m := cluster.Mutation{Type: cluster.MutationUpsertScope, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
+				if _, err := h.container.ClusterNode.Apply(r.Context(), m); err != nil {
+					httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
+					return
+				}
+				write(http.StatusOK, s)
+				return
+			}
 			if err := cpctx.Provider.UpsertScope(r.Context(), slug, s); err != nil {
 				writeErr(http.StatusBadRequest, "upsert failed: "+err.Error())
 				return
@@ -76,6 +89,16 @@ func (h *adminScopesFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		switch r.Method {
 		case http.MethodDelete:
+			if h.container != nil && h.container.ClusterNode != nil {
+				payload, _ := json.Marshal(cluster.DeleteScopeDTO{Name: name})
+				m := cluster.Mutation{Type: cluster.MutationDeleteScope, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
+				if _, err := h.container.ClusterNode.Apply(r.Context(), m); err != nil {
+					httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
+					return
+				}
+				write(http.StatusOK, map[string]string{"status": "ok"})
+				return
+			}
 			if err := cpctx.Provider.DeleteScope(r.Context(), slug, name); err != nil {
 				writeErr(http.StatusBadRequest, "delete failed: "+err.Error())
 				return

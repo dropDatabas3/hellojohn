@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
+	appmetrics "github.com/dropDatabas3/hellojohn/internal/metrics"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -105,6 +106,11 @@ func RegisterMetrics(cfg MetricsConfig) (http.Handler, error) {
 	})
 	if metricsErr != nil {
 		return nil, metricsErr
+	}
+
+	// Register raft metrics as well (histogram/counter/gauge). Ignore AlreadyRegistered.
+	if err := appmetrics.RegisterRaft(registry); err != nil {
+		return nil, err
 	}
 
 	if cfg.TenantManager != nil || cfg.GlobalPool != nil {

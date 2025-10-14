@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	sec "github.com/dropDatabas3/hellojohn/internal/security/secretbox"
 	"gopkg.in/yaml.v3"
 )
 
@@ -37,23 +38,30 @@ func (p *serverProc) stop() {
 	if p == nil || p.cmd == nil || p.cmd.Process == nil {
 		return
 	}
-	// Intento 1: señal controlada (Windows carece de SIGINT directa vía os.Process.Signal en go<1.21, hacemos Kill fallback)
-	// Para Linux/Mac se podría usar: p.cmd.Process.Signal(os.Interrupt)
-	// Aquí: intentamos Wait con timeout y luego Kill forzado.
+	// Attempt graceful shutdown first
 	done := make(chan struct{})
 	go func() {
-		_, _ = p.cmd.Process.Wait()
+		_ = p.cmd.Wait()
 		close(done)
 	}()
 	select {
-	case <-time.After(2 * time.Second):
+	case <-done:
+	case <-time.After(3 * time.Second):
 		_ = p.cmd.Process.Kill()
 		<-done
-	case <-done:
 	}
-	// Esperar liberación de puerto 8080/8081 (best-effort)
-	waitPortFreed("8080", 2*time.Second)
-	waitPortFreed("8081", 2*time.Second)
+	// Close stdout/stderr pipes if set (avoid descriptor leaks on Windows)
+	if p.cmd.Stdout != nil {
+		if c, ok := p.cmd.Stdout.(interface{ Close() error }); ok {
+			_ = c.Close()
+		}
+	}
+	if p.cmd.Stderr != nil {
+		if c, ok := p.cmd.Stderr.(interface{ Close() error }); ok {
+			_ = c.Close()
+		}
+	}
+	time.Sleep(500 * time.Millisecond)
 }
 
 // waitPortFreed intenta conectar; cuando falla asume puerto liberado.
@@ -123,11 +131,15 @@ func startServer(ctx context.Context, envFile string) (*serverProc, string, erro
 	args := []string{"run", "./cmd/service", "-env"}
 	if envFile != "" {
 		args = append(args, "-env-file", envFile)
+	} else {
+		// Force disable dotenv loading to avoid picking up repo .env in tests
+		args = append(args, "-env-file", "notfound.env")
 	}
 	cmd := exec.CommandContext(ctx, "go", args...)
 	cmd.Dir = root
 	// Ensure the spawned service binds to our chosen port and advertises the same base URL
 	env := append(os.Environ(), "GOFLAGS=-count=1") // no cache durante e2e
+	env = append(env, "DISABLE_DOTENV=1")
 	env = append(env,
 		"SERVER_ADDR="+addr,
 		"JWT_ISSUER="+base,
@@ -143,6 +155,80 @@ func startServer(ctx context.Context, envFile string) (*serverProc, string, erro
 
 	if err := cmd.Start(); err != nil {
 		return nil, "", fmt.Errorf("start service: %w", err)
+	}
+	return &serverProc{cmd: cmd, out: &out}, base, nil
+}
+
+// startClusterNode starts a service instance configured for embedded raft clustering on specific ports and FS root.
+// It returns the process handle and the base URL (http://localhost:<httpPort>).
+func startClusterNode(ctx context.Context, httpPort, raftPort int, fsRoot, nodeID string, peers map[string]string, redirects map[string]string) (*serverProc, string, error) {
+	root, err := findRepoRoot()
+	if err != nil {
+		return nil, "", err
+	}
+	addr := "127.0.0.1:" + strconv.Itoa(httpPort)
+	base := "http://localhost:" + strconv.Itoa(httpPort)
+
+	// Serialize peers and redirects as key=value;key2=value2
+	serialize := func(m map[string]string) string {
+		if len(m) == 0 {
+			return ""
+		}
+		var parts []string
+		for k, v := range m {
+			parts = append(parts, k+"="+v)
+		}
+		return strings.Join(parts, ";")
+	}
+
+	args := []string{"run", "./cmd/service", "-env", "-env-file", "notfound.env"}
+	cmd := exec.CommandContext(ctx, "go", args...)
+	cmd.Dir = root
+
+	env := append(os.Environ(), "GOFLAGS=-count=1")
+	env = append(env, "DISABLE_DOTENV=1")
+	env = append(env,
+		"SERVER_ADDR="+addr,
+		"JWT_ISSUER="+base,
+		"EMAIL_BASE_URL="+base,
+		"AUTH_SESSION_DOMAIN=localhost",
+		// Skip global migrations in clustered test nodes (migrations were run in TestMain)
+		"FLAGS_MIGRATE=false",
+		// FS root per node
+		"CONTROL_PLANE_FS_ROOT="+fsRoot,
+		// Cluster flags
+		"CLUSTER_MODE=embedded",
+		"NODE_ID="+nodeID,
+		"RAFT_ADDR=127.0.0.1:"+strconv.Itoa(raftPort),
+		"CLUSTER_NODES="+serialize(peers),
+		// Optional redirects
+		"LEADER_REDIRECTS="+serialize(redirects),
+	)
+	// Add DB envs only if present to avoid empty entries
+	if v := os.Getenv("STORAGE_DRIVER"); strings.TrimSpace(v) != "" {
+		env = append(env, "STORAGE_DRIVER="+v)
+	}
+	if v := os.Getenv("STORAGE_DSN"); strings.TrimSpace(v) != "" {
+		env = append(env, "STORAGE_DSN="+v)
+	}
+	// Ensure required keys exist for service to boot (use stable test values)
+	if os.Getenv("SIGNING_MASTER_KEY") == "" {
+		env = append(env, "SIGNING_MASTER_KEY="+"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	}
+	if os.Getenv("SECRETBOX_MASTER_KEY") == "" {
+		env = append(env, "SECRETBOX_MASTER_KEY="+"e3wlUfaN91WoNvHa9aB47ARoAz1DusF2I+hV7Uyz/wU=")
+	}
+	// Reduce noise/scope for HA tests
+	env = append(env, "RATE_ENABLED=false")
+
+	cmd.Env = env
+
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+
+	if err := cmd.Start(); err != nil {
+		return nil, "", fmt.Errorf("start clustered service: %w", err)
 	}
 	return &serverProc{cmd: cmd, out: &out}, base, nil
 }
@@ -190,6 +276,45 @@ func mustLoadSeedYAML() (*seedData, error) {
 		s.Users.Admin.ID = s.Users.Admin.Sub
 	}
 	return &s, nil
+}
+
+// seedTenantFS writes a minimal tenants/<slug>/tenant.yaml with encrypted DSN so cluster nodes can resolve tenant DB.
+// It only seeds the control-plane filesystem and does not touch DB state.
+func seedTenantFS(fsRoot, id, slug, name, plainDSN string) error {
+	if strings.TrimSpace(fsRoot) == "" || strings.TrimSpace(slug) == "" || strings.TrimSpace(plainDSN) == "" {
+		return fmt.Errorf("seedTenantFS: missing fsRoot/slug/dsn")
+	}
+	// Ensure a secretbox key exists in this process to encrypt DSN
+	if os.Getenv("SECRETBOX_MASTER_KEY") == "" {
+		// Stable test key (base64 of 32 bytes) – matches startClusterNode default
+		_ = os.Setenv("SECRETBOX_MASTER_KEY", "e3wlUfaN91WoNvHa9aB47ARoAz1DusF2I+hV7Uyz/wU=")
+	}
+	enc, err := sec.Encrypt(plainDSN)
+	if err != nil {
+		return fmt.Errorf("encrypt dsn: %w", err)
+	}
+	dir := filepath.Join(fsRoot, "tenants", slug)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	// Minimal tenant structure with settings.userDb.dsnEnc
+	doc := map[string]any{
+		"id":   strings.TrimSpace(id),
+		"name": strings.TrimSpace(name),
+		"slug": strings.TrimSpace(slug),
+		"settings": map[string]any{
+			"userDb": map[string]any{
+				"driver": "postgres",
+				"dsnEnc": enc,
+			},
+		},
+	}
+	b, err := yaml.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	tf := filepath.Join(dir, "tenant.yaml")
+	return os.WriteFile(tf, b, 0o600)
 }
 
 /* ============================================================================

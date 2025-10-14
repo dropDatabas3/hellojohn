@@ -34,6 +34,9 @@ type FSProvider struct {
 
 func New(root string) *FSProvider { return &FSProvider{root: filepath.Clean(root)} }
 
+// FSRoot returns the configured FS root directory
+func (p *FSProvider) FSRoot() string { return p.root }
+
 func (p *FSProvider) tenantsDir() string           { return filepath.Join(p.root, "tenants") }
 func (p *FSProvider) tenantDir(slug string) string { return filepath.Join(p.tenantsDir(), slug) }
 func (p *FSProvider) tenantFile(slug string) string {
