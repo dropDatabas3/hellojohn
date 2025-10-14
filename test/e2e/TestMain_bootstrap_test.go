@@ -149,21 +149,23 @@ func TestMain(m *testing.M) {
 		_ = os.Setenv("GOOGLE_CLIENT_SECRET", "dummy-google-secret")
 	}
 
+	skipGlobal := strings.TrimSpace(os.Getenv("E2E_SKIP_GLOBAL_SERVER")) == "1"
 	var err error
 	var startedBase string
-	srv, startedBase, err = startServer(context.Background(), envFile)
-	if err != nil {
-		panic(err)
-	}
-	// Override baseURL to the actual started server to avoid hitting any stale external instance
-	if startedBase != "" {
-		baseURL = startedBase
-	}
-	if err := waitReady(baseURL, 20*time.Second); err != nil {
-		if srv != nil && srv.out != nil {
-			println(srv.out.String())
+	if !skipGlobal {
+		srv, startedBase, err = startServer(context.Background(), envFile)
+		if err != nil {
+			panic(err)
 		}
-		panic(err)
+		if startedBase != "" {
+			baseURL = startedBase
+		}
+		if err := waitReady(baseURL, 20*time.Second); err != nil {
+			if srv != nil && srv.out != nil {
+				println(srv.out.String())
+			}
+			panic(err)
+		}
 	}
 
 	// Ensure the web client has dynamic redirect URIs allowed (social result and localhost:3000)
@@ -318,9 +320,7 @@ func TestMain(m *testing.M) {
 	}
 
 	code := m.Run()
-
 	if srv != nil {
-		// Dump server logs for debugging social debug shortcut
 		if srv.out != nil {
 			println("--- SERVER LOGS START ---")
 			println(srv.out.String())

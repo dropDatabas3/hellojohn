@@ -178,6 +178,25 @@ control_plane:
   fs_root: "./data/hellojohn"
 
 
+# --- Cluster (Fase 6 - Paso 0) ---
+# Estas opciones solo preparan el modo clúster. Por defecto queda deshabilitado (mode: off).
+# También se pueden configurar por variables de entorno (recomendado en dev/prod):
+#   CLUSTER_MODE=off|embedded
+#   NODE_ID=node1
+#   RAFT_ADDR=127.0.0.1:8201
+#   CLUSTER_NODES="node1=127.0.0.1:8201;node2=127.0.0.1:8202;node3=127.0.0.1:8203"
+#   LEADER_REDIRECTS="node1=http://127.0.0.1:8081;node2=http://127.0.0.1:8082;node3=http://127.0.0.1:8083"
+#   RAFT_SNAPSHOT_EVERY=50
+cluster:
+  mode: "off"                 # off | embedded
+  node_id: ""                # string único del nodo
+  raft_addr: ""              # host:port local para transporte Raft
+  nodes: {}                   # mapa nodeID -> host:port (raft)
+  leader_redirects: {}        # mapa nodeID -> baseURL http (para 409/307 pistas de líder)
+  snapshot_every: 0           # cada cuántas entradas forzar snapshot (0=deshabilitado)
+  max_log_mb: 0               # alternativo por tamaño (0=deshabilitado)
+
+
 ###############################################
 # Notas producción:
 # - CACHE_KIND=redis y config de REDIS_*.

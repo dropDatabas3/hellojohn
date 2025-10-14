@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
 	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	"github.com/dropDatabas3/hellojohn/internal/cluster"
 	cp "github.com/dropDatabas3/hellojohn/internal/controlplane"
+	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 )
 
 type adminClientsFS struct {
@@ -65,12 +68,44 @@ func (h *adminClientsFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				writeErr(http.StatusBadRequest, "invalid json")
 				return
 			}
-			c, err := cpctx.Provider.UpsertClient(r.Context(), slug, in)
+			if h.container != nil && h.container.ClusterNode != nil {
+				dto := cluster.UpsertClientDTO{
+					Name:           in.Name,
+					ClientID:       in.ClientID,
+					Type:           in.Type,
+					RedirectURIs:   in.RedirectURIs,
+					AllowedOrigins: in.AllowedOrigins,
+					Providers:      in.Providers,
+					Scopes:         in.Scopes,
+					Secret:         in.Secret,
+				}
+				payload, _ := json.Marshal(dto)
+				m := cluster.Mutation{
+					Type:       cluster.MutationUpsertClient,
+					TenantSlug: slug,
+					TsUnix:     time.Now().Unix(),
+					Payload:    payload,
+				}
+				if _, err := h.container.ClusterNode.Apply(r.Context(), m); err != nil {
+					httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
+					return
+				}
+				// Read back and return client
+				cobj, err := cpctx.Provider.GetClient(r.Context(), slug, in.ClientID)
+				if err != nil {
+					writeErr(http.StatusInternalServerError, "readback failed")
+					return
+				}
+				write(http.StatusOK, cobj)
+				return
+			}
+			// Fallback (cluster off): direct write
+			cobj, err := cpctx.Provider.UpsertClient(r.Context(), slug, in)
 			if err != nil {
 				writeErr(http.StatusBadRequest, "create/update failed: "+err.Error())
 				return
 			}
-			write(http.StatusOK, c)
+			write(http.StatusOK, cobj)
 			return
 
 		default:
@@ -94,15 +129,58 @@ func (h *adminClientsFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			// forzamos el clientId del path si no vino en body (o lo pisamos)
 			in.ClientID = clientID
-			c, err := cpctx.Provider.UpsertClient(r.Context(), slug, in)
+			if h.container != nil && h.container.ClusterNode != nil {
+				dto := cluster.UpsertClientDTO{
+					Name:           in.Name,
+					ClientID:       in.ClientID,
+					Type:           in.Type,
+					RedirectURIs:   in.RedirectURIs,
+					AllowedOrigins: in.AllowedOrigins,
+					Providers:      in.Providers,
+					Scopes:         in.Scopes,
+					Secret:         in.Secret,
+				}
+				payload, _ := json.Marshal(dto)
+				m := cluster.Mutation{
+					Type:       cluster.MutationUpsertClient,
+					TenantSlug: slug,
+					TsUnix:     time.Now().Unix(),
+					Payload:    payload,
+				}
+				if _, err := h.container.ClusterNode.Apply(r.Context(), m); err != nil {
+					httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
+					return
+				}
+				// read back
+				cobj, err := cpctx.Provider.GetClient(r.Context(), slug, in.ClientID)
+				if err != nil {
+					writeErr(http.StatusInternalServerError, "readback failed")
+					return
+				}
+				write(http.StatusOK, cobj)
+				return
+			}
+			// fallback
+			cobj, err := cpctx.Provider.UpsertClient(r.Context(), slug, in)
 			if err != nil {
 				writeErr(http.StatusBadRequest, "update failed: "+err.Error())
 				return
 			}
-			write(http.StatusOK, c)
+			write(http.StatusOK, cobj)
 			return
 
 		case http.MethodDelete:
+			// If cluster is present, apply mutation; otherwise direct delete
+			if h.container != nil && h.container.ClusterNode != nil {
+				payload, _ := json.Marshal(cluster.DeleteClientDTO{ClientID: clientID})
+				m := cluster.Mutation{Type: cluster.MutationDeleteClient, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
+				if _, err := h.container.ClusterNode.Apply(r.Context(), m); err != nil {
+					httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
+					return
+				}
+				write(http.StatusOK, map[string]string{"status": "ok"})
+				return
+			}
 			if err := cpctx.Provider.DeleteClient(r.Context(), slug, clientID); err != nil {
 				writeErr(http.StatusBadRequest, "delete failed: "+err.Error())
 				return

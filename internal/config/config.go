@@ -154,6 +154,24 @@ type Config struct {
 		FSRoot string `yaml:"fs_root"` // root directory for filesystem-based control plane
 	} `yaml:"control_plane"`
 
+	// Cluster (Fase 6 - Paso 0)
+	Cluster struct {
+		Mode            string            `yaml:"mode" json:"mode"` // off | embedded
+		NodeID          string            `yaml:"node_id" json:"nodeId"`
+		RaftAddr        string            `yaml:"raft_addr" json:"raftAddr"`
+		Nodes           map[string]string `yaml:"nodes" json:"nodes"`                      // nodeID -> host:port (raft)
+		LeaderRedirects map[string]string `yaml:"leader_redirects" json:"leaderRedirects"` // nodeID -> baseURL
+		SnapshotEvery   int               `yaml:"snapshot_every" json:"snapshotEvery"`
+		MaxLogMB        int               `yaml:"max_log_mb" json:"maxLogMb"`
+
+		// TLS for Raft transport (optional, mTLS when enabled)
+		RaftTLSEnable     bool   `yaml:"raft_tls_enable" json:"raftTlsEnable"`
+		RaftTLSCertFile   string `yaml:"raft_tls_cert_file" json:"raftTlsCertFile"`
+		RaftTLSKeyFile    string `yaml:"raft_tls_key_file" json:"raftTlsKeyFile"`
+		RaftTLSCAFile     string `yaml:"raft_tls_ca_file" json:"raftTlsCaFile"`
+		RaftTLSServerName string `yaml:"raft_tls_server_name" json:"raftTlsServerName"`
+	} `yaml:"cluster" json:"cluster"`
+
 	// ───────── Social Login Providers ─────────
 	Providers struct {
 		LoginCodeTTL time.Duration `yaml:"login_code_ttl"` // NUEVO: TTL para el login_code del social flow
@@ -333,6 +351,17 @@ func Load(path string) (*Config, error) {
 	// ControlPlane defaults
 	if c.ControlPlane.FSRoot == "" {
 		c.ControlPlane.FSRoot = "./data/hellojohn" // default for development
+	}
+
+	// Cluster defaults (Paso 0): feature flag off by default
+	if strings.TrimSpace(c.Cluster.Mode) == "" {
+		c.Cluster.Mode = "off"
+	}
+	if c.Cluster.Nodes == nil {
+		c.Cluster.Nodes = map[string]string{}
+	}
+	if c.Cluster.LeaderRedirects == nil {
+		c.Cluster.LeaderRedirects = map[string]string{}
 	}
 
 	// Overrides por env + salvaguarda prod
@@ -687,6 +716,60 @@ func (c *Config) applyEnvOverrides() {
 	if v, ok := getEnvStr("SECRETBOX_MASTER_KEY"); ok {
 		c.Security.SecretBoxMasterKey = v
 	}
+
+	// ───── Cluster (Paso 0) ─────
+	// CLUSTER_MODE=off|embedded (default off)
+	if v, ok := getEnvStr("CLUSTER_MODE"); ok {
+		c.Cluster.Mode = strings.ToLower(strings.TrimSpace(v))
+	}
+	// NODE_ID, RAFT_ADDR
+	if v, ok := getEnvStr("NODE_ID"); ok {
+		c.Cluster.NodeID = strings.TrimSpace(v)
+	}
+	if v, ok := getEnvStr("RAFT_ADDR"); ok {
+		c.Cluster.RaftAddr = strings.TrimSpace(v)
+	}
+	// CLUSTER_NODES="n1=127.0.0.1:8201;n2=127.0.0.1:8202"
+	if m, ok := getEnvKVList("CLUSTER_NODES", ";"); ok {
+		if c.Cluster.Nodes == nil {
+			c.Cluster.Nodes = map[string]string{}
+		}
+		for k, v := range m {
+			c.Cluster.Nodes[k] = v
+		}
+	}
+	// LEADER_REDIRECTS="n1=http://127.0.0.1:8081;n2=http://127.0.0.1:8082"
+	if m, ok := getEnvKVList("LEADER_REDIRECTS", ";"); ok {
+		if c.Cluster.LeaderRedirects == nil {
+			c.Cluster.LeaderRedirects = map[string]string{}
+		}
+		for k, v := range m {
+			c.Cluster.LeaderRedirects[k] = v
+		}
+	}
+	if v, ok := getEnvInt("RAFT_SNAPSHOT_EVERY"); ok {
+		c.Cluster.SnapshotEvery = v
+	}
+	if v, ok := getEnvInt("RAFT_MAX_LOG_MB"); ok {
+		c.Cluster.MaxLogMB = v
+	}
+
+	// Raft TLS (optional)
+	if v, ok := getEnvBool("RAFT_TLS_ENABLE"); ok {
+		c.Cluster.RaftTLSEnable = v
+	}
+	if v, ok := getEnvStr("RAFT_TLS_CERT_FILE"); ok {
+		c.Cluster.RaftTLSCertFile = v
+	}
+	if v, ok := getEnvStr("RAFT_TLS_KEY_FILE"); ok {
+		c.Cluster.RaftTLSKeyFile = v
+	}
+	if v, ok := getEnvStr("RAFT_TLS_CA_FILE"); ok {
+		c.Cluster.RaftTLSCAFile = v
+	}
+	if v, ok := getEnvStr("RAFT_TLS_SERVER_NAME"); ok {
+		c.Cluster.RaftTLSServerName = v
+	}
 }
 
 // Validate performs validation of critical configuration values
@@ -694,4 +777,36 @@ func (c *Config) applyEnvOverrides() {
 func (c *Config) Validate() error {
 	// General config validation can go here (if needed)
 	return nil
+}
+
+// parse env of form "k1=v1<sep>k2=v2" into map
+func parseKVList(s, sep string) map[string]string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return map[string]string{}
+	}
+	items := strings.Split(s, sep)
+	out := make(map[string]string, len(items))
+	for _, it := range items {
+		it = strings.TrimSpace(it)
+		if it == "" {
+			continue
+		}
+		// split at first '='
+		if i := strings.IndexRune(it, '='); i > 0 {
+			k := strings.TrimSpace(it[:i])
+			v := strings.TrimSpace(it[i+1:])
+			if k != "" && v != "" {
+				out[k] = v
+			}
+		}
+	}
+	return out
+}
+
+func getEnvKVList(key, sep string) (map[string]string, bool) {
+	if s, ok := getEnvStr(key); ok {
+		return parseKVList(s, sep), true
+	}
+	return nil, false
 }

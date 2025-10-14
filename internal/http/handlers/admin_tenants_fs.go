@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
 	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	"github.com/dropDatabas3/hellojohn/internal/cluster"
 	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane"
 	cpfs "github.com/dropDatabas3/hellojohn/internal/controlplane/fs"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
@@ -80,6 +82,8 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 					return
 				}
 
+				// Leader enforcement moved to middleware
+
 				req.Name = strings.TrimSpace(req.Name)
 				req.Slug = strings.TrimSpace(req.Slug)
 
@@ -93,22 +97,26 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 					return
 				}
 
-				// Crear tenant usando UpsertTenant
-				now := time.Now().UTC()
-				tenant := &controlplane.Tenant{
-					ID:        req.Slug, // Usar slug como ID por simplicidad
-					Name:      req.Name,
-					Slug:      req.Slug,
-					CreatedAt: now,
-					UpdatedAt: now,
-					Settings:  controlplane.TenantSettings{}, // Settings vacías por defecto
+				// Crear tenant via Raft si existe cluster, sino directo
+				if c != nil && c.ClusterNode != nil {
+					payload, _ := json.Marshal(cluster.UpsertTenantDTO{ID: req.Slug, Name: req.Name, Slug: req.Slug, Settings: controlplane.TenantSettings{}})
+					m := cluster.Mutation{Type: cluster.MutationUpsertTenant, TenantSlug: req.Slug, TsUnix: time.Now().Unix(), Payload: payload}
+					if _, err := c.ClusterNode.Apply(r.Context(), m); err != nil {
+						httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
+						return
+					}
+					// read back
+					if t, err := fsProvider.GetTenantBySlug(r.Context(), req.Slug); err == nil {
+						httpx.WriteJSON(w, http.StatusCreated, t)
+						return
+					}
 				}
-
+				now := time.Now().UTC()
+				tenant := &controlplane.Tenant{ID: req.Slug, Name: req.Name, Slug: req.Slug, CreatedAt: now, UpdatedAt: now, Settings: controlplane.TenantSettings{}}
 				if err := fsProvider.UpsertTenant(r.Context(), tenant); err != nil {
 					httpx.WriteError(w, http.StatusInternalServerError, "create_failed", err.Error(), 5006)
 					return
 				}
-
 				httpx.WriteJSON(w, http.StatusCreated, tenant)
 				return
 
@@ -157,19 +165,62 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 					}
 				}
 
-				// Rotar clave por tenant
-				sk, err := c.Issuer.Keys.RotateFor(slug, grace)
-				if err != nil {
+				// Rotación replicada: en líder, rotar e incluir material exacto para seguidores
+				if c != nil && c.ClusterNode != nil {
+					// Perform rotation on leader using keystore, then read active/retiring JSON files to include in mutation
+					sk, err := c.Issuer.Keys.RotateFor(slug, grace)
+					if err != nil {
+						httpx.WriteError(w, http.StatusInternalServerError, "server_error", err.Error(), 5061)
+						return
+					}
+					// Resolve FS root via provider
+					fsProv, ok := controlplane.AsFSProvider(cpctx.Provider)
+					if !ok {
+						httpx.WriteError(w, http.StatusInternalServerError, "server_error", "fs provider required for rotation", 5062)
+						return
+					}
+					keysDir := filepath.Join(fsProv.FSRoot(), "keys", slug)
+					// Read file contents as-is
+					actBytes, aerr := os.ReadFile(filepath.Join(keysDir, "active.json"))
+					if aerr != nil {
+						httpx.WriteError(w, http.StatusInternalServerError, "server_error", aerr.Error(), 5063)
+						return
+					}
+					var retBytes []byte
+					if b, rerr := os.ReadFile(filepath.Join(keysDir, "retiring.json")); rerr == nil {
+						retBytes = b
+					}
+					dto := cluster.RotateTenantKeyDTO{
+						ActiveJSON:   string(actBytes),
+						RetiringJSON: string(retBytes),
+						GraceSeconds: grace,
+					}
+					payload, _ := json.Marshal(dto)
+					m := cluster.Mutation{Type: cluster.MutationRotateTenantKey, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
+					if _, err := c.ClusterNode.Apply(r.Context(), m); err != nil {
+						httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
+						return
+					}
+					// Invalidate JWKS locally (followers will do so during Apply)
+					if c.JWKSCache != nil {
+						c.JWKSCache.Invalidate(slug)
+					}
+					setNoStore(w)
+					httpx.WriteJSON(w, http.StatusOK, map[string]any{"kid": sk.KID})
+					return
+				}
+				// Fallback (no cluster): local rotate only
+				if sk, err := c.Issuer.Keys.RotateFor(slug, grace); err == nil {
+					if c.JWKSCache != nil {
+						c.JWKSCache.Invalidate(slug)
+					}
+					setNoStore(w)
+					httpx.WriteJSON(w, http.StatusOK, map[string]any{"kid": sk.KID})
+					return
+				} else {
 					httpx.WriteError(w, http.StatusInternalServerError, "server_error", err.Error(), 5061)
 					return
 				}
-				// invalidar cache de JWKS
-				if c.JWKSCache != nil {
-					c.JWKSCache.Invalidate(slug)
-				}
-				setNoStore(w)
-				httpx.WriteJSON(w, http.StatusOK, map[string]any{"kid": sk.KID})
-				return
 			}
 
 			// PUT /v1/admin/tenants/{slug} -> Upsert tenant (id, slug, settings)
@@ -184,6 +235,7 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 					httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "JSON inválido", 5030)
 					return
 				}
+				// Leader enforcement moved to middleware
 				if strings.TrimSpace(in.Slug) == "" {
 					in.Slug = slug
 				}
@@ -196,28 +248,29 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 					httpx.WriteError(w, http.StatusBadRequest, "invalid_issuer_mode", err.Error(), 5033)
 					return
 				}
-				now := time.Now().UTC()
-				t := &controlplane.Tenant{
-					ID:        strings.TrimSpace(in.ID),
-					Name:      strings.TrimSpace(in.Name),
-					Slug:      in.Slug,
-					CreatedAt: now,
-					UpdatedAt: now,
-					Settings:  in.Settings,
+				if c != nil && c.ClusterNode != nil {
+					payload, _ := json.Marshal(cluster.UpsertTenantDTO{ID: strings.TrimSpace(in.ID), Name: strings.TrimSpace(in.Name), Slug: in.Slug, Settings: in.Settings})
+					m := cluster.Mutation{Type: cluster.MutationUpsertTenant, TenantSlug: in.Slug, TsUnix: time.Now().Unix(), Payload: payload}
+					if _, err := c.ClusterNode.Apply(r.Context(), m); err != nil {
+						httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
+						return
+					}
+					if t, err := fsProvider.GetTenantBySlug(r.Context(), in.Slug); err == nil {
+						httpx.WriteJSON(w, http.StatusOK, t)
+						return
+					}
 				}
+				now := time.Now().UTC()
+				t := &controlplane.Tenant{ID: strings.TrimSpace(in.ID), Name: strings.TrimSpace(in.Name), Slug: in.Slug, CreatedAt: now, UpdatedAt: now, Settings: in.Settings}
 				if strings.TrimSpace(t.ID) == "" {
-					// fallback: usar slug como id en MVP
 					t.ID = in.Slug
 				}
 				if err := fsProvider.UpsertTenant(r.Context(), t); err != nil {
 					httpx.WriteError(w, http.StatusBadRequest, "upsert_failed", err.Error(), 5032)
 					return
 				}
-				// Si llegaron settings con DSN en claro, UpsertTenant preserva settings; para cifrado fino usamos UpdateTenantSettings
 				if (in.Settings != controlplane.TenantSettings{}) {
-					if err := fsProvider.UpdateTenantSettings(r.Context(), slug, &in.Settings); err != nil {
-						// no fatal; devolvemos 200 con warning implícito
-					}
+					_ = fsProvider.UpdateTenantSettings(r.Context(), slug, &in.Settings)
 				}
 				httpx.WriteJSON(w, http.StatusOK, t)
 				return
@@ -361,6 +414,7 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 
 				case http.MethodPut:
 					// PUT /v1/admin/tenants/{slug}/settings (con If-Match)
+					// Leader enforcement moved to middleware
 					ifMatch := strings.TrimSpace(r.Header.Get("If-Match"))
 					if ifMatch == "" {
 						httpx.WriteError(w, http.StatusPreconditionRequired, "if_match_required", "If-Match header requerido", 5015)
@@ -394,13 +448,23 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 						return
 					}
 
-					// Actualizar settings (con cifrado automático)
+					// Apply via Raft if cluster
+					if c != nil && c.ClusterNode != nil {
+						payload, _ := json.Marshal(cluster.UpdateTenantSettingsDTO{Settings: newSettings})
+						m := cluster.Mutation{Type: cluster.MutationUpdateTenantSettings, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
+						if _, err := c.ClusterNode.Apply(r.Context(), m); err != nil {
+							httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
+							return
+						}
+						_, newRaw, _ := fsProvider.GetTenantSettingsRaw(r.Context(), slug)
+						w.Header().Set("ETag", etag(newRaw))
+						httpx.WriteJSON(w, http.StatusOK, map[string]any{"updated": true})
+						return
+					}
 					if err := fsProvider.UpdateTenantSettings(r.Context(), slug, &newSettings); err != nil {
 						httpx.WriteError(w, http.StatusInternalServerError, "update_failed", err.Error(), 5020)
 						return
 					}
-
-					// Devolver nuevo ETag
 					_, newRaw, _ := fsProvider.GetTenantSettingsRaw(r.Context(), slug)
 					w.Header().Set("ETag", etag(newRaw))
 					httpx.WriteJSON(w, http.StatusOK, map[string]any{"updated": true})
@@ -422,12 +486,29 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 						return
 					}
 					in.ClientID = parts[2]
-					c, err := cpctx.Provider.UpsertClient(r.Context(), slug, in)
+					// Leader enforcement moved to middleware
+					if c != nil && c.ClusterNode != nil {
+						dto := cluster.UpsertClientDTO{Name: in.Name, ClientID: in.ClientID, Type: in.Type, RedirectURIs: in.RedirectURIs, AllowedOrigins: in.AllowedOrigins, Providers: in.Providers, Scopes: in.Scopes, Secret: in.Secret}
+						payload, _ := json.Marshal(dto)
+						m := cluster.Mutation{Type: cluster.MutationUpsertClient, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
+						if _, err := c.ClusterNode.Apply(r.Context(), m); err != nil {
+							httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
+							return
+						}
+						co, err := cpctx.Provider.GetClient(r.Context(), slug, in.ClientID)
+						if err != nil {
+							httpx.WriteError(w, http.StatusInternalServerError, "readback_failed", err.Error(), 5042)
+							return
+						}
+						httpx.WriteJSON(w, http.StatusOK, co)
+						return
+					}
+					cobj, err := cpctx.Provider.UpsertClient(r.Context(), slug, in)
 					if err != nil {
 						httpx.WriteError(w, http.StatusBadRequest, "upsert_failed", err.Error(), 5041)
 						return
 					}
-					httpx.WriteJSON(w, http.StatusOK, c)
+					httpx.WriteJSON(w, http.StatusOK, cobj)
 					return
 				}
 			}

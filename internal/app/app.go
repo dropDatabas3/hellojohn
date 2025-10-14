@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/dropDatabas3/hellojohn/internal/cache"
+	"github.com/dropDatabas3/hellojohn/internal/cluster"
 	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
 	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
@@ -25,6 +26,12 @@ type Container struct {
 
 	// TenantSQLManager para bases de datos por tenant (S3/S4)
 	TenantSQLManager *tenantsql.Manager
+
+	// ClusterNode provee acceso a estado/rol de Raft embebido
+	ClusterNode *cluster.Node
+
+	// LeaderRedirects: nodeID -> baseURL para 307 opcional hacia el líder
+	LeaderRedirects map[string]string
 
 	// ClaimsHook es opcional. Si está seteado, permite inyectar/alterar claims
 	// de Access/ID Tokens a partir de una policy (CEL, webhooks, reglas estáticas, etc).
