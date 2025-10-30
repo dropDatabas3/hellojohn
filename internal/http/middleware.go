@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dropDatabas3/hellojohn/internal/app"
 	"github.com/dropDatabas3/hellojohn/internal/claims"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 )
@@ -147,7 +148,7 @@ func WithRecover(next http.Handler) http.Handler {
 		defer func() {
 			if rec := recover(); rec != nil {
 				rid := w.Header().Get("X-Request-ID")
-				log.Printf(`{"level":"error","msg":"panic","request_id":"%s","recover":"%v"}`, rid, rec)
+				log.Printf(`{"level":"error","msg":"panic","request_id":"%s","path":"%s","method":"%s","recover":"%v"}`, rid, r.URL.Path, r.Method, rec)
 				WriteError(w, http.StatusInternalServerError, "internal_error", "panic recover", 1500)
 			}
 		}()
@@ -161,18 +162,24 @@ func WithRecover(next http.Handler) http.Handler {
 
 type statusRecorder struct {
 	http.ResponseWriter
-	status int
-	bytes  int
+	status      int
+	bytes       int
+	wroteHeader bool
 }
 
 func (s *statusRecorder) WriteHeader(code int) {
+	if s.wroteHeader {
+		return // Evitar llamadas múltiples
+	}
 	s.status = code
+	s.wroteHeader = true
 	s.ResponseWriter.WriteHeader(code)
 }
 
 func (s *statusRecorder) Write(b []byte) (int, error) {
-	if s.status == 0 {
+	if !s.wroteHeader {
 		s.status = http.StatusOK
+		s.wroteHeader = true
 	}
 	n, err := s.ResponseWriter.Write(b)
 	s.bytes += n
@@ -619,6 +626,74 @@ func RequireAnyScope(wants ...string) Middleware {
 				return
 			}
 			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequireLeader asegura que las escrituras sólo se acepten en el líder.
+// Comportamiento:
+//   - Si no hay cluster o el nodo es líder ⇒ pasa.
+//   - Si es follower ⇒ devuelve 409 con X-Leader=<nodeID>.
+//   - Si existe LEADER_REDIRECTS[nodeID] y el cliente lo pide (header X-Leader-Redirect: 1
+//     o query leader_redirect=1) ⇒ responde 307 Location hacia la URL del líder (mismo path/query).
+func RequireLeader(c *app.Container) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Sólo aplica a métodos no idempotentes típicos de escritura
+			switch r.Method {
+			case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+				// continue
+			default:
+				next.ServeHTTP(w, r)
+				return
+			}
+			if c == nil || c.ClusterNode == nil || c.ClusterNode.IsLeader() {
+				next.ServeHTTP(w, r)
+				return
+			}
+			leaderID := c.ClusterNode.LeaderID()
+			if leaderID != "" {
+				w.Header().Set("X-Leader", leaderID)
+			}
+			// ¿Pidió redirect explícito el cliente?
+			wantsRedirect := strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Leader-Redirect")), "1") ||
+				strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("leader_redirect")), "1")
+			if wantsRedirect && leaderID != "" && c.LeaderRedirects != nil {
+				if base, ok := c.LeaderRedirects[leaderID]; ok && strings.TrimSpace(base) != "" {
+					// Validar que base sea una URL absoluta http/https y que pase allowlist (si provista)
+					ub := strings.TrimSpace(base)
+					low := strings.ToLower(ub)
+					if (strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "https://")) && !strings.Contains(ub, " ") {
+						// If allowlist is configured, require host match
+						if c.RedirectHostAllowlist != nil && len(c.RedirectHostAllowlist) > 0 {
+							// Extract host:port
+							host := ub
+							// fast parse to host part
+							// Expect format scheme://host[:port]
+							if i := strings.Index(ub, "://"); i >= 0 {
+								host = ub[i+3:]
+							}
+							if j := strings.Index(host, "/"); j >= 0 {
+								host = host[:j]
+							}
+							if _, ok := c.RedirectHostAllowlist[strings.ToLower(strings.TrimSpace(host))]; !ok {
+								// Not allowed; fall through to 409
+								WriteError(w, http.StatusConflict, "not_leader", "este nodo es follower", 4001)
+								return
+							}
+						}
+						// Construir Location conservando path y query
+						ub = strings.TrimRight(ub, "/")
+						loc := ub + r.URL.RequestURI()
+						w.Header().Set("X-Leader-URL", ub)
+						w.Header().Set("Location", loc)
+						w.WriteHeader(http.StatusTemporaryRedirect) // 307
+						return
+					}
+				}
+			}
+			// Fallback: 409 con error estándar
+			WriteError(w, http.StatusConflict, "not_leader", "este nodo es follower", 4001)
 		})
 	}
 }

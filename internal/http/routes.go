@@ -3,11 +3,12 @@ package http
 import (
 	stdhttp "net/http"
 	"os"
+	"syscall"
 )
 
 func NewMux(
 	// Core / health
-	jwksHandler stdhttp.Handler,
+	jwksHandler any, // *handlers.JWKSHandler
 	authLoginHandler stdhttp.Handler,
 	authRegisterHandler stdhttp.Handler,
 	authRefreshHandler stdhttp.Handler,
@@ -62,6 +63,9 @@ func NewMux(
 	// ─── Admin Users (disable/enable) ───
 	adminUsers stdhttp.Handler, // POST /v1/admin/users/disable | /v1/admin/users/enable
 
+	// ─── Admin Tenants (CRUD + Settings) ───
+	adminTenants stdhttp.Handler, // GET/POST /v1/admin/tenants, GET/PUT /v1/admin/tenants/{slug}/settings
+
 	// WhoAmI profile resource (scope-based)
 	profile stdhttp.Handler, // GET /v1/profile (requires profile:read)
 ) *stdhttp.ServeMux {
@@ -75,10 +79,20 @@ func NewMux(
 	mux.Handle("/readyz", readyz)
 
 	// JWKS
-	mux.Handle("/.well-known/jwks.json", jwksHandler)
+	if h, ok := jwksHandler.(interface {
+		GetGlobal(stdhttp.ResponseWriter, *stdhttp.Request)
+	}); ok {
+		mux.HandleFunc("/.well-known/jwks.json", h.GetGlobal)
+	}
+	if h, ok := jwksHandler.(interface {
+		GetByTenant(stdhttp.ResponseWriter, *stdhttp.Request)
+	}); ok {
+		mux.HandleFunc("/.well-known/jwks/", h.GetByTenant) // expects /{slug}.json
+	}
 
 	// OIDC Discovery
 	mux.Handle("/.well-known/openid-configuration", oidcDiscovery)
+	// Nota: per-tenant discovery se registra fuera, usando el handler concreto en main
 
 	// OAuth2/OIDC
 	mux.Handle("/oauth2/authorize", oauthAuthorize)
@@ -147,6 +161,10 @@ func NewMux(
 	mux.Handle("/v1/admin/users/disable", adminUsers) // POST
 	mux.Handle("/v1/admin/users/enable", adminUsers)  // POST
 
+	// ─── Admin Tenants (CRUD + Settings) ───
+	mux.Handle("/v1/admin/tenants", adminTenants)  // GET/POST
+	mux.Handle("/v1/admin/tenants/", adminTenants) // GET/PUT /{slug}/settings
+
 	// Demo resource protected by scope
 	mux.Handle("/v1/profile", profile)
 
@@ -168,6 +186,24 @@ func NewMux(
 		}
 		_, _ = w.Write([]byte("cache introspection no implementada en este scope"))
 	})
+
+	// Dev/Test: graceful shutdown trigger (only enabled if ALLOW_DEV_SHUTDOWN=1)
+	if os.Getenv("ALLOW_DEV_SHUTDOWN") == "1" {
+		mux.HandleFunc("/__dev/shutdown", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+			if r.Method != stdhttp.MethodPost && r.Method != stdhttp.MethodGet {
+				w.WriteHeader(405)
+				return
+			}
+			// Notify our server loop via SIGTERM (Start listens for it and performs graceful shutdown)
+			p, _ := os.FindProcess(os.Getpid())
+			if p != nil {
+				// Best-effort: ignore error in Windows if unsupported; the server may run in tests
+				_ = p.Signal(syscall.SIGTERM)
+			}
+			w.WriteHeader(200)
+			_, _ = w.Write([]byte("shutting down"))
+		})
+	}
 
 	return mux
 }

@@ -77,3 +77,14 @@ func (l *LimiterPoolAdapter) Allow(ctx context.Context, key string) (Result, err
 	// Este método solo se usa en middleware global, no en endpoints específicos
 	return l.multi.AllowWithLimits(ctx, key, 60, time.Minute)
 }
+
+// NoopMultiLimiter cumple la interfaz y siempre permite
+type NoopMultiLimiter struct{}
+
+func (NoopMultiLimiter) AllowWithLimits(ctx context.Context, key string, limit int, window time.Duration) (Result, error) {
+	return Result{
+		Allowed:   true,
+		Remaining: int64(limit),
+		// WindowTTL / RetryAfter pueden quedar en cero; no usamos para bloquear
+	}, nil
+}

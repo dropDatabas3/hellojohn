@@ -134,9 +134,15 @@ func Test_02_Refresh_And_Logout(t *testing.T) {
 	// --- logout revoca refresh actual ---
 	t.Run("logout revokes refresh", func(t *testing.T) {
 		type logoutReq struct {
+			TenantID     string `json:"tenant_id"`
+			ClientID     string `json:"client_id"`
 			RefreshToken string `json:"refresh_token"`
 		}
-		body, _ := json.Marshal(logoutReq{RefreshToken: newRefresh})
+		body, _ := json.Marshal(logoutReq{
+			TenantID:     seed.Tenant.ID,
+			ClientID:     seed.Clients.Web.ClientID,
+			RefreshToken: newRefresh,
+		})
 		resp, err := c.Post(baseURL+"/v1/auth/logout", "application/json", bytes.NewReader(body))
 		if err != nil {
 			t.Fatal(err)
@@ -202,5 +208,47 @@ func Test_02_Refresh_And_Logout(t *testing.T) {
 	// sanity: /v1/me con el access post-rotación (antes del logout) funcionaba;
 	// tras logout, ese access puede seguir válido hasta expirar (depende de diseño).
 	_ = newAccess
-	_ = time.Now // evitar warnings si no se usa en algunas builds
+	_ = time.Now // evitar warnings si no se usar en algunas builds
+
+	t.Run("logout_revoca_refresh_actual", func(t *testing.T) {
+		// Hacer logout con el refresh token actual (newRefresh)
+		type logoutReq struct {
+			TenantID     string `json:"tenant_id"`
+			ClientID     string `json:"client_id"`
+			RefreshToken string `json:"refresh_token"`
+		}
+		body, _ := json.Marshal(logoutReq{
+			TenantID:     seed.Tenant.ID,
+			ClientID:     seed.Clients.Web.ClientID,
+			RefreshToken: newRefresh,
+		})
+		resp, err := c.Post(baseURL+"/v1/auth/logout", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 204 {
+			b, _ := io.ReadAll(resp.Body)
+			t.Fatalf("logout failed: status=%d body=%s", resp.StatusCode, string(b))
+		}
+
+		// Ahora intentar hacer refresh con el mismo token -> debe dar 401
+		type refreshReq struct {
+			ClientID     string `json:"client_id"`
+			RefreshToken string `json:"refresh_token"`
+		}
+		refreshBody, _ := json.Marshal(refreshReq{
+			ClientID:     seed.Clients.Web.ClientID,
+			RefreshToken: newRefresh,
+		})
+		refreshResp, err := c.Post(baseURL+"/v1/auth/refresh", "application/json", bytes.NewReader(refreshBody))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer refreshResp.Body.Close()
+		if refreshResp.StatusCode != 401 {
+			b, _ := io.ReadAll(refreshResp.Body)
+			t.Errorf("expected 401 after logout, got %d body=%s", refreshResp.StatusCode, string(b))
+		}
+	})
 }

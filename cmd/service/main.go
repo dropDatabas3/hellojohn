@@ -3,25 +3,38 @@ package main
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/base64"
 	"flag"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
+	promhttp "github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"encoding/json"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
+	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	"github.com/dropDatabas3/hellojohn/internal/cluster"
 	"github.com/dropDatabas3/hellojohn/internal/config"
+	cpfs "github.com/dropDatabas3/hellojohn/internal/controlplane/fs"
+	httpmetrics "github.com/dropDatabas3/hellojohn/internal/http"
 	httpserver "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/http/handlers"
+	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
 	"github.com/dropDatabas3/hellojohn/internal/infra/cachefactory"
+	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/rate"
 	"github.com/dropDatabas3/hellojohn/internal/store"
+	"github.com/dropDatabas3/hellojohn/internal/store/core"
 	pgdriver "github.com/dropDatabas3/hellojohn/internal/store/pg"
+	"github.com/jackc/pgx/v5/pgxpool"
 	rdb "github.com/redis/go-redis/v9"
 )
 
@@ -100,6 +113,30 @@ func splitCSVEnv(s string) []string {
 	return out
 }
 
+// parse key=value;key2=value2 style lists into a map
+func parseKVList(s, sep string) map[string]string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return map[string]string{}
+	}
+	items := strings.Split(s, sep)
+	out := make(map[string]string, len(items))
+	for _, it := range items {
+		it = strings.TrimSpace(it)
+		if it == "" {
+			continue
+		}
+		if i := strings.IndexRune(it, '='); i > 0 {
+			k := strings.TrimSpace(it[:i])
+			v := strings.TrimSpace(it[i+1:])
+			if k != "" && v != "" {
+				out[k] = v
+			}
+		}
+	}
+	return out
+}
+
 func getenv(key, def string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		return v
@@ -137,10 +174,12 @@ func loadConfigFromEnv() *config.Config {
 	c.Server.CORSAllowedOrigins = splitCSVEnv(getenv("SERVER_CORS_ALLOWED_ORIGINS", "http://localhost:3000"))
 
 	// --- Storage ---
-	c.Storage.Driver = getenv("STORAGE_DRIVER", "postgres")
-	c.Storage.DSN = getenv("STORAGE_DSN", "postgres://user:password@localhost:5432/login?sslmode=disable")
-	c.Storage.Postgres.MaxOpenConns = getenvInt("POSTGRES_MAX_OPEN_CONNS", 30)
-	c.Storage.Postgres.MaxIdleConns = getenvInt("POSTGRES_MAX_IDLE_CONNS", 5)
+	// Dejar vacíos por defecto para habilitar modo FS-only
+	c.Storage.Driver = getenv("STORAGE_DRIVER", "")
+	c.Storage.DSN = getenv("STORAGE_DSN", "")
+	// Mapear MaxIdleConns -> MinConns (pgxpool)
+	c.Storage.Postgres.MaxOpenConns = getenvInt("POSTGRES_MAX_OPEN_CONNS", 5) // muy reducido para dev/testing
+	c.Storage.Postgres.MaxIdleConns = getenvInt("POSTGRES_MAX_IDLE_CONNS", 2) // lo usaremos como MinConns
 	c.Storage.Postgres.ConnMaxLifetime = getenv("POSTGRES_CONN_MAX_LIFETIME", "30m")
 	c.Storage.MySQL.DSN = getenv("MYSQL_DSN", "")
 	c.Storage.Mongo.URI = getenv("MONGO_URI", "")
@@ -302,6 +341,11 @@ func loadConfigFromEnv() *config.Config {
 	c.Security.PasswordPolicy.RequireDigit = getenvBool("SECURITY_PASSWORD_POLICY_REQUIRE_DIGIT", true)
 	c.Security.PasswordPolicy.RequireSymbol = getenvBool("SECURITY_PASSWORD_POLICY_REQUIRE_SYMBOL", false)
 	c.Security.PasswordBlacklistPath = getenv("SECURITY_PASSWORD_BLACKLIST_PATH", c.Security.PasswordBlacklistPath)
+	// Secretbox master key for FS config encryption
+	c.Security.SecretBoxMasterKey = getenv("SECRETBOX_MASTER_KEY", "")
+
+	// --- Control Plane ---
+	c.ControlPlane.FSRoot = getenv("CONTROL_PLANE_FS_ROOT", "./data/hellojohn")
 
 	// --- Providers / Social (ENV-only mode) ---
 	// Login code TTL
@@ -342,10 +386,74 @@ func loadConfigFromEnv() *config.Config {
 		c.Email.DebugEchoLinks = false
 	}
 
+	// --- Cluster (Paso 0) ---
+	c.Cluster.Mode = strings.ToLower(strings.TrimSpace(getenv("CLUSTER_MODE", "off")))
+	c.Cluster.NodeID = strings.TrimSpace(getenv("NODE_ID", c.Cluster.NodeID))
+	c.Cluster.RaftAddr = strings.TrimSpace(getenv("RAFT_ADDR", c.Cluster.RaftAddr))
+	if c.Cluster.Nodes == nil {
+		c.Cluster.Nodes = map[string]string{}
+	}
+	if c.Cluster.LeaderRedirects == nil {
+		c.Cluster.LeaderRedirects = map[string]string{}
+	}
+	if s := getenv("CLUSTER_NODES", ""); s != "" {
+		for k, v := range parseKVList(s, ";") {
+			c.Cluster.Nodes[k] = v
+		}
+	}
+	if s := getenv("LEADER_REDIRECTS", ""); s != "" {
+		for k, v := range parseKVList(s, ";") {
+			c.Cluster.LeaderRedirects[k] = v
+		}
+	}
+	if v := getenvInt("RAFT_SNAPSHOT_EVERY", 0); v > 0 {
+		c.Cluster.SnapshotEvery = v
+	}
+	if v := getenvInt("RAFT_MAX_LOG_MB", 0); v > 0 {
+		c.Cluster.MaxLogMB = v
+	}
+
+	// Raft TLS (optional) with fallback aliases
+	c.Cluster.RaftTLSEnable = getenvBool("RAFT_TLS_ENABLE", c.Cluster.RaftTLSEnable)
+	certFile := getenv("RAFT_TLS_CERT_FILE", "")
+	if certFile == "" {
+		certFile = getenv("RAFT_TLS_CERT", c.Cluster.RaftTLSCertFile)
+	} else {
+		c.Cluster.RaftTLSCertFile = certFile
+	}
+	if certFile != "" {
+		c.Cluster.RaftTLSCertFile = certFile
+	}
+	keyFile := getenv("RAFT_TLS_KEY_FILE", "")
+	if keyFile == "" {
+		keyFile = getenv("RAFT_TLS_KEY", c.Cluster.RaftTLSKeyFile)
+	} else {
+		c.Cluster.RaftTLSKeyFile = keyFile
+	}
+	if keyFile != "" {
+		c.Cluster.RaftTLSKeyFile = keyFile
+	}
+	caFile := getenv("RAFT_TLS_CA_FILE", "")
+	if caFile == "" {
+		caFile = getenv("RAFT_TLS_CA", c.Cluster.RaftTLSCAFile)
+	} else {
+		c.Cluster.RaftTLSCAFile = caFile
+	}
+	if caFile != "" {
+		c.Cluster.RaftTLSCAFile = caFile
+	}
+	c.Cluster.RaftTLSServerName = getenv("RAFT_TLS_SERVER_NAME", c.Cluster.RaftTLSServerName)
+
 	return c
 }
 
 func printConfigSummary(c *config.Config) {
+	// Mask sensitive values for logging
+	secretBoxKeyMasked := "***masked***"
+	if c.Security.SecretBoxMasterKey == "" {
+		secretBoxKeyMasked = "NOT_SET"
+	}
+
 	log.Printf(`CONFIG:
   server.addr=%s
   cors=%v
@@ -367,7 +475,10 @@ func printConfigSummary(c *config.Config) {
 
   email(base_url=%s, templates=%s, debug_echo_links=%t)
 
-  providers(login_code_ttl=%s)   // NUEVO
+  providers(login_code_ttl=%s)
+
+  control_plane(fs_root=%s)
+  security(secretbox_master_key=%s)
 
   pwd_policy(min=%d, upper=%t, lower=%t, digit=%t, symbol=%t)
 	password_blacklist_path=%s
@@ -382,6 +493,7 @@ func printConfigSummary(c *config.Config) {
 		c.SMTP.Host, c.SMTP.Port, c.SMTP.Username, c.SMTP.From, c.SMTP.TLS, c.SMTP.InsecureSkipVerify,
 		c.Email.BaseURL, c.Email.TemplatesDir, c.Email.DebugEchoLinks,
 		c.Providers.LoginCodeTTL,
+		c.ControlPlane.FSRoot, secretBoxKeyMasked,
 		c.Security.PasswordPolicy.MinLength, c.Security.PasswordPolicy.RequireUpper, c.Security.PasswordPolicy.RequireLower, c.Security.PasswordPolicy.RequireDigit, c.Security.PasswordPolicy.RequireSymbol,
 		c.Security.PasswordBlacklistPath,
 	)
@@ -396,9 +508,11 @@ func main() {
 	)
 	flag.Parse()
 
-	if *flagEnvFile != "" && (fileExists(*flagEnvFile) || *flagEnvOnly) {
-		if err := godotenv.Load(*flagEnvFile); err == nil {
-			log.Printf("dotenv: cargado %s", *flagEnvFile)
+	if os.Getenv("DISABLE_DOTENV") != "1" {
+		if *flagEnvFile != "" && (fileExists(*flagEnvFile) || *flagEnvOnly) {
+			if err := godotenv.Load(*flagEnvFile); err == nil {
+				log.Printf("dotenv: cargado %s", *flagEnvFile)
+			}
 		}
 	}
 
@@ -406,6 +520,10 @@ func main() {
 	var err error
 	if *flagEnvOnly {
 		cfg = loadConfigFromEnv()
+		// Validate config when using ENV-only mode
+		if err := cfg.Validate(); err != nil {
+			log.Fatalf("config validation: %v", err)
+		}
 	} else {
 		cfgPath := *flagConfigPath
 		if cfgPath == "" {
@@ -422,14 +540,102 @@ func main() {
 		if err != nil {
 			log.Fatalf("config: %v", err)
 		}
-		type envOverrider interface{ ApplyEnvOverrides() }
-		if o, ok := any(cfg).(envOverrider); ok {
-			o.ApplyEnvOverrides()
-		}
 	}
 	if *flagPrint {
 		printConfigSummary(cfg)
 		return
+	}
+
+	// ─── SECRETBOX (requerido sólo para el service, porque usa FS) ───
+	if kb64 := strings.TrimSpace(cfg.Security.SecretBoxMasterKey); kb64 == "" {
+		log.Fatal("SECRETBOX_MASTER_KEY faltante (base64 de 32 bytes). Genera con: go run ./cmd/keys -gen-secretbox")
+	}
+	if b, err := base64.StdEncoding.DecodeString(cfg.Security.SecretBoxMasterKey); err != nil || len(b) != 32 {
+		log.Fatal("SECRETBOX_MASTER_KEY inválida: debe ser base64 de 32 bytes")
+	}
+	if strings.TrimSpace(cfg.ControlPlane.FSRoot) == "" {
+		log.Fatal("CONTROL_PLANE_FS_ROOT faltante")
+	}
+
+	// --- Control-Plane FS (MVP) ---
+	cpctx.Provider = cpfs.New(cfg.ControlPlane.FSRoot)
+
+	// Placeholder del nodo de clúster (se asigna si CLUSTER_MODE=embedded)
+	var clusterNode *cluster.Node
+
+	// Paso 0 (Fase 6): si CLUSTER_MODE=embedded, preparar carpeta RAFT bajo FS root
+	if strings.EqualFold(strings.TrimSpace(cfg.Cluster.Mode), "embedded") {
+		raftDir := filepath.Join(cfg.ControlPlane.FSRoot, "raft")
+		if err := os.MkdirAll(raftDir, 0o755); err != nil {
+			log.Fatalf("prepare raft dir: %v", err)
+		}
+
+		// Inicializar nodo Raft embebido (mono-nodo por ahora)
+		fsm := cluster.NewFSM()
+		// Allow explicit bootstrap via CLUSTER_BOOTSTRAP=1 for exactly one node
+		bootstrapPreferred := getenvBool("CLUSTER_BOOTSTRAP", false)
+		node, err := cluster.NewNode(cluster.NodeOptions{
+			NodeID:             strings.TrimSpace(cfg.Cluster.NodeID),
+			RaftAddr:           strings.TrimSpace(cfg.Cluster.RaftAddr),
+			RaftDir:            raftDir,
+			FSM:                fsm,
+			Peers:              cfg.Cluster.Nodes,
+			BootstrapPreferred: bootstrapPreferred,
+			// TLS wiring from config (optional)
+			RaftTLSEnable:     cfg.Cluster.RaftTLSEnable,
+			RaftTLSCertFile:   cfg.Cluster.RaftTLSCertFile,
+			RaftTLSKeyFile:    cfg.Cluster.RaftTLSKeyFile,
+			RaftTLSCAFile:     cfg.Cluster.RaftTLSCAFile,
+			RaftTLSServerName: cfg.Cluster.RaftTLSServerName,
+		})
+		if err != nil {
+			log.Fatalf("cluster init: %v", err)
+		}
+		// Guardar para asignar al contenedor luego de su creación
+		clusterNode = node
+
+		// Log de cambios de rol
+		go func() {
+			ch := node.LeaderCh()
+			for ch != nil {
+				isLeader, ok := <-ch
+				if !ok {
+					break
+				}
+				role := "follower"
+				if isLeader {
+					role = "leader"
+				}
+				log.Printf("[cluster] role changed: %s (leaderID=%s)", role, node.LeaderID())
+			}
+		}()
+
+		log.Printf("[cluster] mode=embedded raft_dir=%s addr=%s node_id=%s", raftDir, cfg.Cluster.RaftAddr, cfg.Cluster.NodeID)
+	}
+
+	// --- Tenant SQL Manager (S3/S4) ---
+	tenantSQLManager, err := tenantsql.New(tenantsql.Config{
+		Pool: tenantsql.PoolConfig{
+			MaxOpenConns:    3, // muy reducido para dev/testing
+			MaxIdleConns:    1,
+			ConnMaxLifetime: 30 * time.Minute,
+		},
+		MetricsFunc: httpmetrics.RecordTenantMigration,
+	})
+	if err != nil {
+		log.Fatalf("tenant sql manager: %v", err)
+	}
+	defer tenantSQLManager.Close()
+
+	// Resolver por header/query con fallback a "local"
+	cpctx.ResolveTenant = func(r *http.Request) string {
+		if v := r.Header.Get("X-Tenant-Slug"); v != "" {
+			return v
+		}
+		if v := r.URL.Query().Get("tenant"); v != "" {
+			return v
+		}
+		return "local"
 	}
 
 	// D) Hard check de SIGNING_MASTER_KEY (requerimos >=32 bytes para AES-256-GCM de secretos MFA y claves privadas opcionales)
@@ -439,55 +645,87 @@ func main() {
 
 	ctx := context.Background()
 
-	// ───── Store compuesto (repo principal + scopes/consents opcional) ─────
-	stores, err := store.OpenStores(ctx, store.Config{
-		Driver: cfg.Storage.Driver,
-		DSN:    cfg.Storage.DSN,
-		Postgres: struct {
-			MaxOpenConns, MaxIdleConns int
-			ConnMaxLifetime            string
-		}{
-			MaxOpenConns:    cfg.Storage.Postgres.MaxOpenConns,
-			MaxIdleConns:    cfg.Storage.Postgres.MaxIdleConns,
-			ConnMaxLifetime: cfg.Storage.Postgres.ConnMaxLifetime,
-		},
-		MySQL: struct{ DSN string }{DSN: cfg.Storage.MySQL.DSN},
-		Mongo: struct{ URI, Database string }{URI: cfg.Storage.Mongo.URI, Database: cfg.Storage.Mongo.Database},
-	})
-	if err != nil {
-		log.Fatalf("store open: %v", err)
+	// Cluster node placeholder declarado anteriormente
+
+	// ───── Detectar si hay DB global y gatear OpenStores + migrations ─────
+	hasGlobalDB := strings.TrimSpace(cfg.Storage.Driver) != "" && strings.TrimSpace(cfg.Storage.DSN) != ""
+	log.Printf("DEBUG: Storage.Driver='%s', Storage.DSN='%s', hasGlobalDB=%v", cfg.Storage.Driver, cfg.Storage.DSN, hasGlobalDB)
+
+	var (
+		stores *store.Stores
+		repo   core.Repository
+	)
+	if hasGlobalDB {
+		var err error
+		storePtr, err := store.OpenStores(ctx, store.Config{
+			Driver: cfg.Storage.Driver,
+			DSN:    cfg.Storage.DSN,
+			Postgres: struct {
+				MaxOpenConns, MaxIdleConns int
+				ConnMaxLifetime            string
+			}{
+				MaxOpenConns:    cfg.Storage.Postgres.MaxOpenConns,
+				MaxIdleConns:    cfg.Storage.Postgres.MaxIdleConns,
+				ConnMaxLifetime: cfg.Storage.Postgres.ConnMaxLifetime,
+			},
+			MySQL: struct{ DSN string }{DSN: cfg.Storage.MySQL.DSN},
+			Mongo: struct{ URI, Database string }{URI: cfg.Storage.Mongo.URI, Database: cfg.Storage.Mongo.Database},
+		})
+		if err != nil {
+			log.Fatalf("store open: %v", err)
+		}
+		stores = storePtr
+		repo = stores.Repository
+
+		// Migraciones globales solo si hay DB
+		if cfg.Flags.Migrate {
+			if pg, ok := repo.(interface {
+				RunMigrations(context.Context, string) error
+			}); ok {
+				if err := pg.RunMigrations(ctx, "migrations/postgres"); err != nil {
+					log.Fatalf("migrations: %v", err)
+				}
+			}
+		}
 	}
-	// Para compatibilidad, usamos repo := stores.Repository
-	repo := stores.Repository
-	// Aseguramos cierre ordenado del pool extra (si existe)
 	defer func() {
-		// Si más adelante Container se crea antes, también se podría defer container.Close()
-		if stores.Close != nil {
+		if stores != nil && stores.Close != nil {
 			_ = stores.Close()
 		}
 	}()
 
-	// Migraciones
-	if cfg.Flags.Migrate {
-		if pg, ok := repo.(interface {
-			RunMigrations(context.Context, string) error
-		}); ok {
-			if err := pg.RunMigrations(ctx, "migrations/postgres"); err != nil {
-				log.Fatalf("migrations: %v", err)
-			}
-		} else if _, ok := repo.(*pgdriver.Store); ok {
-			if err := repo.(*pgdriver.Store).RunMigrations(ctx, "migrations/postgres"); err != nil {
-				log.Fatalf("migrations: %v", err)
-			}
+	// JWT / JWKS (Keystore persistente con bootstrap)
+	var refreshTTL time.Duration = 30 * 24 * time.Hour
+	if cfg.JWT.RefreshTTL != "" {
+		if d, err := time.ParseDuration(cfg.JWT.RefreshTTL); err == nil {
+			refreshTTL = d
 		}
 	}
 
-	// JWT / JWKS (Keystore persistente con bootstrap)
-	pgRepo, ok := repo.(*pgdriver.Store)
-	if !ok {
-		log.Fatalf("signing keys: Postgres store requerido")
+	var ks *jwtx.PersistentKeystore
+	if hasGlobalDB {
+		pgRepo, ok := repo.(*pgdriver.Store)
+		if !ok {
+			log.Fatalf("signing keys: se esperaba Postgres store")
+		}
+		// Usar un store híbrido: global desde PG, por-tenant desde FS para asegurar aislamiento
+		keysDir := filepath.Join(cfg.ControlPlane.FSRoot, "keys")
+		fileStore, err := jwtx.NewFileSigningKeyStore(keysDir)
+		if err != nil {
+			log.Fatalf("create file signing keystore: %v", err)
+		}
+		hybrid := jwtx.NewHybridSigningKeyStore(pgRepo, fileStore)
+		ks = jwtx.NewPersistentKeystore(ctx, hybrid)
+	} else {
+		// FS-only: usar FileSigningKeyStore para persistencia
+		keysDir := filepath.Join(cfg.ControlPlane.FSRoot, "keys")
+		fileStore, err := jwtx.NewFileSigningKeyStore(keysDir)
+		if err != nil {
+			log.Fatalf("create file signing keystore: %v", err)
+		}
+		ks = jwtx.NewPersistentKeystore(ctx, fileStore)
+		log.Printf("Using persistent file keystore at: %s", keysDir)
 	}
-	ks := jwtx.NewPersistentKeystore(ctx, pgRepo)
 	if err := ks.EnsureBootstrap(); err != nil {
 		log.Fatalf("bootstrap signing key: %v", err)
 	}
@@ -500,12 +738,6 @@ func main() {
 	if cfg.JWT.AccessTTL != "" {
 		if d, err := time.ParseDuration(cfg.JWT.AccessTTL); err == nil {
 			issuer.AccessTTL = d
-		}
-	}
-	refreshTTL := 30 * 24 * time.Hour
-	if cfg.JWT.RefreshTTL != "" {
-		if d, err := time.ParseDuration(cfg.JWT.RefreshTTL); err == nil {
-			refreshTTL = d
 		}
 	}
 
@@ -530,11 +762,31 @@ func main() {
 	}
 
 	container := app.Container{
-		Store:          repo, // repo principal
-		Issuer:         issuer,
-		Cache:          cc,
-		Stores:         stores,                // wrapper (incluye Close opcional)
-		ScopesConsents: stores.ScopesConsents, // puede ser nil si driver != postgres
+		Store:            repo, // puede ser nil en FS-only
+		Issuer:           issuer,
+		Cache:            cc,
+		TenantSQLManager: tenantSQLManager,
+		Stores:           stores,
+	}
+	// Asignar cluster node si existe
+	container.ClusterNode = clusterNode
+	// Pasar mapa de redirects para 307 opcional
+	container.LeaderRedirects = cfg.Cluster.LeaderRedirects
+	// Optional redirect allowlist: LEADER_REDIRECT_ALLOWED_HOSTS
+	// Accepts comma or semicolon separators; trims spaces.
+	if s := strings.TrimSpace(os.Getenv("LEADER_REDIRECT_ALLOWED_HOSTS")); s != "" {
+		allow := map[string]bool{}
+		parts := strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ';' })
+		for _, part := range parts {
+			h := strings.ToLower(strings.TrimSpace(part))
+			if h != "" {
+				allow[h] = true
+			}
+		}
+		container.RedirectHostAllowlist = allow
+	}
+	if stores != nil {
+		container.ScopesConsents = stores.ScopesConsents // nil si no hay DB/PG
 	}
 	// Si preferís, podés delegar el cierre al contenedor:
 	// defer container.Close()
@@ -544,7 +796,35 @@ func main() {
 		sessionTTL = 12 * time.Hour
 	}
 
-	jwksHandler := handlers.NewJWKSHandler(&container)
+	// JWKS per-tenant cache (15s TTL). For tenants, do NOT auto-bootstrap to avoid divergent keys in HA.
+	container.JWKSCache = jwtx.NewJWKSCache(15*time.Second, func(tenant string) (json.RawMessage, error) {
+		if strings.TrimSpace(tenant) == "" || strings.EqualFold(tenant, "global") {
+			b, err := issuer.Keys.JWKSJSON()
+			if err != nil {
+				return nil, err
+			}
+			return json.RawMessage(b), nil
+		}
+		// Per-tenant: return JWKS only if present; rotation or restore will create files and invalidate cache.
+		b, err := issuer.Keys.JWKSJSONForTenant(tenant)
+		if err != nil {
+			return nil, err
+		}
+		return json.RawMessage(b), nil
+	})
+
+	// Expose JWKS cache invalidation for cluster FSM restore
+	cpctx.InvalidateJWKS = func(tenant string) {
+		if container.JWKSCache != nil {
+			container.JWKSCache.Invalidate(tenant)
+		}
+	}
+
+	// Wire FS degraded hooks so FS provider can degrade readyz
+	cpctx.MarkFSDegraded = func(reason string) { container.SetFSDegraded(true) }
+	cpctx.ClearFSDegraded = func() { container.SetFSDegraded(false) }
+
+	jwksHandler := handlers.NewJWKSHandler(container.JWKSCache)
 	authLoginHandler := handlers.NewAuthLoginHandler(&container, cfg, refreshTTL)
 	authRegisterHandler := handlers.NewAuthRegisterHandler(&container, cfg.Register.AutoLogin, refreshTTL, cfg.Security.PasswordBlacklistPath)
 	authRefreshHandler := handlers.NewAuthRefreshHandler(&container, refreshTTL)
@@ -556,17 +836,22 @@ func main() {
 	// Protegemos todas las rutas /v1/admin/* con RequireAuth + RequireSysAdmin
 
 	adminScopes := httpserver.Chain(
-		handlers.NewAdminScopesHandler(&container),
+		handlers.NewAdminScopesFSHandler(&container),
 		httpserver.RequireAuth(container.Issuer),
-		httpserver.RequireSysAdmin(container.Issuer))
+		httpserver.RequireSysAdmin(container.Issuer),
+		httpserver.RequireLeader(&container),
+	)
 	adminConsents := httpserver.Chain(
 		handlers.NewAdminConsentsHandler(&container),
 		httpserver.RequireAuth(container.Issuer),
-		httpserver.RequireSysAdmin(container.Issuer))
+		httpserver.RequireSysAdmin(container.Issuer),
+	)
 	adminClients := httpserver.Chain(
-		handlers.NewAdminClientsHandler(&container),
+		handlers.NewAdminClientsFSHandler(&container),
 		httpserver.RequireAuth(container.Issuer),
-		httpserver.RequireSysAdmin(container.Issuer))
+		httpserver.RequireSysAdmin(container.Issuer),
+		httpserver.RequireLeader(&container),
+	)
 	// ─── RBAC Admin ───
 	adminRBACUsers := httpserver.Chain(
 		handlers.AdminRBACUsersRolesHandler(&container),
@@ -586,12 +871,20 @@ func main() {
 		httpserver.RequireSysAdmin(container.Issuer),
 	)
 
+	// ─── Admin Tenants (CRUD + Settings) ───
+	adminTenants := httpserver.Chain(
+		handlers.NewAdminTenantsFSHandler(&container),
+		httpserver.RequireAuth(container.Issuer),
+		httpserver.RequireSysAdmin(container.Issuer),
+		httpserver.RequireLeader(&container),
+	)
+
 	// Introspect endurecido con basic auth (si user/pass vacíos ⇒ siempre 401)
 	introspectAuth := basicAuthCfg{user: strings.TrimSpace(cfg.Auth.IntrospectBasicUser), pass: strings.TrimSpace(cfg.Auth.IntrospectBasicPass)}
 	oauthIntrospectHandler := handlers.NewOAuthIntrospectHandler(&container, introspectAuth)
 
 	var limiter httpserver.RateLimiter
-	var multiLimiter *rate.LimiterPoolAdapter // Nuevo: para rate limits específicos
+	var multiLimiter helpers.MultiLimiter // Nuevo: para rate limits específicos (interfaz genérica)
 	var redisPing func(context.Context) error
 	if cfg.Rate.Enabled && strings.EqualFold(cfg.Cache.Kind, "redis") {
 		rc := rdb.NewClient(&rdb.Options{
@@ -608,6 +901,9 @@ func main() {
 			limiter = redisLimiterAdapter{inner: rl}
 		}
 		redisPing = func(ctx context.Context) error { return rc.Ping(ctx).Err() }
+	} else {
+		// Usar NoopMultiLimiter cuando no hay Redis para evitar panics
+		multiLimiter = rate.NoopMultiLimiter{}
 	}
 
 	// Añadir multiLimiter al container para que los handlers lo puedan usar
@@ -616,6 +912,7 @@ func main() {
 	readyzHandler := handlers.NewReadyzHandler(&container, redisPing)
 
 	oidcDiscoveryHandler := handlers.NewOIDCDiscoveryHandler(&container)
+	tenantOIDCDiscoveryHandler := handlers.NewTenantOIDCDiscoveryHandler(&container)
 	oauthAuthorizeHandler := handlers.NewOAuthAuthorizeHandler(&container, cfg.Auth.Session.CookieName, cfg.Auth.AllowBearerSession)
 	oauthTokenHandler := handlers.NewOAuthTokenHandler(&container, refreshTTL)
 	userInfoHandler := handlers.NewUserInfoHandler(&container)
@@ -652,22 +949,41 @@ func main() {
 		cfg.Auth.Session.Secure,
 	)
 
-	// Email Flows
-	verifyEmailStartHandler, verifyEmailConfirmHandler, forgotHandler, resetHandler, emailCleanup, err :=
-		handlers.BuildEmailFlowHandlers(ctx, cfg, &container, refreshTTL)
-	if err != nil {
-		log.Fatalf("email flows: %v", err)
+	// Email Flows (solo si tenemos DB)
+	var verifyEmailStartHandler, verifyEmailConfirmHandler, forgotHandler, resetHandler http.Handler
+	var emailCleanup func() = func() {} // default no-op cleanup
+	if hasGlobalDB {
+		var err error
+		verifyEmailStartHandler, verifyEmailConfirmHandler, forgotHandler, resetHandler, emailCleanup, err =
+			handlers.BuildEmailFlowHandlers(ctx, cfg, &container, refreshTTL)
+		if err != nil {
+			log.Fatalf("email flows: %v", err)
+		}
+		defer emailCleanup()
+	} else {
+		// Handlers dummy para modo FS-only
+		notImplemented := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "Feature requires database connection", http.StatusNotImplemented)
+		})
+		verifyEmailStartHandler = notImplemented
+		verifyEmailConfirmHandler = notImplemented
+		forgotHandler = notImplemented
+		resetHandler = notImplemented
 	}
-	defer emailCleanup()
 
-	// ───────── Social: Google ─────────
-	googleStart, googleCallback, googleCleanup, gerr :=
-		handlers.BuildGoogleSocialHandlers(ctx, cfg, &container, refreshTTL)
-	if gerr != nil {
-		log.Fatalf("google social: %v", gerr)
-	}
-	if googleCleanup != nil {
-		defer googleCleanup()
+	// ───────── Social: Google (solo si tenemos DB) ─────────
+	var googleStart, googleCallback http.Handler
+	var googleCleanup func()
+	if hasGlobalDB {
+		var gerr error
+		googleStart, googleCallback, googleCleanup, gerr =
+			handlers.BuildGoogleSocialHandlers(ctx, cfg, &container, refreshTTL)
+		if gerr != nil {
+			log.Fatalf("google social: %v", gerr)
+		}
+		if googleCleanup != nil {
+			defer googleCleanup()
+		}
 	}
 
 	// MFA TOTP handlers (si store soporta) – se registran siempre; retornarán 501 si no hay soporte
@@ -726,9 +1042,30 @@ func main() {
 		adminRBACUsers,
 		adminRBACRoles,
 		adminUsers,
+		adminTenants,
 		// demo protected resource
 		profileHandler,
 	)
+
+	var globalPoolFunc func() *pgxpool.Pool
+	if pgRepo, ok := repo.(*pgdriver.Store); ok {
+		globalPoolFunc = pgRepo.Pool
+	}
+
+	_, err = httpmetrics.RegisterMetrics(httpmetrics.MetricsConfig{
+		TenantManager: tenantSQLManager,
+		GlobalPool:    globalPoolFunc,
+	})
+	if err != nil {
+		log.Fatalf("metrics: %v", err)
+	}
+
+	// Register /metrics route
+	mux.Handle("/metrics", promhttp.Handler())
+
+	// Per-tenant OIDC Discovery (MVP compatible):
+	// Keep global endpoints; expose issuer/jwks per-tenant under /t/{slug}/.well-known/openid-configuration
+	mux.Handle("/t/", tenantOIDCDiscoveryHandler) // handler validates the exact suffix
 
 	// Rutas Google (solo si está habilitado)
 	if googleStart != nil {
@@ -741,6 +1078,8 @@ func main() {
 	// Discovery de providers (siempre expuesto, sólo devuelve estado/URLs)
 	providersHandler := handlers.NewProvidersHandler(&container, cfg)
 	mux.Handle("/v1/auth/providers", providersHandler)
+	// Back-compat for earlier Admin UI endpoint
+	mux.Handle("/v1/providers/status", providersHandler)
 
 	// social/result: montarlo solo si algún provider social lo usa (por ahora: Google)
 	if cfg.Providers.Google.Enabled {
@@ -748,18 +1087,141 @@ func main() {
 		mux.Handle("/v1/auth/social/result", socialResultHandler)
 	}
 
+	// Optional Admin UI: serve in a dedicated port if UI_SERVER_ADDR and ADMIN_UI_DIR are set.
+	// Also add UI origin to API CORS to allow cross-origin API calls from UI → API.
+	uiDir := strings.TrimSpace(os.Getenv("ADMIN_UI_DIR"))
+	uiAddr := strings.TrimSpace(os.Getenv("UI_SERVER_ADDR")) // e.g. ":8081" or "0.0.0.0:8081"
+	if uiDir != "" && uiAddr != "" {
+		if st, err := os.Stat(uiDir); err == nil && st.IsDir() {
+			// Derive UI public origin if provided or guess by port on localhost
+			uiOrigin := strings.TrimSpace(os.Getenv("UI_PUBLIC_ORIGIN"))
+			if uiOrigin == "" {
+				// best-effort guess
+				if strings.Contains(uiAddr, ":") {
+					parts := strings.Split(uiAddr, ":")
+					port := parts[len(parts)-1]
+					uiOrigin = "http://localhost:" + port
+				}
+			}
+			if uiOrigin != "" {
+				cfg.Server.CORSAllowedOrigins = append(cfg.Server.CORSAllowedOrigins, uiOrigin)
+			}
+
+			// Build a small SPA-friendly file handler with index.html fallback
+			spa := func(root string) http.Handler {
+				d := http.Dir(root)
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					// sanitize path
+					p := r.URL.Path
+					if p == "/" {
+						p = "/index.html"
+					}
+					f, err := d.Open(p)
+					if err != nil {
+						// fallback to index.html for SPA routes
+						if ff, e2 := d.Open("/index.html"); e2 == nil {
+							defer ff.Close()
+							w.Header().Set("Content-Type", "text/html; charset=utf-8")
+							http.ServeContent(w, r, "index.html", time.Now(), ff)
+							return
+						}
+						http.NotFound(w, r)
+						return
+					}
+					defer f.Close()
+					// Override CSP for UI (less strict than API)
+					w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src *")
+					// Serve the file
+					http.ServeContent(w, r, p, time.Now(), f)
+				})
+			}
+			uiMux := http.NewServeMux()
+			uiMux.Handle("/", spa(uiDir))
+			if _, err := httpserver.StartBackground(uiAddr, uiMux); err == nil {
+				log.Printf("admin ui: serving %s at %s (origin=%s)", uiDir, uiAddr, uiOrigin)
+			} else {
+				log.Printf("admin ui: failed to start: %v", err)
+			}
+		}
+	}
+
 	handler := httpserver.WithLogging(
 		httpserver.WithRecover(
 			httpserver.WithRequestID(
-				httpserver.WithRateLimit(
-					httpserver.WithSecurityHeaders(
-						httpserver.WithCORS(mux, cfg.Server.CORSAllowedOrigins),
+				httpmetrics.WithMetrics(
+					httpserver.WithRateLimit(
+						httpserver.WithSecurityHeaders(
+							httpserver.WithCORS(mux, cfg.Server.CORSAllowedOrigins),
+						),
+						limiter,
 					),
-					limiter,
 				),
 			),
 		),
 	)
+
+	// ─── Simple Claims Mapping Hook (FS control-plane based) ───
+	// Supports string substitutions like ${user.id}, ${user.email}, ${tenant.id}, ${tenant.slug}, ${client.id}
+	container.ClaimsHook = func(ctx context.Context, ev app.ClaimsEvent) (map[string]any, map[string]any, error) {
+		// Resolve tenant slug by UUID using FS provider
+		var tenantSlug string
+		if cpctx.Provider != nil {
+			if tenants, err := cpctx.Provider.ListTenants(ctx); err == nil {
+				for _, t := range tenants {
+					if strings.EqualFold(t.ID, ev.TenantID) || strings.EqualFold(t.Slug, ev.TenantID) {
+						tenantSlug = t.Slug
+						break
+					}
+				}
+			}
+		}
+		if tenantSlug == "" {
+			// fallback to resolver or local
+			tenantSlug = ev.TenantID
+		}
+		// Load client from FS if available
+		var mapping map[string]any
+		if cpctx.Provider != nil {
+			if cobj, err := cpctx.Provider.GetClient(ctx, tenantSlug, ev.ClientID); err == nil && cobj != nil {
+				if cobj.ClaimMapping != nil {
+					mapping = cobj.ClaimMapping
+				}
+			}
+		}
+		if len(mapping) == 0 {
+			return nil, nil, nil
+		}
+		// Optional: fetch user minimal info for substitutions
+		var userEmail string
+		if container.Store != nil && strings.TrimSpace(ev.UserID) != "" {
+			if u, err := container.Store.GetUserByID(ctx, ev.UserID); err == nil && u != nil {
+				userEmail = u.Email
+			}
+		}
+
+		repl := func(s string) any {
+			// Only string substitutions supported in MVP; passthrough non-strings
+			val := s
+			val = strings.ReplaceAll(val, "${user.id}", ev.UserID)
+			val = strings.ReplaceAll(val, "${user.email}", userEmail)
+			val = strings.ReplaceAll(val, "${tenant.id}", ev.TenantID)
+			val = strings.ReplaceAll(val, "${tenant.slug}", tenantSlug)
+			val = strings.ReplaceAll(val, "${client.id}", ev.ClientID)
+			return val
+		}
+		addStd := map[string]any{}
+		addExtra := map[string]any{}
+		for k, v := range mapping {
+			switch vv := v.(type) {
+			case string:
+				addExtra[k] = repl(vv)
+			default:
+				// pass through literals (numbers, bools, objects)
+				addExtra[k] = vv
+			}
+		}
+		return addStd, addExtra, nil
+	}
 
 	mode := "yaml"
 	if flag.Lookup("env").Value.String() == "true" {

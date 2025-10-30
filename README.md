@@ -8,6 +8,116 @@ Autenticación unificada (password, OAuth2/OIDC, social Google, MFA TOTP), gesti
 
 ---
 
+## Issuer/JWKS por tenant (Fase 5)
+
+Objetivo: cada tenant emite tokens con su propio iss y su propio JWKS.
+
+Modos:
+- global (default, compat): iss = {baseURL}, .well-known/jwks.json global.
+- path (MVP F5): iss = {baseURL}/t/{slug}, jwks_uri = {baseURL}/.well-known/jwks/{slug}.json.
+
+### Activación por tenant
+
+```bash
+# Habilitar modo path para el tenant acme
+curl -sS -H "X-Admin-API-Key: dev-key" -H "If-Match: *" \
+  -X PUT "$BASE/v1/admin/tenants/acme" \
+  -d '{"slug":"acme","settings":{"issuerMode":"path"}}' | jq .settings.issuerMode
+```
+
+### Discovery por tenant
+
+```bash
+curl -s "$BASE/t/acme/.well-known/openid-configuration" | jq '{issuer,jwks_uri,authorization_endpoint,token_endpoint}'
+# -> issuer:   {base}/t/acme
+# -> jwks_uri: {base}/.well-known/jwks/acme.json
+```
+
+Los endpoints authorize/token/userinfo se mantienen globales por compatibilidad.
+
+### JWKS
+
+```bash
+# Por tenant
+curl -s "$BASE/.well-known/jwks/acme.json" | jq -r '.keys[].kid'
+
+# Global (compat)
+curl -s "$BASE/.well-known/jwks.json" | jq -r '.keys[].kid'
+```
+
+### Emisión y verificación
+
+```bash
+# Login en acme -> iss por tenant + kid del tenant
+TOK=$(curl -s -X POST "$BASE/v1/auth/login" \
+  -d '{"tenantId":"acme","clientId":"web-frontend","email":"u@acme.test","password":"Passw0rd!"}' \
+  | jq -r .access_token)
+
+python - <<'PY'
+import os,jwt
+t=os.environ["TOK"]; h=jwt.get_unverified_header(t); p=jwt.decode(t, options={"verify_signature":False})
+print("kid:",h.get("kid")); print("iss:",p.get("iss"))
+PY
+```
+
+### Rotación de claves por tenant
+
+```bash
+# Rota la clave del tenant (mantiene ventana de gracia para validar tokens viejos)
+curl -s -H "X-Admin-API-Key: dev-key" \
+  -X POST "$BASE/v1/admin/tenants/acme/keys/rotate" | jq .
+
+# Durante la gracia, JWKS del tenant incluye old+new kid
+curl -s "$BASE/.well-known/jwks/acme.json" | jq -r '.keys[].kid'
+```
+
+Notas de seguridad:
+
+- Cache-Control: no-store en .well-known y flujos sensibles.
+- Los JWKS y la firma usan llaves aisladas por tenant en modo path.
+- Rotación con ventana de gracia configurable.
+
+---
+
+### Config – ejemplo (opcional)
+
+Agregar ejemplo en configs/config.example.yaml o en README:
+
+```yaml
+# Admin API (JWT)
+# Desde Sprint 7, las rutas /v1/admin requieren Authorization: Bearer <token> (JWT admin).
+# El uso de X-Admin-API-Key queda deprecado.
+
+# Fase 5: rotación
+KEY_ROTATION_GRACE_SECONDS: 60
+
+# Ejemplo de tenant (control-plane FS) con issuerMode path:
+# data/hellojohn/tenants/acme/tenant.yaml
+# slug: acme
+# settings:
+#   issuerMode: path
+#   # issuerOverride: ""   # reservado futuro (domain/override)
+```
+
+### CLI rápido (Sprint 7)
+
+```bash
+# Login (o pasa HELLOJOHN_BEARER)
+export HELLOJOHN_ADMIN_URL="http://localhost:8080"
+export HELLOJOHN_EMAIL="admin@example.com"
+export HELLOJOHN_PASSWORD="Passw0rd!"
+export HELLOJOHN_TENANT_ID="local"
+export HELLOJOHN_CLIENT_ID="local-web"
+
+# Ping admin
+go run ./cmd/hellojohn admin ping
+
+# Cambiar issuerMode del tenant
+go run ./cmd/hellojohn admin tenants set-issuer-mode --slug acme --mode path
+
+# Rotar llaves del tenant (con 60s de gracia)
+go run ./cmd/hellojohn admin tenants rotate-keys --slug acme --grace-seconds 60
+```
 ## Índice
 - [1. Introducción](#1-introducción)
 - [2. Características](#2-características)
@@ -33,6 +143,9 @@ Autenticación unificada (password, OAuth2/OIDC, social Google, MFA TOTP), gesti
 - [17. Troubleshooting](#17-troubleshooting)
 - [18. Glosario rápido](#18-glosario-rápido)
 - [19. Changelog (resumen)](#19-changelog-resumen)
+ - [Guía: Clientes y Microservicios](docs/clients_and_microservices.md)
+ - [Docs HA E2E](docs/e2e_ha.md)
+ - [Guía Multi-tenant](docs/multi-tenant_guide.md)
 
 ---
 
@@ -104,6 +217,9 @@ test/             # Suite E2E
 - Postgres 16 (dev mediante docker‑compose) y Redis (opcional, recomendado para rate/cache)
 - SMTP para emails (en desarrollo puede usarse un servidor de pruebas)
 
+Nota de alcance v1:
+- Esta versión v1 soporta oficialmente Postgres como base de datos. MySQL y MongoDB no están soportados en v1.
+
 ---
 
 ## 6. Puesta en marcha rápida
@@ -134,6 +250,37 @@ Notas
 - Por defecto escucha en :8080.
 - El flag `-env` usa solo variables de entorno (y `.env` si pasás `-env-file`).
 
+#### UI embebida (puerto dedicado)
+
+Desde Sprint 7 el servicio puede servir una GUI de administración embebida en un puerto separado:
+
+- ADMIN_UI_DIR: carpeta con los archivos estáticos ya construidos del UI (por ejemplo, el output de `next export` o un build de SPA)
+- UI_SERVER_ADDR: dirección de escucha para la UI (por ejemplo, `:8081` o `0.0.0.0:8081`)
+- UI_PUBLIC_ORIGIN: origen público para la UI (opcional). Si no se define, se intenta deducir `http://localhost:<puerto>` a partir de UI_SERVER_ADDR; este origen se agrega automáticamente a `SERVER_CORS_ALLOWED_ORIGINS` para que la UI pueda llamar al API.
+
+Ejemplo rápido en dev (Windows PowerShell):
+
+```
+$env:ADMIN_UI_DIR = "$(Resolve-Path ./ui/out)"  # apunte a la carpeta estática ya generada
+$env:UI_SERVER_ADDR = ":8081"
+go run ./cmd/service -env
+```
+
+Notas:
+- El API continúa en `SERVER_ADDR` (por defecto `:8080`).
+- La UI se sirve en `UI_SERVER_ADDR` con una CSP relajada para permitir recursos inline típicos de SPAs.
+- Si preferís montar la UI bajo el mismo puerto (legacy), podés no definir `UI_SERVER_ADDR` y servirla aparte con un reverse proxy.
+
+Atajo con script (Windows PowerShell):
+
+```
+pwsh -File scripts/dev-ui.ps1
+```
+
+El script instala deps (pnpm/npm), exporta el UI a `ui/out` y levanta el servicio con:
+- API en http://localhost:8080
+- UI en http://localhost:8081
+
 ---
 
 ## 7. Configuración
@@ -141,6 +288,7 @@ Precedencia: defaults → config.yaml → env → flags.
 
 ### 7.1 Variables clave
 - Servidor: SERVER_ADDR, SERVER_CORS_ALLOWED_ORIGINS
+- UI embebida: ADMIN_UI_DIR, UI_SERVER_ADDR, UI_PUBLIC_ORIGIN
 - JWT: JWT_ISSUER, JWT_ACCESS_TTL, JWT_REFRESH_TTL
 - Storage: STORAGE_DRIVER, STORAGE_DSN, POSTGRES_MAX_OPEN_CONNS, POSTGRES_MAX_IDLE_CONNS, POSTGRES_CONN_MAX_LIFETIME
 - Cache/Redis: CACHE_KIND, REDIS_ADDR, REDIS_DB, REDIS_PREFIX, CACHE_MEMORY_DEFAULT_TTL
@@ -152,6 +300,8 @@ Precedencia: defaults → config.yaml → env → flags.
 - Password: SECURITY_PASSWORD_POLICY_*, SECURITY_PASSWORD_BLACKLIST_PATH
 - Social Google: GOOGLE_ENABLED, GOOGLE_CLIENT_ID/SECRET, GOOGLE_REDIRECT_URL, GOOGLE_SCOPES, GOOGLE_ALLOWED_TENANTS/CLIENTS, SOCIAL_LOGIN_CODE_TTL
 - Claves: SIGNING_MASTER_KEY
+ - Cluster TLS (Raft): RAFT_TLS_ENABLE, RAFT_TLS_CERT_FILE (o RAFT_TLS_CERT), RAFT_TLS_KEY_FILE (o RAFT_TLS_KEY), RAFT_TLS_CA_FILE (o RAFT_TLS_CA), RAFT_TLS_SERVER_NAME
+ - Leader redirects allowlist (opcional): LEADER_REDIRECT_ALLOWED_HOSTS (CSV de host[:port] separado por coma o punto y coma)
 
 Autoconsent (seguro por defecto):
 - CONSENT_AUTO=1
@@ -198,20 +348,32 @@ Salud:
 ### 8.1 Administración (JWT admin)
 API base `/v1/admin/*` protegida por RequireAuth + RequireSysAdmin (ver sección 9).
 
-Scopes & Consents introducen persistencia dinámica de permisos por usuario/cliente, con validación estricta y borrado seguro.
+En la fase 5 se consolidó el layout per‑tenant para CRUD de Tenants, Clients y Scopes bajo `/v1/admin/tenants/{slug}`:
+
+- Tenants
+  - GET `/v1/admin/tenants/{slug}` → obtiene tenant
+  - PUT `/v1/admin/tenants/{slug}` → crea/actualiza tenant (idempotente)
+
+- Clients por tenant
+  - GET `/v1/admin/tenants/{slug}/clients` → lista
+  - PUT `/v1/admin/tenants/{slug}/clients/{client_id}` → upsert (public/confidential)
+  - DELETE `/v1/admin/tenants/{slug}/clients/{client_id}` → delete o revoca sesiones si `?soft=true`
+
+- Scopes por tenant
+  - GET `/v1/admin/tenants/{slug}/scopes` → lista
+  - PUT `/v1/admin/tenants/{slug}/scopes` → reemplazo/merge de catálogo (validación regex/minúsculas)
+
+- User‑store por tenant (DB de usuarios):
+  - POST `/v1/admin/tenants/{slug}/user-store/test-connection`
+  - POST `/v1/admin/tenants/{slug}/user-store/migrate`
+
+- Rotación de claves por tenant
+  - POST `/v1/admin/tenants/{slug}/keys/rotate` → mueve active→retiring (grace), crea nueva active
+
+Consents y RBAC se mantienen bajo `/v1/admin/*` (globales respecto al issuer actual) y siguen las mismas reglas documentadas:
 
 | Método | Path | Descripción | Notas |
 |--------|------|-------------|-------|
-| GET | /v1/admin/clients?tenant_id= | Lista clientes por tenant | Filtro `q` opcional |
-| POST | /v1/admin/clients | Crea cliente | Requiere tenant_id, client_id, name, client_type |
-| GET | /v1/admin/clients/{id} | Obtiene cliente + versión activa | id UUID |
-| PUT | /v1/admin/clients/{id} | Actualiza (sin cambiar client_id) | 204 |
-| DELETE | /v1/admin/clients/{id}?soft=true | Elimina o solo revoca sesiones | Revoca refresh antes |
-| POST | /v1/admin/clients/{id}/revoke | Revoca todas las sesiones del cliente | Idempotente |
-| GET | /v1/admin/scopes?tenant_id= | Lista scopes | Orden alfabético |
-| POST | /v1/admin/scopes | Crea scope | Valida regex/minúsculas, 409 si existe |
-| PUT | /v1/admin/scopes/{id} | Actualiza descripción | No renombra |
-| DELETE | /v1/admin/scopes/{id} | Elimina si no está en uso | 409 si en uso |
 | POST | /v1/admin/consents/upsert | Inserta o amplía consentimiento | Acepta client_id público o UUID |
 | GET | /v1/admin/consents?user_id=&client_id=&active_only= | Filtra consentimientos | user+client ⇒ 0..1 |
 | GET | /v1/admin/consents/by-user/{userID} | Lista consentimientos de usuario | `active_only` opcional |
@@ -352,12 +514,44 @@ El servicio puede ejecutar migraciones al arrancar si `FLAGS_MIGRATE=true`.
 ## 14. Pruebas E2E
 La suite `test/e2e` cubre registro/login, refresh, email flows, OAuth2, social (login_code), MFA, introspección, blacklist y administración (clients, scopes, consents, users disable/enable).
 
+### 14.1 Habilitar un tenant (FS -> DB)
+Pasos típicos para crear/habilitar un tenant y su user‑store por API admin (enviar siempre Content-Type: application/json):
+
+1) Crear/actualizar tenant en FS (idempotente)
+- Método: PUT /v1/admin/tenants/{slug}
+- Header: Content-Type: application/json
+- Body ejemplo:
+  {"name":"Acme Inc","status":"active"}
+
+2) Upsert cliente público
+- Método: PUT /v1/admin/tenants/{slug}/clients/{client_id}
+- Body ejemplo:
+  {"name":"Web","client_type":"public","redirect_uris":["http://localhost/cb"],"providers":["password"],"scopes":["openid","email","profile"]}
+
+3) Definir scopes disponibles
+- Método: PUT /v1/admin/tenants/{slug}/scopes
+- Body ejemplo:
+  {"scopes":[{"name":"openid","description":""},{"name":"email"},{"name":"profile"}]}
+
+4) Probar conexión al user‑store (501 si falta DSN)
+- Método: POST /v1/admin/tenants/{slug}/user-store/test-connection
+
+5) Migrar el user‑store (aplica schema por tenant)
+- Método: POST /v1/admin/tenants/{slug}/user-store/migrate
+
+Notas
+- Si el tenant no existe en FS ⇒ 404 en test-connection/migrate.
+- Si el tenant existe pero no tiene DSN ⇒ 501 tenant_db_missing (appcode 2601).
+- Errores reales de DB ⇒ 500 tenant_db_error (appcode 2602).
+
 ---
 
 ## 15. Operación y salud
 - Health: `GET /readyz` verifica DB, cache y keystore.
+  - Campos extra: `cluster.role`, `cluster.leader_id`, `cluster.raft.*`, `fs_degraded` (true si el plano FS detectó errores recientes de escritura).
 - Logs estructurados con request id.
 - Timeouts y graceful shutdown configurables por ENV (`HTTP_*`).
+ - Endpoint de shutdown para dev/test (opcional): habilitar con `ALLOW_DEV_SHUTDOWN=1` y llamar `POST /__dev/shutdown`.
 
 ---
 
@@ -405,3 +599,167 @@ La suite `test/e2e` cubre registro/login, refresh, email flows, OAuth2, social (
 
 ---
 © 2025 HelloJohn – Documentación actualizada y alineada al código.
+
+---
+
+## Fase 6 — Paso 0: Flags de Clúster (HA habilitador)
+
+Objetivo: agregar variables/config mínimas para encender el modo clúster embebido sin alterar el comportamiento por defecto.
+
+Nuevas variables de entorno (y equivalentes en YAML bajo `cluster:`):
+- CLUSTER_MODE=off|embedded (default: off)
+- NODE_ID=<string único>
+- RAFT_ADDR=<host:port> (bind local para transporte Raft)
+- CLUSTER_NODES="node1=127.0.0.1:8201;node2=127.0.0.1:8202;node3=127.0.0.1:8203"
+- LEADER_REDIRECTS="node1=http://127.0.0.1:8081;node2=http://127.0.0.1:8082;node3=http://127.0.0.1:8083"
+- RAFT_SNAPSHOT_EVERY=50 (o usar RAFT_MAX_LOG_MB)
+
+Comportamiento al arrancar:
+- Con CLUSTER_MODE=off arranca como hoy.
+- Con CLUSTER_MODE=embedded crea la carpeta `path.Join(CONTROL_PLANE_FS_ROOT,"raft")` si no existe (no hay lógica Raft todavía).
+
+Pre‑requisitos operativos (compartidos entre nodos):
+- SECRETBOX_MASTER_KEY base64(32 bytes) para secretos/DSN en YAML.
+- SIGNING_MASTER_KEY (>=32 bytes) para cifrar privadas en `keys/`.
+- CONTROL_PLANE_FS_ROOT apuntando a `data/hellojohn` (o volumen persistente equivalente).
+
+---
+
+## Fase 6 — Paso 1: Bootstrap estático multi‑nodo (3 nodos)
+
+Con `CLUSTER_MODE=embedded` y `CLUSTER_NODES` definidos, el clúster se forma de manera determinista en un estado limpio (sin datos previos):
+
+- El nodo cuyo `NODE_ID` sea lexicográficamente más pequeño realiza el bootstrap inicial con todos los peers de `CLUSTER_NODES` como votantes.
+- Los demás nodos no bootstrappean; inician y se suman al clúster.
+- Si solo hay 1 peer en `CLUSTER_NODES`, se aplica el bootstrap single‑node actual.
+
+Notas operativas:
+- El estado de Raft se guarda bajo `$(CONTROL_PLANE_FS_ROOT)/raft` en cada nodo.
+- Reinicios conservan la membresía y no vuelven a bootstrappear.
+- Recomendado usar direcciones estáticas/reachable en `RAFT_ADDR` para todos los nodos.
+
+---
+
+## Fase 6 — Paso 2: Readyz enriquecido (observabilidad)
+
+El endpoint `GET /readyz` ahora expone información de clúster:
+
+- `cluster.role`: leader | follower | single.
+- `cluster.leader_id`: `NODE_ID` del líder cuando aplica.
+- `cluster.peers_configured`: cantidad de peers en `CLUSTER_NODES`.
+- `cluster.leader_redirects`: hints opcionales cargados desde `LEADER_REDIRECTS`.
+- `raft.*`: métricas de Raft (p.ej. `num_peers`, `state`, `applied_index`, `commit_index`).
+
+Usos típicos:
+- Verificar quién es líder y el tamaño de la topología.
+- Observar progreso de replicación (índices) y estado de cada nodo.
+
+---
+
+## Fase 6 — Paso 3: Script local para 3 nodos (Windows)
+
+Se incluye `deployments/run-3nodes.ps1` para lanzar rápidamente 3 nodos locales:
+
+- HTTP: 8081, 8082, 8083
+- Raft: 8201, 8202, 8203
+- Cada nodo usa su propio `CONTROL_PLANE_FS_ROOT` (carpetas `data/node1`, `data/node2`, `data/node3`).
+- Variables mínimas: `SECRETBOX_MASTER_KEY`, `SIGNING_MASTER_KEY`, `CLUSTER_MODE`, `NODE_ID`, `RAFT_ADDR`, `CLUSTER_NODES`.
+
+Opcional: definir `LEADER_REDIRECTS="n1=http://127.0.0.1:8081;n2=http://127.0.0.1:8082;n3=http://127.0.0.1:8083"` para que los followers puedan responder 307 al líder en writes.
+
+---
+
+## Fase 6 — Paso 4: E2E de HA (manual)
+
+Escenario sugerido para validar alta disponibilidad y consistencia:
+
+1) Arrancar el clúster con el script de 3 nodos.
+  - Esperar unos segundos y consultar `/readyz` en 8081/8082/8083.
+  - Debe haber exactamente un `cluster.role = leader` y dos `follower`.
+
+2) Intentar una operación de escritura en un follower (por ejemplo, rotación de claves por tenant o actualización de tenant).
+  - Sin `LEADER_REDIRECTS` configurado: esperar `409 leader_required`.
+  - Con `LEADER_REDIRECTS` configurado: esperar `307` redirect al líder.
+
+3) Ejecutar la misma operación en el líder.
+  - Cambios deben replicarse a los 3 nodos.
+  - Para rotación de claves por tenant, el JWKS del tenant debe ser idéntico en todos los nodos (rotación determinista replicada).
+
+4) Simular failover: detener el proceso del líder.
+  - Esperar re‑elección (pocos segundos) y verificar nuevo `cluster.role = leader` en `/readyz` de algún nodo.
+  - Repetir una escritura: debe funcionar con el nuevo líder y replicarse.
+
+5) Re‑iniciar el nodo anterior líder y comprobar que se reintegra como follower (o líder si corresponde tras una nueva elección futura).
+
+Notas:
+- La ventana de gracia en rotación (`KEY_ROTATION_GRACE_SECONDS`) permite que JWKS incluya old+new kids durante el período indicado.
+- Los followers invalidan caché JWKS al aplicar mutaciones replicadas.
+
+---
+
+## 20. Cluster HA (Fase 6)
+
+Esta sección resume el estado final de Alta Disponibilidad para el plano de control (tenants, clients, scopes, keys) mediante Raft embebido.
+
+### 20.1 Objetivos alcanzados
+| Objetivo | Estado |
+|----------|--------|
+| Escrituras consistentes sólo en líder | OK (middleware RequireLeader) |
+| Followers devuelven 409 o 307 redirect | OK (Test 40) |
+| Snapshot/restore produce JWKS idéntico | OK (Test 41) |
+| Scope mínimo de gating (FS only) | OK |
+| Rutas DB (consents/RBAC/users) sin gating | OK |
+
+### 20.2 Variables principales
+CLUSTER_MODE=1 habilita clúster. Además: NODE_ID, RAFT_ADDR, CLUSTER_NODES, LEADER_REDIRECTS (opcional), RAFT_SNAPSHOT_EVERY. Bootstrap: un nodo inicial con CLUSTER_BOOTSTRAP=1.
+
+### 20.3 Gating de rutas (RequireLeader)
+Gated (mutan FS): tenants (PUT), tenant clients CRUD, tenant scopes PUT, tenant key rotate.
+No gated: consents, RBAC users/roles, users globales.
+
+### 20.4 Semántica followers
+- 409 follower_conflict (default). Headers: X-Leader, X-Leader-URL (si mapping).  
+- 307 redirect cuando el cliente lo pide (`?leader_redirect=1` o header X-Leader-Redirect:1) y existe mapping en LEADER_REDIRECTS.
+
+### 20.5 Snapshots & Restauración
+Raft toma snapshots cada N ops (`RAFT_SNAPSHOT_EVERY`). El keystore y catálogo FS van en el snapshot. Borrar `raft/` en un follower y reiniciarlo ⇒ rejoin + JWKS igual al líder (verificado en Test 41 normalizando JSON).
+
+### 20.6 Comandos locales (3 nodos ejemplo)
+```
+# Líder bootstrap
+CLUSTER_MODE=1 CLUSTER_BOOTSTRAP=1 NODE_ID=n1 RAFT_ADDR=:18081 SERVER_ADDR=:8081 \
+  LEADER_REDIRECTS="n1=http://127.0.0.1:8081,n2=http://127.0.0.1:8082,n3=http://127.0.0.1:8083" \
+  CLUSTER_NODES="n1=127.0.0.1:18081,n2=127.0.0.1:18082,n3=127.0.0.1:18083" \
+  go run ./cmd/service -env
+
+# Seguidores
+CLUSTER_MODE=1 NODE_ID=n2 RAFT_ADDR=:18082 SERVER_ADDR=:8082 CLUSTER_NODES="..." LEADER_REDIRECTS="..." go run ./cmd/service -env
+CLUSTER_MODE=1 NODE_ID=n3 RAFT_ADDR=:18083 SERVER_ADDR=:8083 CLUSTER_NODES="..." LEADER_REDIRECTS="..." go run ./cmd/service -env
+```
+
+### 20.7 Failover
+Al detener el líder, un follower se elige en pocos segundos. Reintentos de escritura: aplicar backoff + observar header X-Leader. Tras volver a levantar el nodo antiguo, se reintegra como follower.
+
+### 20.8 Backups mínimos
+Copiar directorio de datos del líder (`data/hellojohn`) incluyendo `raft/`, `tenants/`, `keys/`. Restaurar primero en modo single-node (CLUSTER_MODE=0) para validar, luego formar nuevo clúster.
+
+### 20.9 Próximos (P1)
+mTLS transporte Raft, métricas detalladas (apply latency), forzar snapshot manual, issuer domain overrides.
+
+### 20.10 Scripts locales y CI futuro
+Para el loop de desarrollo existen scripts PowerShell:
+- `scripts/dev-ha.ps1`: ejecuta tests HA (40,41,42) con `E2E_SKIP_GLOBAL_SERVER=1` y `DISABLE_DOTENV=1`.
+- `scripts/dev-smoke.ps1`: unit + subconjunto E2E básicos.
+
+La integración CI (workflows) se integrará en una fase posterior; de momento no se versiona ningún pipeline automatizado.
+
+### 20.11 Escenarios de uso y cobertura de tests
+| Escenario | Descripción | Rutas implicadas | Test(s) que lo cubren |
+|-----------|-------------|------------------|-----------------------|
+| FS puro | Solo metadatos (tenants/clients/scopes/keys) replicados; DB global única | PUT tenants, clients CRUD, scopes, rotate keys | 40 (gating), 42 (canario) |
+| FS + DB global | Metadatos replicados y operaciones DB (consents/RBAC/users) no gated | Añade consents/RBAC/users (sin RequireLeader) | 40 (asegura sólo FS gated) |
+| FS + DB por tenant | Metadatos + user-store independiente por tenant (migraciones per-tenant) | Tenants + user-store migrate/test-connection | 40 (gating), 41 (consistencia claves tras restore) |
+| Mixto (rotación + restore) | Rotación de claves + pérdida de estado follower + rejoin (snapshot) | rotate keys + JWKS fetch | 41 (snapshot/restore JWKS idéntico) |
+
+Al agregar nuevos mutadores FS incluirlos en Test 42 (canario) para mantener esta matriz fiable.
+

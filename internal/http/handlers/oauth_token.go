@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
+	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
+	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
 )
@@ -25,9 +28,32 @@ func atHash(accessToken string) string {
 
 func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Timeout de 3s para endpoint crítico
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		r = r.WithContext(ctx)
+
 		if r.Method != http.MethodPost {
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo POST", 1000)
 			return
+		}
+
+		// Resolver store con precedencia: tenantDB > globalDB
+		var activeStore core.Repository
+		var hasStore bool
+
+		if c.TenantSQLManager != nil {
+			// Intentar obtener store del tenant actual
+			tenantSlug := cpctx.ResolveTenant(r)
+			if tenantStore, err := c.TenantSQLManager.GetPG(r.Context(), tenantSlug); err == nil && tenantStore != nil {
+				activeStore = tenantStore
+				hasStore = true
+			}
+		}
+		// Fallback a global store si no hay tenant store
+		if !hasStore && c.Store != nil {
+			activeStore = c.Store
+			hasStore = true
 		}
 		// OAuth2: application/x-www-form-urlencoded
 		r.Body = http.MaxBytesReader(w, r.Body, 64<<10) // 64KB
@@ -52,15 +78,27 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			}
 
 			ctx := r.Context()
-			cl, _, err := c.Store.GetClientByClientID(ctx, clientID)
+
+			client, tenantSlug, err := helpers.LookupClient(ctx, r, clientID)
 			if err != nil {
-				status := http.StatusInternalServerError
-				if err == core.ErrNotFound {
-					status = http.StatusUnauthorized
-				}
-				httpx.WriteError(w, status, "invalid_client", "client inválido", 2204)
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client not found", 2204)
 				return
 			}
+
+			// TODO: Implementar ValidateClientSecret cuando se agregue auth del cliente
+			// if err := helpers.ValidateClientSecret(ctx, r, tenantSlug, client, clientSecret); err != nil {
+			//     httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "bad credentials", 2205)
+			//     return
+			// }
+
+			// Mapear client FS a estructura legacy para compatibilidad
+			cl := &core.Client{
+				ID:           client.ClientID,
+				TenantID:     tenantSlug,
+				RedirectURIs: client.RedirectURIs,
+				Scopes:       client.Scopes,
+			}
+			_ = tenantSlug
 
 			// Cargar y consumir el code (1 uso)
 			key := "oidc:code:" + tokens.SHA256Base64URL(code)
@@ -115,37 +153,80 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 
 			std, custom = applyAccessClaimsHook(ctx, c, ac.TenantID, clientID, ac.UserID, reqScopes, ac.AMR, std, custom)
 
+			// Resolver issuer efectivo por tenant (para SYS namespace y firma)
+			effIss := c.Issuer.Iss
+			if cpctx.Provider != nil {
+				if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil {
+					effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+				}
+			}
+
 			// SYS namespace a partir de metadata + RBAC (Fase 2)
-			if u, err := c.Store.GetUserByID(ctx, ac.UserID); err == nil && u != nil {
+			if u, err := activeStore.GetUserByID(ctx, ac.UserID); err == nil && u != nil {
 				type rbacReader interface {
 					GetUserRoles(ctx context.Context, userID string) ([]string, error)
 					GetUserPermissions(ctx context.Context, userID string) ([]string, error)
 				}
 				var roles, perms []string
-				if rr, ok := c.Store.(rbacReader); ok {
+				if rr, ok := activeStore.(rbacReader); ok {
 					roles, _ = rr.GetUserRoles(ctx, ac.UserID)
 					perms, _ = rr.GetUserPermissions(ctx, ac.UserID)
 				}
-				custom = helpers.PutSystemClaimsV2(custom, c.Issuer.Iss, u.Metadata, roles, perms)
+				custom = helpers.PutSystemClaimsV2(custom, effIss, u.Metadata, roles, perms)
 			}
 
-			access, exp, err := c.Issuer.IssueAccess(ac.UserID, clientID, std, custom)
+			access, exp, err := c.Issuer.IssueAccessForTenant(tenantSlug, effIss, ac.UserID, clientID, std, custom)
 			if err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 2210)
 				return
 			}
 
 			// Refresh (rotación igual que en /v1/auth/*)
-			rawRT, err := tokens.GenerateOpaqueToken(32)
-			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 2211)
+			var rawRT string
+			if !hasStore {
+				httpx.WriteError(w, http.StatusServiceUnavailable, "db_not_configured", "no hay base de datos configurada para emitir refresh tokens", 2212)
 				return
 			}
-			hash := tokens.SHA256Base64URL(rawRT)
-			if _, err := c.Store.CreateRefreshToken(ctx, ac.UserID, cl.ID, hash, time.Now().Add(refreshTTL), nil); err != nil {
-				log.Printf("oauth token: create refresh err: %v", err)
-				httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 2212)
-				return
+
+			type tc interface {
+				CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
+			}
+			if tcs, ok := activeStore.(tc); ok {
+				// preferir TC con client_id_text (sin FK)
+				tok, err := tcs.CreateRefreshTokenTC(ctx, ac.TenantID, cl.ClientID, ac.UserID, refreshTTL)
+				if err != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 2212)
+					return
+				}
+				rawRT = tok // ya viene raw (tu TC genera el token)
+			} else {
+				// legacy
+				var err error
+				rawRT, err = tokens.GenerateOpaqueToken(32)
+				if err != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 2211)
+					return
+				}
+
+				// Usar CreateRefreshTokenTC para oauth token endpoint
+				if tcStore, ok := activeStore.(interface {
+					CreateRefreshTokenTC(context.Context, string, string, string, time.Time, *string) (string, error)
+				}); ok {
+					hash := tokens.SHA256Hex(rawRT)
+					if _, err := tcStore.CreateRefreshTokenTC(ctx, ac.TenantID, cl.ClientID, hash, time.Now().Add(refreshTTL), nil); err != nil {
+						log.Printf("oauth token: create refresh TC err: %v", err)
+						httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh TC", 2212)
+						return
+					}
+				} else {
+					// Fallback legacy
+					hash := tokens.SHA256Base64URL(rawRT)
+					if _, err := activeStore.CreateRefreshToken(ctx, ac.UserID, cl.ID, hash, time.Now().Add(refreshTTL), nil); err != nil {
+						log.Printf("oauth token: create refresh err: %v", err)
+						httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 2212)
+						return
+					}
+				}
 			}
 
 			// ID Token (sin SYS_NS)
@@ -162,7 +243,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			}
 			idStd, idExtra = applyIDClaimsHook(ctx, c, ac.TenantID, clientID, ac.UserID, reqScopes, ac.AMR, idStd, idExtra)
 
-			idToken, _, err := c.Issuer.IssueIDToken(ac.UserID, clientID, idStd, idExtra)
+			idToken, _, err := c.Issuer.IssueIDTokenForTenant(tenantSlug, effIss, ac.UserID, clientID, idStd, idExtra)
 			if err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el id_token", 2213)
 				return
@@ -193,28 +274,67 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			}
 
 			ctx := r.Context()
-			cl, _, err := c.Store.GetClientByClientID(ctx, clientID)
-			if err != nil {
-				status := http.StatusInternalServerError
-				if err == core.ErrNotFound {
-					status = http.StatusUnauthorized
-				}
-				httpx.WriteError(w, status, "invalid_client", "client inválido", 2221)
+
+			if !hasStore {
+				httpx.WriteError(w, http.StatusServiceUnavailable, "db_not_configured", "no hay base de datos configurada para refrescar tokens", 2222)
 				return
 			}
 
-			hash := tokens.SHA256Base64URL(refreshToken)
-			rt, err := c.Store.GetRefreshTokenByHash(ctx, hash)
+			client, tenantSlug, err := helpers.LookupClient(ctx, r, clientID)
 			if err != nil {
-				status := http.StatusInternalServerError
-				if err == core.ErrNotFound {
-					status = http.StatusBadRequest
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client not found", 2221)
+				return
+			}
+
+			// Mapear client FS a estructura legacy para compatibilidad
+			cl := &core.Client{
+				ID:           client.ClientID,
+				TenantID:     tenantSlug,
+				RedirectURIs: client.RedirectURIs,
+				Scopes:       client.Scopes,
+			}
+			_ = tenantSlug
+
+			type tcRefresh interface {
+				CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
+				GetRefreshTokenByHashTC(ctx context.Context, tenantID, clientIDText, tokenHash string) (*core.RefreshToken, error)
+				RevokeRefreshTokensByUserClientTC(ctx context.Context, tenantID, clientID, userID string) (int64, error)
+			}
+			type legacyGet interface {
+				GetRefreshTokenByHash(ctx context.Context, tokenHash string) (*core.RefreshToken, error)
+			}
+
+			var rt *core.RefreshToken
+			if tcr, ok := activeStore.(tcRefresh); ok {
+				// Usar método TC con tenant+client
+				hash := tokens.SHA256Base64URL(refreshToken)
+				rt, err = tcr.GetRefreshTokenByHashTC(ctx, tenantSlug, client.ClientID, hash)
+				if err != nil {
+					status := http.StatusInternalServerError
+					if err == core.ErrNotFound {
+						status = http.StatusBadRequest
+					}
+					httpx.WriteError(w, status, "invalid_grant", "refresh inválido", 2222)
+					return
 				}
-				httpx.WriteError(w, status, "invalid_grant", "refresh inválido", 2222)
+			} else if lg, ok := activeStore.(legacyGet); ok {
+				// legacy tal como hoy...
+				hash := tokens.SHA256Base64URL(refreshToken)
+				rt, err = lg.GetRefreshTokenByHash(ctx, hash)
+				if err != nil {
+					status := http.StatusInternalServerError
+					if err == core.ErrNotFound {
+						status = http.StatusBadRequest
+					}
+					httpx.WriteError(w, status, "invalid_grant", "refresh inválido", 2222)
+					return
+				}
+			} else {
+				httpx.WriteError(w, http.StatusServiceUnavailable, "store_not_supported", "store no soporta refresh tokens", 2222)
 				return
 			}
 			now := time.Now()
-			if rt.RevokedAt != nil || !now.Before(rt.ExpiresAt) || rt.ClientID != cl.ID {
+			if rt.RevokedAt != nil || !now.Before(rt.ExpiresAt) || rt.ClientIDText != client.ClientID {
 				httpx.WriteError(w, http.StatusBadRequest, "invalid_grant", "refresh revocado/expirado o mismatched client", 2223)
 				return
 			}
@@ -228,36 +348,62 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			custom := map[string]any{}
 
 			std, custom = applyAccessClaimsHook(ctx, c, cl.TenantID, clientID, rt.UserID, []string{}, []string{"refresh"}, std, custom)
-			if u, err := c.Store.GetUserByID(ctx, rt.UserID); err == nil && u != nil {
+			if u, err := activeStore.GetUserByID(ctx, rt.UserID); err == nil && u != nil {
 				type rbacReader interface {
 					GetUserRoles(ctx context.Context, userID string) ([]string, error)
 					GetUserPermissions(ctx context.Context, userID string) ([]string, error)
 				}
 				var roles, perms []string
-				if rr, ok := c.Store.(rbacReader); ok {
+				if rr, ok := activeStore.(rbacReader); ok {
 					roles, _ = rr.GetUserRoles(ctx, rt.UserID)
 					perms, _ = rr.GetUserPermissions(ctx, rt.UserID)
 				}
-				custom = helpers.PutSystemClaimsV2(custom, c.Issuer.Iss, u.Metadata, roles, perms)
+				// Resolver issuer efectivo
+				effIss := c.Issuer.Iss
+				if cpctx.Provider != nil {
+					if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil {
+						effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+					}
+				}
+				custom = helpers.PutSystemClaimsV2(custom, effIss, u.Metadata, roles, perms)
 			}
 
-			access, exp, err := c.Issuer.IssueAccess(rt.UserID, clientID, std, custom)
+			// Emitir usando clave del tenant y issuer efectivo
+			effIss := c.Issuer.Iss
+			if cpctx.Provider != nil {
+				if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil {
+					effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+				}
+			}
+			access, exp, err := c.Issuer.IssueAccessForTenant(tenantSlug, effIss, rt.UserID, clientID, std, custom)
 			if err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir access", 2224)
 				return
 			}
 
-			newRT, err := tokens.GenerateOpaqueToken(32)
-			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 2225)
-				return
+			var newRT string
+			if tcs, ok := activeStore.(tcRefresh); ok {
+				// TC: revocar tokens del usuario+cliente y crear uno nuevo
+				_, _ = tcs.RevokeRefreshTokensByUserClientTC(ctx, tenantSlug, client.ClientID, rt.UserID)
+				newRT, err = tcs.CreateRefreshTokenTC(ctx, tenantSlug, client.ClientID, rt.UserID, refreshTTL)
+				if err != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh TC", 2226)
+					return
+				}
+			} else {
+				// legacy
+				newRT, err = tokens.GenerateOpaqueToken(32)
+				if err != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 2225)
+					return
+				}
+				newHash := tokens.SHA256Base64URL(newRT)
+				if _, err := activeStore.CreateRefreshToken(ctx, rt.UserID, cl.ID, newHash, now.Add(refreshTTL), &rt.ID); err != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 2226)
+					return
+				}
+				_ = activeStore.RevokeRefreshToken(ctx, rt.ID)
 			}
-			newHash := tokens.SHA256Base64URL(newRT)
-			if _, err := c.Store.CreateRefreshToken(ctx, rt.UserID, cl.ID, newHash, now.Add(refreshTTL), &rt.ID); err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 2226)
-				return
-			}
-			_ = c.Store.RevokeRefreshToken(ctx, rt.ID)
 
 			// Evitar cache
 			w.Header().Set("Cache-Control", "no-store")
@@ -269,6 +415,99 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				"expires_in":    int64(time.Until(exp).Seconds()),
 				"access_token":  access,
 				"refresh_token": newRT,
+			})
+
+		// ───────────────── client_credentials (M2M) ─────────────────
+		case "client_credentials":
+			clientID := strings.TrimSpace(r.PostForm.Get("client_id"))
+			clientSecret := strings.TrimSpace(r.PostForm.Get("client_secret"))
+			scope := strings.TrimSpace(r.PostForm.Get("scope"))
+
+			if clientID == "" {
+				httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "client_id requerido", 2230)
+				return
+			}
+
+			ctx := r.Context()
+			client, tenantSlug, err := helpers.LookupClient(ctx, r, clientID)
+			if err != nil {
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client not found", 2231)
+				return
+			}
+
+			// Must be confidential and secret must match
+			if client.Type != "confidential" {
+				httpx.WriteError(w, http.StatusUnauthorized, "unauthorized_client", "client_credentials solo para clientes confidenciales", 2232)
+				return
+			}
+			if err := helpers.ValidateClientSecret(ctx, r, tenantSlug, client, clientSecret); err != nil {
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "credenciales inválidas", 2233)
+				return
+			}
+
+			// Validate requested scopes subset of client scopes
+			reqScopes := []string{}
+			if scope != "" {
+				for _, s := range strings.Fields(scope) {
+					reqScopes = append(reqScopes, s)
+				}
+			}
+			for _, s := range reqScopes {
+				if !controlplane.DefaultIsScopeAllowed(client, s) {
+					httpx.WriteError(w, http.StatusBadRequest, "invalid_scope", "scope no permitido", 2234)
+					return
+				}
+			}
+
+			// Standard M2M claims
+			amr := []string{"client"}
+			acr := "urn:hellojohn:loa:1"
+			std := map[string]any{
+				"tid": tenantSlug, // FS mode uses slug; hook may adjust or add further details
+				"amr": amr,
+				"acr": acr,
+			}
+			var scopeOut string
+			if len(reqScopes) > 0 {
+				scopeOut = strings.Join(reqScopes, " ")
+				std["scp"] = scopeOut
+				std["scope"] = scopeOut
+			} else {
+				// default to client's configured scopes
+				scopeOut = strings.Join(client.Scopes, " ")
+				std["scp"] = scopeOut
+				std["scope"] = scopeOut
+			}
+			custom := map[string]any{}
+
+			// Hook
+			std, custom = applyAccessClaimsHook(ctx, c, tenantSlug, clientID, "", reqScopes, amr, std, custom)
+
+			// Resolve effective issuer for tenant
+			effIss := c.Issuer.Iss
+			if cpctx.Provider != nil {
+				if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil {
+					effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+				}
+			}
+
+			// Issue access token on behalf of the client (sub = client_id)
+			// Issue token via issuer helper (per-tenant key if needed)
+			access, exp, err := c.Issuer.IssueAccessForTenant(tenantSlug, effIss, clientID, clientID, std, custom)
+			if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir access", 2236)
+				return
+			}
+
+			// No refresh token for client_credentials
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			httpx.WriteJSON(w, http.StatusOK, map[string]any{
+				"token_type":   "Bearer",
+				"expires_in":   int64(time.Until(exp).Seconds()),
+				"access_token": access,
+				"scope":        scopeOut,
 			})
 
 		default:

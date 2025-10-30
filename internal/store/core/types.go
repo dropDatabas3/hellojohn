@@ -53,14 +53,16 @@ type Identity struct {
 }
 
 type RefreshToken struct {
-	ID          string
-	UserID      string
-	ClientID    string
-	TokenHash   string
-	IssuedAt    time.Time
-	ExpiresAt   time.Time
-	RotatedFrom *string
-	RevokedAt   *time.Time
+	ID           string
+	UserID       string
+	ClientIDText string `db:"client_id_text" json:"clientIdText"`
+	TokenHash    string
+	IssuedAt     time.Time
+	ExpiresAt    time.Time
+	RotatedFrom  *string
+	RevokedAt    *time.Time
+	// Schema Cut: Tenant+Client directo (sin FK)
+	TenantID string `db:"tenant_id" json:"tenantId"`
 }
 
 // MFA / TOTP secret metadata

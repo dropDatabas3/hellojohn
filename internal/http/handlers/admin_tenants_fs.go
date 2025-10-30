@@ -1,0 +1,551 @@
+package handlers
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/dropDatabas3/hellojohn/internal/app"
+	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	"github.com/dropDatabas3/hellojohn/internal/cluster"
+	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane"
+	cpfs "github.com/dropDatabas3/hellojohn/internal/controlplane/fs"
+	httpx "github.com/dropDatabas3/hellojohn/internal/http"
+	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
+)
+
+var (
+	slugRegex = regexp.MustCompile(`^[a-z0-9\-]+$`)
+)
+
+// NewAdminTenantsFSHandler expone endpoints básicos para tenants:
+//
+//	GET    /v1/admin/tenants
+//	POST   /v1/admin/tenants
+//	GET    /v1/admin/tenants/{slug}
+//	GET    /v1/admin/tenants/{slug}/settings
+//	PUT    /v1/admin/tenants/{slug}/settings
+func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		base := "/v1/admin/tenants"
+
+		// Helper para generar ETag desde bytes
+		etag := func(data []byte) string {
+			h := sha256.Sum256(data)
+			return `"` + hex.EncodeToString(h[:8]) + `"`
+		}
+
+		// Validar slug
+		validSlug := func(slug string) bool {
+			return len(slug) > 0 && len(slug) <= 32 && slugRegex.MatchString(slug)
+		}
+
+		// Obtener FSProvider
+		fsProvider, ok := controlplane.AsFSProvider(cpctx.Provider)
+		if !ok {
+			httpx.WriteError(w, http.StatusNotImplemented, "fs_provider_required", "solo FS provider soportado", 5001)
+			return
+		}
+
+		switch {
+		case path == base:
+			switch r.Method {
+			case http.MethodGet:
+				// Listar todos los tenants
+				tenants, err := fsProvider.ListTenants(r.Context())
+				if err != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "list_failed", err.Error(), 5002)
+					return
+				}
+				httpx.WriteJSON(w, http.StatusOK, tenants)
+				return
+
+			case http.MethodPost:
+				// Crear nuevo tenant
+				var req struct {
+					Name string `json:"name"`
+					Slug string `json:"slug"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "JSON inválido", 5003)
+					return
+				}
+
+				// Leader enforcement moved to middleware
+
+				req.Name = strings.TrimSpace(req.Name)
+				req.Slug = strings.TrimSpace(req.Slug)
+
+				if req.Name == "" || req.Slug == "" {
+					httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "name y slug son requeridos", 5004)
+					return
+				}
+
+				if !validSlug(req.Slug) {
+					httpx.WriteError(w, http.StatusBadRequest, "invalid_slug", "slug debe ser [a-z0-9\\-] y <=32 chars", 5005)
+					return
+				}
+
+				// Crear tenant via Raft si existe cluster, sino directo
+				if c != nil && c.ClusterNode != nil {
+					payload, _ := json.Marshal(cluster.UpsertTenantDTO{ID: req.Slug, Name: req.Name, Slug: req.Slug, Settings: controlplane.TenantSettings{}})
+					m := cluster.Mutation{Type: cluster.MutationUpsertTenant, TenantSlug: req.Slug, TsUnix: time.Now().Unix(), Payload: payload}
+					if _, err := c.ClusterNode.Apply(r.Context(), m); err != nil {
+						httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
+						return
+					}
+					// read back
+					if t, err := fsProvider.GetTenantBySlug(r.Context(), req.Slug); err == nil {
+						httpx.WriteJSON(w, http.StatusCreated, t)
+						return
+					}
+				}
+				now := time.Now().UTC()
+				tenant := &controlplane.Tenant{ID: req.Slug, Name: req.Name, Slug: req.Slug, CreatedAt: now, UpdatedAt: now, Settings: controlplane.TenantSettings{}}
+				if err := fsProvider.UpsertTenant(r.Context(), tenant); err != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "create_failed", err.Error(), 5006)
+					return
+				}
+				httpx.WriteJSON(w, http.StatusCreated, tenant)
+				return
+
+			default:
+				httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo GET/POST", 5000)
+				return
+			}
+
+		case strings.HasPrefix(path, base+"/"):
+			// /v1/admin/tenants/{slug}[/settings]
+			rest := strings.TrimPrefix(path, base+"/")
+			parts := strings.Split(strings.Trim(rest, "/"), "/")
+			if len(parts) == 0 || parts[0] == "" {
+				httpx.WriteError(w, http.StatusNotFound, "not_found", "", 5010)
+				return
+			}
+
+			slug := parts[0]
+
+			// POST /v1/admin/tenants/{slug}/keys/rotate
+			if len(parts) == 3 && parts[1] == "keys" && parts[2] == "rotate" {
+				if r.Method != http.MethodPost {
+					httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo POST", 5060)
+					return
+				}
+				// Verificar tenant existe (404 si no)
+				if _, err := fsProvider.GetTenantBySlug(r.Context(), slug); err != nil {
+					if err == cpfs.ErrTenantNotFound {
+						httpx.WriteError(w, http.StatusNotFound, "tenant_not_found", "tenant no encontrado", 5011)
+						return
+					}
+					httpx.WriteError(w, http.StatusInternalServerError, "get_failed", err.Error(), 5012)
+					return
+				}
+
+				// Leer graceSeconds: query param tiene prioridad, luego ENV KEY_ROTATION_GRACE_SECONDS, default 60
+				var grace int64 = 60
+				if env := strings.TrimSpace(os.Getenv("KEY_ROTATION_GRACE_SECONDS")); env != "" {
+					if v, err := strconv.ParseInt(env, 10, 64); err == nil && v >= 0 {
+						grace = v
+					}
+				}
+				if qs := r.URL.Query().Get("graceSeconds"); qs != "" {
+					if v, err := strconv.ParseInt(qs, 10, 64); err == nil && v >= 0 {
+						grace = v
+					}
+				}
+
+				// Rotación replicada: en líder, rotar e incluir material exacto para seguidores
+				if c != nil && c.ClusterNode != nil {
+					// Perform rotation on leader using keystore, then read active/retiring JSON files to include in mutation
+					sk, err := c.Issuer.Keys.RotateFor(slug, grace)
+					if err != nil {
+						httpx.WriteError(w, http.StatusInternalServerError, "server_error", err.Error(), 5061)
+						return
+					}
+					// Resolve FS root via provider
+					fsProv, ok := controlplane.AsFSProvider(cpctx.Provider)
+					if !ok {
+						httpx.WriteError(w, http.StatusInternalServerError, "server_error", "fs provider required for rotation", 5062)
+						return
+					}
+					keysDir := filepath.Join(fsProv.FSRoot(), "keys", slug)
+					// Read file contents as-is
+					actBytes, aerr := os.ReadFile(filepath.Join(keysDir, "active.json"))
+					if aerr != nil {
+						httpx.WriteError(w, http.StatusInternalServerError, "server_error", aerr.Error(), 5063)
+						return
+					}
+					var retBytes []byte
+					if b, rerr := os.ReadFile(filepath.Join(keysDir, "retiring.json")); rerr == nil {
+						retBytes = b
+					}
+					dto := cluster.RotateTenantKeyDTO{
+						ActiveJSON:   string(actBytes),
+						RetiringJSON: string(retBytes),
+						GraceSeconds: grace,
+					}
+					payload, _ := json.Marshal(dto)
+					m := cluster.Mutation{Type: cluster.MutationRotateTenantKey, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
+					if _, err := c.ClusterNode.Apply(r.Context(), m); err != nil {
+						httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
+						return
+					}
+					// Invalidate JWKS locally (followers will do so during Apply)
+					if c.JWKSCache != nil {
+						c.JWKSCache.Invalidate(slug)
+					}
+					setNoStore(w)
+					httpx.WriteJSON(w, http.StatusOK, map[string]any{"kid": sk.KID})
+					return
+				}
+				// Fallback (no cluster): local rotate only
+				if sk, err := c.Issuer.Keys.RotateFor(slug, grace); err == nil {
+					if c.JWKSCache != nil {
+						c.JWKSCache.Invalidate(slug)
+					}
+					setNoStore(w)
+					httpx.WriteJSON(w, http.StatusOK, map[string]any{"kid": sk.KID})
+					return
+				} else {
+					httpx.WriteError(w, http.StatusInternalServerError, "server_error", err.Error(), 5061)
+					return
+				}
+			}
+
+			// PUT /v1/admin/tenants/{slug} -> Upsert tenant (id, slug, settings)
+			if len(parts) == 1 && r.Method == http.MethodPut {
+				var in struct {
+					ID       string                      `json:"id"`
+					Slug     string                      `json:"slug"`
+					Name     string                      `json:"name"`
+					Settings controlplane.TenantSettings `json:"settings"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+					httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "JSON inválido", 5030)
+					return
+				}
+				// Leader enforcement moved to middleware
+				if strings.TrimSpace(in.Slug) == "" {
+					in.Slug = slug
+				}
+				if !validSlug(in.Slug) || in.Slug != slug {
+					httpx.WriteError(w, http.StatusBadRequest, "invalid_slug", "slug inválido o mismatch con path", 5031)
+					return
+				}
+				// Validar issuerMode (permite vacío como "global").
+				if err := validateIssuerMode(in.Settings.IssuerMode); err != nil {
+					httpx.WriteError(w, http.StatusBadRequest, "invalid_issuer_mode", err.Error(), 5033)
+					return
+				}
+				if c != nil && c.ClusterNode != nil {
+					payload, _ := json.Marshal(cluster.UpsertTenantDTO{ID: strings.TrimSpace(in.ID), Name: strings.TrimSpace(in.Name), Slug: in.Slug, Settings: in.Settings})
+					m := cluster.Mutation{Type: cluster.MutationUpsertTenant, TenantSlug: in.Slug, TsUnix: time.Now().Unix(), Payload: payload}
+					if _, err := c.ClusterNode.Apply(r.Context(), m); err != nil {
+						httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
+						return
+					}
+					if t, err := fsProvider.GetTenantBySlug(r.Context(), in.Slug); err == nil {
+						httpx.WriteJSON(w, http.StatusOK, t)
+						return
+					}
+				}
+				now := time.Now().UTC()
+				t := &controlplane.Tenant{ID: strings.TrimSpace(in.ID), Name: strings.TrimSpace(in.Name), Slug: in.Slug, CreatedAt: now, UpdatedAt: now, Settings: in.Settings}
+				if strings.TrimSpace(t.ID) == "" {
+					t.ID = in.Slug
+				}
+				if err := fsProvider.UpsertTenant(r.Context(), t); err != nil {
+					httpx.WriteError(w, http.StatusBadRequest, "upsert_failed", err.Error(), 5032)
+					return
+				}
+				if (in.Settings != controlplane.TenantSettings{}) {
+					_ = fsProvider.UpdateTenantSettings(r.Context(), slug, &in.Settings)
+				}
+				httpx.WriteJSON(w, http.StatusOK, t)
+				return
+			}
+
+			// ─── Admin: per-tenant user-store ───
+			// POST /v1/admin/tenants/{slug}/user-store/test-connection
+			// POST /v1/admin/tenants/{slug}/user-store/migrate
+			if len(parts) >= 2 && parts[1] == "user-store" {
+				if c.TenantSQLManager == nil {
+					httpx.WriteError(w, http.StatusNotImplemented, "tenant_sql_manager_required", "TenantSQLManager no inicializado", 5025)
+					return
+				}
+
+				if len(parts) == 3 && parts[2] == "test-connection" {
+					if r.Method != http.MethodPost {
+						httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo POST", 5026)
+						return
+					}
+					// First, verify tenant exists in FS; admin over nonexistent tenant -> 404
+					t, err := fsProvider.GetTenantBySlug(r.Context(), slug)
+					if err != nil {
+						if err == cpfs.ErrTenantNotFound {
+							httpx.WriteError(w, http.StatusNotFound, "tenant_not_found", "tenant no encontrado", 5011)
+							return
+						}
+						httpx.WriteError(w, http.StatusInternalServerError, "get_failed", err.Error(), 5012)
+						return
+					}
+					store, err := c.TenantSQLManager.GetPG(r.Context(), slug)
+					if err != nil {
+						if tenantsql.IsNoDBForTenant(err) {
+							httpx.WriteTenantDBMissing(w)
+							return
+						}
+						httpx.WriteTenantDBError(w, err.Error())
+						return
+					}
+					// Ejecutar ping bajo el lock (misma conexión)
+					if err := tenantsql.WithTenantMigrationLock(r.Context(), store.Pool(), t.ID, 5*time.Second, func(ctx context.Context) error {
+						return store.Ping(ctx)
+					}); err != nil {
+						httpx.WriteTenantDBError(w, err.Error())
+						return
+					}
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
+
+				if len(parts) == 3 && parts[2] == "migrate" {
+					if r.Method != http.MethodPost {
+						httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo POST", 5027)
+						return
+					}
+					// Verify tenant exists (404 if not)
+					t, err := fsProvider.GetTenantBySlug(r.Context(), slug)
+					if err != nil {
+						if err == cpfs.ErrTenantNotFound {
+							httpx.WriteError(w, http.StatusNotFound, "tenant_not_found", "tenant no encontrado", 5011)
+							return
+						}
+						httpx.WriteError(w, http.StatusInternalServerError, "get_failed", err.Error(), 5012)
+						return
+					}
+					// Short-circuit: if no pending migrations, return 204 immediately
+					if c.TenantSQLManager != nil {
+						if has, herr := c.TenantSQLManager.HasPendingMigrations(r.Context(), t.ID); herr == nil && !has {
+							w.WriteHeader(http.StatusNoContent)
+							return
+						}
+					}
+					// Nota: GetPG ya corre migraciones on-demand con lock; aún así forzamos bajo lock explícito para evitar colisiones externas
+					store, err := c.TenantSQLManager.GetPG(r.Context(), slug)
+					errHandled := false
+					if err != nil {
+						if tenantsql.IsNoDBForTenant(err) {
+							httpx.WriteTenantDBMissing(w)
+							errHandled = true
+						}
+						if !errHandled {
+							httpx.WriteTenantDBError(w, err.Error())
+						}
+						return
+					}
+					if err := tenantsql.WithTenantMigrationLock(r.Context(), store.Pool(), t.ID, 5*time.Second, func(ctx context.Context) error {
+						// Ejecutar migraciones sin re-adquirir lock (ya estamos bajo lock)
+						_, e := tenantsql.RunMigrations(ctx, store.Pool(), "migrations/postgres")
+						return e
+					}); err != nil {
+						// Si fue timeout/contención, devolver 409 con Retry-After (mejor UX que 500)
+						if errors.Is(err, context.DeadlineExceeded) {
+							w.Header().Set("Retry-After", "5")
+							httpx.WriteError(w, http.StatusConflict, "conflict", "migration lock busy, retry later", 2605)
+							return
+						}
+						httpx.WriteTenantDBError(w, err.Error())
+						return
+					}
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
+
+				httpx.WriteError(w, http.StatusNotFound, "not_found", "", 5028)
+				return
+			}
+
+			if len(parts) == 1 && r.Method == http.MethodGet {
+				// GET /v1/admin/tenants/{slug}
+				tenant, raw, err := fsProvider.GetTenantRaw(r.Context(), slug)
+				if err != nil {
+					if err == cpfs.ErrTenantNotFound {
+						httpx.WriteError(w, http.StatusNotFound, "tenant_not_found", "tenant no encontrado", 5011)
+						return
+					}
+					httpx.WriteError(w, http.StatusInternalServerError, "get_failed", err.Error(), 5012)
+					return
+				}
+
+				w.Header().Set("ETag", etag(raw))
+				httpx.WriteJSON(w, http.StatusOK, tenant)
+				return
+			}
+
+			if len(parts) == 2 && parts[1] == "settings" {
+				switch r.Method {
+				case http.MethodGet:
+					// GET /v1/admin/tenants/{slug}/settings
+					settings, raw, err := fsProvider.GetTenantSettingsRaw(r.Context(), slug)
+					if err != nil {
+						if err == cpfs.ErrTenantNotFound {
+							httpx.WriteError(w, http.StatusNotFound, "tenant_not_found", "tenant no encontrado", 5013)
+							return
+						}
+						httpx.WriteError(w, http.StatusInternalServerError, "get_failed", err.Error(), 5014)
+						return
+					}
+
+					w.Header().Set("ETag", etag(raw))
+					httpx.WriteJSON(w, http.StatusOK, settings)
+					return
+
+				case http.MethodPut:
+					// PUT /v1/admin/tenants/{slug}/settings (con If-Match)
+					// Leader enforcement moved to middleware
+					ifMatch := strings.TrimSpace(r.Header.Get("If-Match"))
+					if ifMatch == "" {
+						httpx.WriteError(w, http.StatusPreconditionRequired, "if_match_required", "If-Match header requerido", 5015)
+						return
+					}
+
+					// Verificar ETag actual
+					_, raw, err := fsProvider.GetTenantSettingsRaw(r.Context(), slug)
+					if err != nil {
+						if err == cpfs.ErrTenantNotFound {
+							httpx.WriteError(w, http.StatusNotFound, "tenant_not_found", "tenant no encontrado", 5016)
+							return
+						}
+						httpx.WriteError(w, http.StatusInternalServerError, "get_failed", err.Error(), 5017)
+						return
+					}
+
+					currentETag := etag(raw)
+					if currentETag != ifMatch {
+						httpx.WriteError(w, http.StatusPreconditionFailed, "etag_mismatch", "la versión cambió, recarga y reintenta", 5018)
+						return
+					}
+
+					var newSettings controlplane.TenantSettings
+					if err := json.NewDecoder(r.Body).Decode(&newSettings); err != nil {
+						httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "JSON inválido", 5019)
+						return
+					}
+					if err := validateIssuerMode(newSettings.IssuerMode); err != nil {
+						httpx.WriteError(w, http.StatusBadRequest, "invalid_issuer_mode", err.Error(), 5033)
+						return
+					}
+
+					// Apply via Raft if cluster
+					if c != nil && c.ClusterNode != nil {
+						payload, _ := json.Marshal(cluster.UpdateTenantSettingsDTO{Settings: newSettings})
+						m := cluster.Mutation{Type: cluster.MutationUpdateTenantSettings, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
+						if _, err := c.ClusterNode.Apply(r.Context(), m); err != nil {
+							httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
+							return
+						}
+						_, newRaw, _ := fsProvider.GetTenantSettingsRaw(r.Context(), slug)
+						w.Header().Set("ETag", etag(newRaw))
+						httpx.WriteJSON(w, http.StatusOK, map[string]any{"updated": true})
+						return
+					}
+					if err := fsProvider.UpdateTenantSettings(r.Context(), slug, &newSettings); err != nil {
+						httpx.WriteError(w, http.StatusInternalServerError, "update_failed", err.Error(), 5020)
+						return
+					}
+					_, newRaw, _ := fsProvider.GetTenantSettingsRaw(r.Context(), slug)
+					w.Header().Set("ETag", etag(newRaw))
+					httpx.WriteJSON(w, http.StatusOK, map[string]any{"updated": true})
+					return
+
+				default:
+					httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo GET/PUT", 5021)
+					return
+				}
+			}
+
+			// Under tenant: clients CRUD via FS
+			if len(parts) >= 2 && parts[1] == "clients" {
+				// PUT /v1/admin/tenants/{slug}/clients/{clientID}
+				if len(parts) == 3 && r.Method == http.MethodPut {
+					var in controlplane.ClientInput
+					if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+						httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "JSON inválido", 5040)
+						return
+					}
+					in.ClientID = parts[2]
+					// Leader enforcement moved to middleware
+					if c != nil && c.ClusterNode != nil {
+						dto := cluster.UpsertClientDTO{Name: in.Name, ClientID: in.ClientID, Type: in.Type, RedirectURIs: in.RedirectURIs, AllowedOrigins: in.AllowedOrigins, Providers: in.Providers, Scopes: in.Scopes, Secret: in.Secret}
+						payload, _ := json.Marshal(dto)
+						m := cluster.Mutation{Type: cluster.MutationUpsertClient, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
+						if _, err := c.ClusterNode.Apply(r.Context(), m); err != nil {
+							httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
+							return
+						}
+						co, err := cpctx.Provider.GetClient(r.Context(), slug, in.ClientID)
+						if err != nil {
+							httpx.WriteError(w, http.StatusInternalServerError, "readback_failed", err.Error(), 5042)
+							return
+						}
+						httpx.WriteJSON(w, http.StatusOK, co)
+						return
+					}
+					cobj, err := cpctx.Provider.UpsertClient(r.Context(), slug, in)
+					if err != nil {
+						httpx.WriteError(w, http.StatusBadRequest, "upsert_failed", err.Error(), 5041)
+						return
+					}
+					httpx.WriteJSON(w, http.StatusOK, cobj)
+					return
+				}
+			}
+
+			// Under tenant: scopes bulk upsert (simple array)
+			if len(parts) == 2 && parts[1] == "scopes" && (r.Method == http.MethodPut || r.Method == http.MethodPost) {
+				var in struct {
+					Scopes []controlplane.Scope `json:"scopes"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+					httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "JSON inválido", 5050)
+					return
+				}
+				// naive: replace one by one using UpsertScope
+				for _, s := range in.Scopes {
+					_ = cpctx.Provider.UpsertScope(r.Context(), slug, controlplane.Scope{Name: strings.TrimSpace(s.Name), Description: s.Description})
+				}
+				httpx.WriteJSON(w, http.StatusOK, map[string]any{"updated": true})
+				return
+			}
+
+			httpx.WriteError(w, http.StatusNotFound, "not_found", "", 5010)
+			return
+
+		default:
+			httpx.WriteError(w, http.StatusNotFound, "not_found", "", 5010)
+			return
+		}
+	})
+}
+
+// validateIssuerMode valida el enum aceptando vacío como "global".
+func validateIssuerMode(m controlplane.IssuerMode) error {
+	switch m {
+	case "", controlplane.IssuerModeGlobal, controlplane.IssuerModePath, controlplane.IssuerModeDomain:
+		return nil
+	default:
+		return fmt.Errorf("invalid issuerMode: %q", m)
+	}
+}

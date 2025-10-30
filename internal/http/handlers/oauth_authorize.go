@@ -10,7 +10,10 @@ import (
 	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
+	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
+	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
@@ -63,6 +66,26 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 			w.Header().Add("Vary", "Authorization")
 		}
 
+		// Resolver store con precedencia: tenantDB > globalDB (para consent y magic link)
+		var activeScopesConsents core.ScopesConsentsRepository
+		var activeStore core.Repository
+
+		if c.TenantSQLManager != nil {
+			// Intentar obtener store del tenant actual
+			tenantSlug := cpctx.ResolveTenant(r)
+			if tenantStore, err := c.TenantSQLManager.GetPG(r.Context(), tenantSlug); err == nil && tenantStore != nil {
+				activeStore = tenantStore
+				// Para tenant stores, por ahora usar fallback a global consent (TODO: implementar per-tenant consent)
+			}
+		}
+		// Fallback a global consents
+		if c.ScopesConsents != nil {
+			activeScopesConsents = c.ScopesConsents
+		}
+		if activeStore == nil && c.Store != nil {
+			activeStore = c.Store
+		}
+
 		q := r.URL.Query()
 		responseType := strings.TrimSpace(q.Get("response_type"))
 		clientID := strings.TrimSpace(q.Get("client_id"))
@@ -87,40 +110,39 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 		}
 
 		ctx := r.Context()
-		cl, _, err := c.Store.GetClientByClientID(ctx, clientID)
+
+		client, tenantSlug, err := helpers.LookupClient(ctx, r, clientID)
 		if err != nil {
-			status := http.StatusInternalServerError
-			if err == core.ErrNotFound {
-				status = http.StatusUnauthorized
-			}
-			httpx.WriteError(w, status, "invalid_client", "client inválido", 2104)
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_client", "client not found", 2104)
 			return
 		}
-		okRedirect := false
-		for _, ru := range cl.RedirectURIs {
-			if ru == redirectURI {
-				okRedirect = true
-				break
-			}
-		}
-		if !okRedirect {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid_redirect_uri", "redirect_uri no coincide con el client", 2105)
+		if err := helpers.ValidateRedirectURI(client, redirectURI); err != nil {
+			// If redirect_uri is present but doesn't match, RFC says invalid_redirect_uri
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_redirect_uri", "redirect_uri not allowed for this client", 2105)
 			return
 		}
-		reqScopes := strings.Fields(scope)
-		for _, s := range reqScopes {
-			found := false
-			for _, allowed := range cl.Scopes {
-				if strings.EqualFold(s, allowed) {
-					found = true
-					break
+
+		// Validar scopes solicitados
+		if scope := strings.TrimSpace(scope); scope != "" {
+			for _, s := range strings.Fields(scope) {
+				if !controlplane.DefaultIsScopeAllowed(client, s) {
+					httpx.WriteError(w, http.StatusBadRequest, "invalid_scope", "scope not allowed", 2106)
+					return
 				}
 			}
-			if !found {
-				redirectError(w, r, redirectURI, state, "invalid_scope", "scope no permitido para este client")
-				return
-			}
 		}
+
+		// Continuar con lógica existente
+		_ = tenantSlug
+
+		// Mapear client FS a estructura legacy para compatibilidad
+		cl := &core.Client{
+			ID:           client.ClientID, // Usar clientID como ID temporal
+			TenantID:     tenantSlug,      // Usar tenantSlug como TenantID
+			RedirectURIs: client.RedirectURIs,
+			Scopes:       client.Scopes,
+		}
+		reqScopes := strings.Fields(scope)
 
 		var (
 			sub             string
@@ -172,15 +194,15 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 		}
 
 		// Step-up MFA: si el usuario tiene MFA TOTP confirmada y la AMR actual solo contiene pwd, devolver JSON mfa_required
-		if len(amr) == 1 && amr[0] == "pwd" {
+		if len(amr) == 1 && amr[0] == "pwd" && activeStore != nil {
 			// intentamos detectar secreto MFA
-			if mg, ok := c.Store.(interface {
+			if mg, ok := activeStore.(interface {
 				GetMFATOTP(ctx context.Context, userID string) (*core.MFATOTP, error)
 			}); ok {
 				if m, _ := mg.GetMFATOTP(r.Context(), sub); m != nil && m.ConfirmedAt != nil {
 					// Revisar trusted device cookie (si existe) para posiblemente elevar amr automáticamente
 					if ck, err := r.Cookie("mfa_trust"); err == nil && ck != nil {
-						if tc, ok2 := c.Store.(interface {
+						if tc, ok2 := activeStore.(interface {
 							IsTrustedDevice(ctx context.Context, userID, deviceHash string, now time.Time) (bool, error)
 						}); ok2 {
 							if ok3, _ := tc.IsTrustedDevice(r.Context(), sub, tokens.SHA256Base64URL(ck.Value), time.Now()); ok3 {
@@ -223,9 +245,9 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 		// Gate de consentimiento: si faltan scopes ⇒ respuesta JSON consent_required
 		// Se ejecuta después de validar login y (posible) MFA, antes de generar authorization code.
 		// ─────────────────────────────────────────────────────────────
-		if c.ScopesConsents != nil {
+		if activeScopesConsents != nil {
 			granted := []string{}
-			if uc, err := c.ScopesConsents.GetConsent(ctx, sub, cl.ID); err == nil && uc.RevokedAt == nil {
+			if uc, err := activeScopesConsents.GetConsent(ctx, sub, cl.ID); err == nil && uc.RevokedAt == nil {
 				granted = uc.GrantedScopes
 			}
 			set := map[string]struct{}{}
@@ -271,15 +293,22 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 				needConsentResponse := true
 				if auto != "0" && subset {
 					var upErr error
+					type upTC interface {
+						UpsertConsentTC(ctx context.Context, tenantID, clientID, userID string, scopes []string) error
+					}
 					type up1 interface {
 						UpsertConsent(ctx context.Context, tenantID, userID, clientID string, scopes []string) error
 					}
 					type up2 interface {
 						UpsertConsent(ctx context.Context, userID, clientID string, scopes []string) error
 					}
-					if u1, ok := c.ScopesConsents.(up1); ok {
+
+					// Preferir TC si está disponible
+					if utc, ok := any(activeScopesConsents).(upTC); ok {
+						upErr = utc.UpsertConsentTC(ctx, tid, cl.ID, sub, reqScopes)
+					} else if u1, ok := any(activeScopesConsents).(up1); ok {
 						upErr = u1.UpsertConsent(ctx, tid, sub, cl.ID, reqScopes)
-					} else if u2, ok := c.ScopesConsents.(up2); ok {
+					} else if u2, ok := any(activeScopesConsents).(up2); ok {
 						upErr = u2.UpsertConsent(ctx, sub, cl.ID, reqScopes)
 					}
 					if upErr == nil {

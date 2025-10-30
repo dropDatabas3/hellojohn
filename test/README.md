@@ -1,12 +1,80 @@
-<div align="center">
+# Tests Structure
 
-# HelloJohn – Suite de Tests (End-to-End & Funcionales)
+This directory contains all test files organized in a centralized structure.
 
-Documentación completa y amigable para ejecutar, entender y extender las pruebas automatizadas del servicio.
+## Structure
 
-</div>
+```
+test/
+├── e2e/                      # End-to-end tests
+│   ├── 00_smoke_discovery_test.go
+│   ├── 01_auth_basic_test.go
+│   └── ...
+├── unit/                     # Unit tests
+│   ├── controlplane/         # Control-plane unit tests
+│   │   └── fs_store_test.go
+│   ├── security/             # Security module unit tests
+│   │   └── secretbox_test.go
+│   └── validation/           # Validation unit tests
+│       └── scope_test.go
+└── integration/              # Integration test utilities
+    ├── controlplane-fs/      # FS control-plane testing utility
+    │   └── main.go
+    └── oauth-fs/             # OAuth-FS integration testing utility
+        └── main.go
+```
+
+## Running Tests
+
+### Unit Tests
+```bash
+# Run all unit tests
+go test ./test/unit/...
+
+# Run specific module unit tests
+go test ./test/unit/controlplane/
+go test ./test/unit/security/
+go test ./test/unit/validation/
+```
+
+### End-to-End Tests
+```bash
+# Run all e2e tests
+go test ./test/e2e/...
+
+# Run specific e2e test
+go test ./test/e2e/ -run TestAuthBasicFlow
+```
+
+### Integration Test Utilities
+```bash
+# Test FS control-plane functionality
+cd test/integration/controlplane-fs
+CONTROL_PLANE_FS_ROOT="./data/hellojohn" SECRETBOX_MASTER_KEY="your-key" go run main.go
+
+# Test OAuth-FS integration
+cd test/integration/oauth-fs
+CONTROL_PLANE_FS_ROOT="./data/hellojohn" SECRETBOX_MASTER_KEY="your-key" go run main.go
+```
+
+## Guidelines
+
+- **Unit tests**: Test individual functions/methods in isolation
+- **Integration tests**: Test interaction between modules 
+- **E2E tests**: Test complete user flows via HTTP API
+- **Test utilities**: Debug and validate integrations during development
+
+## Notes
+
+- All unit tests use the `t.Parallel()` pattern when possible
+- Integration test utilities require proper environment variables
+- Tests that modify global state should use `UnsafeResetForTests()` functions
+- Use temporary directories for file-based tests to avoid pollution
 
 ---
+
+# Original E2E Test Documentation
+
 ## 1. Objetivo de la suite
 Validar que el servicio funciona igual que lo haría en producción: configuración real, claves firmantes, base de datos migrada, semillas iniciales, emisión y validación de tokens, MFA, flujos de email, OAuth2/OIDC, rotación de claves y límites de uso.
 

@@ -97,3 +97,32 @@ func Start(addr string, handler http.Handler) error {
 		return nil
 	}
 }
+
+// StartBackground inicia un servidor HTTP en background sin manejar señales.
+// Devuelve el *http.Server para permitir Shutdown/Close desde el llamador.
+// Útil para levantar puertos auxiliares (p.ej., UI estática) mientras Start()
+// maneja el ciclo de vida principal.
+func StartBackground(addr string, handler http.Handler) (*http.Server, error) {
+	readHeaderTimeout := durFromEnv("HTTP_READ_HEADER_TIMEOUT", 5*time.Second)
+	readTimeout := durFromEnv("HTTP_READ_TIMEOUT", 15*time.Second)
+	writeTimeout := durFromEnv("HTTP_WRITE_TIMEOUT", 15*time.Second)
+	idleTimeout := durFromEnv("HTTP_IDLE_TIMEOUT", 60*time.Second)
+	maxHeaderBytes := intFromEnv("HTTP_MAX_HEADER_BYTES", 1<<20)
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ErrorLog:          log.New(os.Stderr, "http(ui): ", 0),
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
+	}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("http(ui): listen error: %v", err)
+		}
+	}()
+	return srv, nil
+}

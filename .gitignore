@@ -4,12 +4,17 @@
 !.env.example
 configs/config.yaml
 
+# ───────── Control-plane local data ─────────
+/data/
+
 # ───────── Local utility scripts (keep out of repo) ─────────
 codeprinter.bat
 dump_code.ps1
 dump_code_*.txt
 code_dump_*.txt
 seed_data.*
+test_*.ps1
+test-*.ps1
 
 
 # ───────── OS / Tooling ─────────
@@ -18,9 +23,29 @@ seed_data.*
 *.DS_Store
 Thumbs.db
 
-# ───────── Build / Cache (future) ─────────
+# ───────── Build / Cache ─────────
 bin/
 dist/
 coverage/
+*.exe
+migrate.exe
+hellojohn-service*.exe
 
 security_password_blacklist.txt
+contar_estructura.ps1
+
+
+# ───────── UI ─────────
+/ui/.next/
+/ui/out/
+/ui/node_modules/
+/ui/.env.local
+/ui/.env.development.local
+/ui/.env.test.local
+/ui/.env.production.local
+/ui/build.log
+/ui/.vercel/
+/ui/.vercel_build_output/
+
+# Context docs
+/docs/

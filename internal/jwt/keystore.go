@@ -23,6 +23,18 @@ type signingKeyStore interface {
 	InsertSigningKey(ctx context.Context, k *core.SigningKey) error
 }
 
+// tenantSigningKeyStore extiende la store para escenarios multi-tenant opcionales.
+// No es obligatorio implementarla; si no está disponible, se usa el fallback global.
+type tenantSigningKeyStore interface {
+	GetActiveSigningKeyForTenant(ctx context.Context, tenant string) (*core.SigningKey, error)
+	ListPublicSigningKeysForTenant(ctx context.Context, tenant string) ([]core.SigningKey, error)
+}
+
+// tenantKeyRotator expone rotación de claves por tenant (FS store o híbrido)
+type tenantKeyRotator interface {
+	RotateFor(tenant string, graceSeconds int64) (*core.SigningKey, error)
+}
+
 // PersistentKeystore mantiene cache local y lee de DB.
 type PersistentKeystore struct {
 	ctx   context.Context
@@ -115,6 +127,29 @@ func (k *PersistentKeystore) Active() (kid string, priv ed25519.PrivateKey, pub 
 	return k.activeKID, k.activePriv, k.activePub, nil
 }
 
+// ActiveForTenant devuelve la clave activa para un tenant específico si la store lo soporta.
+// Si no, retorna la clave activa global como fallback.
+func (k *PersistentKeystore) ActiveForTenant(tenant string) (kid string, priv ed25519.PrivateKey, pub ed25519.PublicKey, err error) {
+	if ts, ok := k.store.(tenantSigningKeyStore); ok {
+		rec, e := ts.GetActiveSigningKeyForTenant(k.ctx, tenant)
+		if e == nil && rec != nil {
+			// Nota: no cacheamos por tenant aquí para mantenerlo simple; loaders externos pueden cachear por tenant
+			// Descifrar clave privada si está cifrada
+			privKey := rec.PrivateKey
+			if masterKey := os.Getenv("SIGNING_MASTER_KEY"); masterKey != "" && bytes.HasPrefix(rec.PrivateKey, []byte("GCMV1")) {
+				dec, derr := DecryptPrivateKey(rec.PrivateKey, masterKey)
+				if derr != nil {
+					return "", nil, nil, fmt.Errorf("decrypt private key: %w", derr)
+				}
+				privKey = dec
+			}
+			return rec.KID, ed25519.PrivateKey(privKey), ed25519.PublicKey(rec.PublicKey), nil
+		}
+	}
+	// Fallback a global
+	return k.Active()
+}
+
 // PublicKeyByKID devuelve la pubkey para un KID (active o retiring).
 func (k *PersistentKeystore) PublicKeyByKID(kid string) (ed25519.PublicKey, error) {
 	// Primero, si coincide con la activa cacheada
@@ -138,6 +173,29 @@ func (k *PersistentKeystore) PublicKeyByKID(kid string) (ed25519.PublicKey, erro
 		}
 	}
 	return nil, errors.New("kid_not_found")
+}
+
+// PublicKeyByKIDForTenant devuelve la pubkey para un KID dentro del ámbito de un tenant específico.
+// Si la store es tenant-aware, busca en las claves públicas del tenant (active/retiring) y devuelve error si no hay match.
+// Si la store no es tenant-aware, cae en PublicKeyByKID (global).
+func (k *PersistentKeystore) PublicKeyByKIDForTenant(tenant, kid string) (ed25519.PublicKey, error) {
+	if kid == "" {
+		return nil, errors.New("kid_missing")
+	}
+	if ts, ok := k.store.(tenantSigningKeyStore); ok {
+		recs, err := ts.ListPublicSigningKeysForTenant(k.ctx, tenant)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range recs {
+			if r.KID == kid {
+				return ed25519.PublicKey(r.PublicKey), nil
+			}
+		}
+		return nil, errors.New("kid_not_found")
+	}
+	// Fallback a global si no hay store tenant-aware
+	return k.PublicKeyByKID(kid)
 }
 
 // JWKSJSON construye JWKS a partir de DB (cache corto).
@@ -164,4 +222,26 @@ func (k *PersistentKeystore) JWKSJSON() ([]byte, error) {
 	k.lastJWKS = j
 	k.jwksUntil = time.Now().Add(k.jwksTTL)
 	return j, nil
+}
+
+// JWKSJSONForTenant construye JWKS para un tenant específico si la store lo soporta.
+// No hace fallback silencioso: si no hay claves del tenant, retorna error para permitir bootstrap externo.
+func (k *PersistentKeystore) JWKSJSONForTenant(tenant string) ([]byte, error) {
+	// Si la store no implementa el interfaz tenant-aware, usar global
+	if ts, ok := k.store.(tenantSigningKeyStore); ok {
+		recs, err := ts.ListPublicSigningKeysForTenant(k.ctx, tenant)
+		if err != nil {
+			return nil, err
+		}
+		return buildJWKS(recs), nil
+	}
+	return k.JWKSJSON()
+}
+
+// RotateFor rota la clave activa de un tenant y crea una nueva activa, si la store lo soporta.
+func (k *PersistentKeystore) RotateFor(tenant string, graceSeconds int64) (*core.SigningKey, error) {
+	if rot, ok := k.store.(tenantKeyRotator); ok {
+		return rot.RotateFor(tenant, graceSeconds)
+	}
+	return nil, fmt.Errorf("rotation_not_supported")
 }

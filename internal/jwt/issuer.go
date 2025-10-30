@@ -3,9 +3,15 @@ package jwt
 import (
 	"crypto/ed25519"
 	"errors"
+	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
+	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	"github.com/dropDatabas3/hellojohn/internal/controlplane"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 // Issuer firma tokens usando la clave activa del keystore persistente.
@@ -38,6 +44,23 @@ func (i *Issuer) Keyfunc() jwtv5.Keyfunc {
 		}
 		// Fallback: usar la activa
 		_, _, pub, err := i.Keys.Active()
+		if err != nil {
+			return nil, err
+		}
+		return ed25519.PublicKey(pub), nil
+	}
+}
+
+// KeyfuncForTenant devuelve un jwt.Keyfunc tenant-aware que resuelve la pubkey por KID
+// dentro del JWKS del tenant. Si no encuentra el KID, retorna error y el token falla.
+func (i *Issuer) KeyfuncForTenant(tenant string) jwtv5.Keyfunc {
+	return func(t *jwtv5.Token) (any, error) {
+		kid, _ := t.Header["kid"].(string)
+		if kid == "" {
+			return nil, errors.New("kid_missing")
+		}
+		// Buscar pubkey en JWKS del tenant
+		pub, err := i.Keys.PublicKeyByKIDForTenant(tenant, kid)
 		if err != nil {
 			return nil, err
 		}
@@ -117,12 +140,84 @@ func (i *Issuer) IssueIDToken(sub, aud string, std map[string]any, extra map[str
 	for k, v := range std {
 		claims[k] = v
 	}
-	if extra != nil {
-		for k, v := range extra {
-			claims[k] = v
-		}
+	for k, v := range extra {
+		claims[k] = v
 	}
 
+	tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
+	tk.Header["kid"] = kid
+	tk.Header["typ"] = "JWT"
+
+	signed, err := tk.SignedString(priv)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return signed, exp, nil
+}
+
+// IssueAccessForTenant emite un Access Token para un tenant específico usando su clave activa
+// y un issuer efectivo resuelto por configuración (path/domain/override).
+// - tenant: slug del tenant (para keystore multi-tenant)
+// - iss: issuer efectivo a inyectar en el claim "iss"
+func (i *Issuer) IssueAccessForTenant(tenant, iss, sub, aud string, std map[string]any, custom map[string]any) (string, time.Time, error) {
+	now := time.Now().UTC()
+	exp := now.Add(i.AccessTTL)
+
+	kid, priv, _, err := i.Keys.ActiveForTenant(tenant)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+
+	claims := jwtv5.MapClaims{
+		"iss": iss,
+		"sub": sub,
+		"aud": aud,
+		"iat": now.Unix(),
+		"nbf": now.Unix(),
+		"exp": exp.Unix(),
+	}
+	for k, v := range std {
+		claims[k] = v
+	}
+	if custom != nil {
+		claims["custom"] = custom
+	}
+	tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
+	tk.Header["kid"] = kid
+	tk.Header["typ"] = "JWT"
+
+	signed, err := tk.SignedString(priv)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	return signed, exp, nil
+}
+
+// IssueIDTokenForTenant emite un ID Token OIDC para un tenant específico usando su clave activa
+// y un issuer efectivo provisto.
+func (i *Issuer) IssueIDTokenForTenant(tenant, iss, sub, aud string, std map[string]any, extra map[string]any) (string, time.Time, error) {
+	now := time.Now().UTC()
+	exp := now.Add(i.AccessTTL)
+
+	kid, priv, _, err := i.Keys.ActiveForTenant(tenant)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+
+	claims := jwtv5.MapClaims{
+		"iss": iss,
+		"sub": sub,
+		"aud": aud,
+		"iat": now.Unix(),
+		"nbf": now.Unix(),
+		"exp": exp.Unix(),
+	}
+	for k, v := range std {
+		claims[k] = v
+	}
+	for k, v := range extra {
+		claims[k] = v
+	}
 	tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
 	tk.Header["kid"] = kid
 	tk.Header["typ"] = "JWT"
@@ -158,4 +253,93 @@ func (i *Issuer) SignEdDSA(claims map[string]any) (string, error) {
 	}
 	signed, _, err := i.SignRaw(mc)
 	return signed, err
+}
+
+// ResolveIssuer construye el issuer efectivo por tenant según settings del control-plane.
+// - Si override no está vacío, lo usa tal cual (sin trailing slash)
+// - Path:   {base}/t/{slug}
+// - Domain: futuro (por ahora igual que Path)
+// - Global: base
+func ResolveIssuer(baseURL string, mode controlplane.IssuerMode, tenantSlug, override string) string {
+	if override != "" {
+		return strings.TrimRight(override, "/")
+	}
+	base := strings.TrimRight(baseURL, "/")
+	switch mode {
+	case controlplane.IssuerModePath:
+		return fmt.Sprintf("%s/t/%s", base, tenantSlug)
+	case controlplane.IssuerModeDomain:
+		// futuro: slug subdominio (requiere DNS)
+		// return fmt.Sprintf("https://%s.%s", tenantSlug, strings.TrimPrefix(base, "https://"))
+		return fmt.Sprintf("%s/t/%s", base, tenantSlug) // por ahora
+	default:
+		return base // global
+	}
+}
+
+// KeyfuncFromTokenClaims intenta derivar el tenant a partir de los claims (tid) o del iss (modo path /t/{slug})
+// y usa PublicKeyByKIDForTenant para validar la firma. Retorna error si no logra derivar tenant o no encuentra KID.
+// Nota: requiere que el parser llene MapClaims.
+func (i *Issuer) KeyfuncFromTokenClaims() jwtv5.Keyfunc {
+	return func(t *jwtv5.Token) (any, error) {
+		kid, _ := t.Header["kid"].(string)
+		if kid == "" {
+			return nil, errors.New("kid_missing")
+		}
+
+		// Derivar el slug del tenant preferentemente desde el issuer (modo path),
+		// y como alternativa mapear tid (UUID) -> slug vía el control-plane.
+		var tenantSlug string
+		if mc, ok := t.Claims.(jwtv5.MapClaims); ok {
+			// 1) Intentar desde iss: .../t/{slug}
+			if issRaw, okIss := mc["iss"].(string); okIss && issRaw != "" {
+				if u, err := url.Parse(issRaw); err == nil {
+					parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+					for idx := 0; idx < len(parts)-1; idx++ {
+						if parts[idx] == "t" && idx+1 < len(parts) {
+							tenantSlug = parts[idx+1]
+						}
+					}
+				}
+				if tenantSlug == "" {
+					// Fallback: última parte del path
+					segs := strings.Split(strings.Trim(issRaw, "/"), "/")
+					if len(segs) > 0 {
+						tenantSlug = segs[len(segs)-1]
+					}
+				}
+			}
+
+			// 2) Si no se obtuvo desde iss, usar tid. Si parece UUID, mapear a slug; si no, tratarlo como slug.
+			if tenantSlug == "" {
+				if v, okTid := mc["tid"].(string); okTid && v != "" {
+					if _, err := uuid.Parse(v); err == nil {
+						// tid es UUID; intentar mapear a slug a través del provider si está disponible
+						if cpctx.Provider != nil {
+							if tenants, err := cpctx.Provider.ListTenants(i.Keys.ctx); err == nil {
+								for _, tn := range tenants {
+									if tn.ID == v {
+										tenantSlug = tn.Slug
+										break
+									}
+								}
+							}
+						}
+					} else {
+						// tid parece un slug
+						tenantSlug = v
+					}
+				}
+			}
+		}
+
+		if tenantSlug == "" {
+			return nil, errors.New("tenant_unresolved")
+		}
+		pub, err := i.Keys.PublicKeyByKIDForTenant(tenantSlug, kid)
+		if err != nil {
+			return nil, err
+		}
+		return ed25519.PublicKey(pub), nil
+	}
 }

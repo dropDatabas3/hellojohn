@@ -16,8 +16,10 @@ type Scope struct {
 type UserConsent struct {
 	ID            string     `json:"id"`
 	UserID        string     `json:"user_id"`
-	ClientID      string     `json:"client_id"`
+	ClientIDText  string     `db:"client_id_text" json:"clientIdText"`
 	GrantedScopes []string   `json:"granted_scopes"`
 	GrantedAt     time.Time  `json:"granted_at"`
 	RevokedAt     *time.Time `json:"revoked_at,omitempty"`
+	// Schema Cut: Tenant+Client directo (sin FK)
+	TenantID string `db:"tenant_id" json:"tenantId"`
 }

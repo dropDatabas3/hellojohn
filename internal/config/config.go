@@ -139,7 +139,8 @@ type Config struct {
 	} `yaml:"email"`
 
 	Security struct {
-		PasswordPolicy struct {
+		SecretBoxMasterKey string `yaml:"secretbox_master_key"` // base64(32 bytes) for encrypting secrets in FS config
+		PasswordPolicy     struct {
 			MinLength     int  `yaml:"min_length"`
 			RequireUpper  bool `yaml:"require_upper"`
 			RequireLower  bool `yaml:"require_lower"`
@@ -148,6 +149,28 @@ type Config struct {
 		} `yaml:"password_policy"`
 		PasswordBlacklistPath string `yaml:"password_blacklist_path"`
 	} `yaml:"security"`
+
+	ControlPlane struct {
+		FSRoot string `yaml:"fs_root"` // root directory for filesystem-based control plane
+	} `yaml:"control_plane"`
+
+	// Cluster (Fase 6 - Paso 0)
+	Cluster struct {
+		Mode            string            `yaml:"mode" json:"mode"` // off | embedded
+		NodeID          string            `yaml:"node_id" json:"nodeId"`
+		RaftAddr        string            `yaml:"raft_addr" json:"raftAddr"`
+		Nodes           map[string]string `yaml:"nodes" json:"nodes"`                      // nodeID -> host:port (raft)
+		LeaderRedirects map[string]string `yaml:"leader_redirects" json:"leaderRedirects"` // nodeID -> baseURL
+		SnapshotEvery   int               `yaml:"snapshot_every" json:"snapshotEvery"`
+		MaxLogMB        int               `yaml:"max_log_mb" json:"maxLogMb"`
+
+		// TLS for Raft transport (optional, mTLS when enabled)
+		RaftTLSEnable     bool   `yaml:"raft_tls_enable" json:"raftTlsEnable"`
+		RaftTLSCertFile   string `yaml:"raft_tls_cert_file" json:"raftTlsCertFile"`
+		RaftTLSKeyFile    string `yaml:"raft_tls_key_file" json:"raftTlsKeyFile"`
+		RaftTLSCAFile     string `yaml:"raft_tls_ca_file" json:"raftTlsCaFile"`
+		RaftTLSServerName string `yaml:"raft_tls_server_name" json:"raftTlsServerName"`
+	} `yaml:"cluster" json:"cluster"`
 
 	// ───────── Social Login Providers ─────────
 	Providers struct {
@@ -162,6 +185,9 @@ type Config struct {
 			AllowedClients []string `yaml:"allowed_clients"`
 		} `yaml:"google"`
 	} `yaml:"providers"`
+
+	// Key rotation grace window for exposing both old (retiring) and new (active) keys
+	KeyRotationGraceSeconds int `yaml:"key_rotation_grace_seconds" json:"keyRotationGraceSeconds"`
 }
 
 func Load(path string) (*Config, error) {
@@ -269,6 +295,11 @@ func Load(path string) (*Config, error) {
 		c.Providers.LoginCodeTTL = 60 * time.Second
 	}
 
+	// Key rotation grace default
+	if c.KeyRotationGraceSeconds == 0 {
+		c.KeyRotationGraceSeconds = 60
+	}
+
 	// validate string durations
 	if c.Storage.Postgres.ConnMaxLifetime != "" {
 		if _, err := time.ParseDuration(c.Storage.Postgres.ConnMaxLifetime); err != nil {
@@ -317,8 +348,34 @@ func Load(path string) (*Config, error) {
 		}
 	}
 
+	// ControlPlane defaults
+	if c.ControlPlane.FSRoot == "" {
+		c.ControlPlane.FSRoot = "./data/hellojohn" // default for development
+	}
+
+	// Cluster defaults (Paso 0): feature flag off by default
+	if strings.TrimSpace(c.Cluster.Mode) == "" {
+		c.Cluster.Mode = "off"
+	}
+	if c.Cluster.Nodes == nil {
+		c.Cluster.Nodes = map[string]string{}
+	}
+	if c.Cluster.LeaderRedirects == nil {
+		c.Cluster.LeaderRedirects = map[string]string{}
+	}
+
 	// Overrides por env + salvaguarda prod
 	c.applyEnvOverrides()
+
+	// Optional override for rotation grace via env (KEY_ROTATION_GRACE_SECONDS)
+	if v, ok := getEnvInt("KEY_ROTATION_GRACE_SECONDS"); ok {
+		c.KeyRotationGraceSeconds = v
+	}
+
+	// Validation
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
 
 	// Si Google.RedirectURL vacío pero tenemos issuer ⇒ autogenerar
 	if c.Providers.Google.Enabled && strings.TrimSpace(c.Providers.Google.RedirectURL) == "" && strings.TrimSpace(c.JWT.Issuer) != "" {
@@ -649,4 +706,114 @@ func (c *Config) applyEnvOverrides() {
 	if v, ok := getEnvCSV("GOOGLE_ALLOWED_CLIENTS"); ok {
 		c.Providers.Google.AllowedClients = v
 	}
+
+	// CONTROL_PLANE
+	if v, ok := getEnvStr("CONTROL_PLANE_FS_ROOT"); ok {
+		c.ControlPlane.FSRoot = v
+	}
+
+	// SECURITY - SecretBox Master Key
+	if v, ok := getEnvStr("SECRETBOX_MASTER_KEY"); ok {
+		c.Security.SecretBoxMasterKey = v
+	}
+
+	// ───── Cluster (Paso 0) ─────
+	// CLUSTER_MODE=off|embedded (default off)
+	if v, ok := getEnvStr("CLUSTER_MODE"); ok {
+		c.Cluster.Mode = strings.ToLower(strings.TrimSpace(v))
+	}
+	// NODE_ID, RAFT_ADDR
+	if v, ok := getEnvStr("NODE_ID"); ok {
+		c.Cluster.NodeID = strings.TrimSpace(v)
+	}
+	if v, ok := getEnvStr("RAFT_ADDR"); ok {
+		c.Cluster.RaftAddr = strings.TrimSpace(v)
+	}
+	// CLUSTER_NODES="n1=127.0.0.1:8201;n2=127.0.0.1:8202"
+	if m, ok := getEnvKVList("CLUSTER_NODES", ";"); ok {
+		if c.Cluster.Nodes == nil {
+			c.Cluster.Nodes = map[string]string{}
+		}
+		for k, v := range m {
+			c.Cluster.Nodes[k] = v
+		}
+	}
+	// LEADER_REDIRECTS="n1=http://127.0.0.1:8081;n2=http://127.0.0.1:8082"
+	if m, ok := getEnvKVList("LEADER_REDIRECTS", ";"); ok {
+		if c.Cluster.LeaderRedirects == nil {
+			c.Cluster.LeaderRedirects = map[string]string{}
+		}
+		for k, v := range m {
+			c.Cluster.LeaderRedirects[k] = v
+		}
+	}
+	if v, ok := getEnvInt("RAFT_SNAPSHOT_EVERY"); ok {
+		c.Cluster.SnapshotEvery = v
+	}
+	if v, ok := getEnvInt("RAFT_MAX_LOG_MB"); ok {
+		c.Cluster.MaxLogMB = v
+	}
+
+	// Raft TLS (optional)
+	if v, ok := getEnvBool("RAFT_TLS_ENABLE"); ok {
+		c.Cluster.RaftTLSEnable = v
+	}
+	if v, ok := getEnvStr("RAFT_TLS_CERT_FILE"); ok {
+		c.Cluster.RaftTLSCertFile = v
+	} else if v, ok := getEnvStr("RAFT_TLS_CERT"); ok {
+		// fallback alias
+		c.Cluster.RaftTLSCertFile = v
+	}
+	if v, ok := getEnvStr("RAFT_TLS_KEY_FILE"); ok {
+		c.Cluster.RaftTLSKeyFile = v
+	} else if v, ok := getEnvStr("RAFT_TLS_KEY"); ok {
+		c.Cluster.RaftTLSKeyFile = v
+	}
+	if v, ok := getEnvStr("RAFT_TLS_CA_FILE"); ok {
+		c.Cluster.RaftTLSCAFile = v
+	} else if v, ok := getEnvStr("RAFT_TLS_CA"); ok {
+		c.Cluster.RaftTLSCAFile = v
+	}
+	if v, ok := getEnvStr("RAFT_TLS_SERVER_NAME"); ok {
+		c.Cluster.RaftTLSServerName = v
+	}
+}
+
+// Validate performs validation of critical configuration values
+// Note: SECRETBOX validation is now in cmd/service since only the service uses FS
+func (c *Config) Validate() error {
+	// General config validation can go here (if needed)
+	return nil
+}
+
+// parse env of form "k1=v1<sep>k2=v2" into map
+func parseKVList(s, sep string) map[string]string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return map[string]string{}
+	}
+	items := strings.Split(s, sep)
+	out := make(map[string]string, len(items))
+	for _, it := range items {
+		it = strings.TrimSpace(it)
+		if it == "" {
+			continue
+		}
+		// split at first '='
+		if i := strings.IndexRune(it, '='); i > 0 {
+			k := strings.TrimSpace(it[:i])
+			v := strings.TrimSpace(it[i+1:])
+			if k != "" && v != "" {
+				out[k] = v
+			}
+		}
+	}
+	return out
+}
+
+func getEnvKVList(key, sep string) (map[string]string, bool) {
+	if s, ok := getEnvStr(key); ok {
+		return parseKVList(s, sep), true
+	}
+	return nil, false
 }

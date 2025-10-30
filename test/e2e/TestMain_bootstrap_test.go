@@ -11,7 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"strings"
+
 	"github.com/joho/godotenv"
+	"gopkg.in/yaml.v3"
 )
 
 func TestMain(m *testing.M) {
@@ -24,6 +27,39 @@ func TestMain(m *testing.M) {
 	if os.Getenv("SEED_SCOPES") == "" {
 		_ = os.Setenv("SEED_SCOPES", "openid,email,profile,offline_access,profile:read")
 	}
+
+	// 1.5) Forzar E2E a Postgres (Fase 3) - SIEMPRE en E2E
+	_ = os.Setenv("STORAGE_DRIVER", "postgres")
+	if os.Getenv("STORAGE_DSN") == "" {
+		// Prefer DATABASE_URL if present
+		if v := os.Getenv("DATABASE_URL"); strings.TrimSpace(v) != "" {
+			_ = os.Setenv("STORAGE_DSN", v)
+		} else {
+			// Fallback to configs/config.yaml storage.dsn so the spawned service has a DSN
+			if root, err := findRepoRoot(); err == nil {
+				cfgPath := filepath.Join(root, "configs", "config.yaml")
+				if b, err := os.ReadFile(cfgPath); err == nil && len(b) > 0 {
+					// naive parse: look for line starting with "  dsn:" under storage
+					// For robustness, try importing the config package if available
+					type conf struct {
+						Storage struct {
+							DSN string `yaml:"dsn"`
+						} `yaml:"storage"`
+					}
+					var c conf
+					if err := yaml.Unmarshal(b, &c); err == nil && strings.TrimSpace(c.Storage.DSN) != "" {
+						_ = os.Setenv("STORAGE_DSN", c.Storage.DSN)
+					}
+				}
+			}
+		}
+	}
+	_ = os.Setenv("FLAGS_MIGRATE", "false") // Saltar migraciones en E2E (deben ejecutarse antes)
+	// Configurar límites de conexión muy conservadores para E2E
+	_ = os.Setenv("POSTGRES_MAX_OPEN_CONNS", "3")
+	_ = os.Setenv("POSTGRES_MAX_IDLE_CONNS", "1")
+	// apuntar al folder nuevo "squashed"
+	_ = os.Setenv("MIGRATIONS_DIR", "migrations/postgres")
 
 	// 2) Migrar
 	{
@@ -103,10 +139,8 @@ func TestMain(m *testing.M) {
 		_ = os.Setenv("SOCIAL_DEBUG_HEADERS", "true")
 	}
 
-	// 4.8) Enable Google provider in tests with dummy credentials so discovery lists it and debug path works.
-	if os.Getenv("GOOGLE_ENABLED") == "" {
-		_ = os.Setenv("GOOGLE_ENABLED", "true")
-	}
+	// 4.8) Deshabilitar Google temporalmente para reducir conexiones DB en testing
+	_ = os.Setenv("GOOGLE_ENABLED", "false")
 	// Provide safe dummy values (they won't be used because debug shortcut short-circuits real exchange).
 	if os.Getenv("GOOGLE_CLIENT_ID") == "" {
 		_ = os.Setenv("GOOGLE_CLIENT_ID", "dummy-google-client-id.apps.googleusercontent.com")
@@ -115,21 +149,23 @@ func TestMain(m *testing.M) {
 		_ = os.Setenv("GOOGLE_CLIENT_SECRET", "dummy-google-secret")
 	}
 
+	skipGlobal := strings.TrimSpace(os.Getenv("E2E_SKIP_GLOBAL_SERVER")) == "1"
 	var err error
 	var startedBase string
-	srv, startedBase, err = startServer(context.Background(), envFile)
-	if err != nil {
-		panic(err)
-	}
-	// Override baseURL to the actual started server to avoid hitting any stale external instance
-	if startedBase != "" {
-		baseURL = startedBase
-	}
-	if err := waitReady(baseURL, 20*time.Second); err != nil {
-		if srv != nil && srv.out != nil {
-			println(srv.out.String())
+	if !skipGlobal {
+		srv, startedBase, err = startServer(context.Background(), envFile)
+		if err != nil {
+			panic(err)
 		}
-		panic(err)
+		if startedBase != "" {
+			baseURL = startedBase
+		}
+		if err := waitReady(baseURL, 20*time.Second); err != nil {
+			if srv != nil && srv.out != nil {
+				println(srv.out.String())
+			}
+			panic(err)
+		}
 	}
 
 	// Ensure the web client has dynamic redirect URIs allowed (social result and localhost:3000)
@@ -155,6 +191,75 @@ func TestMain(m *testing.M) {
 			io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 			if tok.AccessToken != "" {
+				// Seed FS control-plane for tenant/local and client/local-web via Admin FS
+				// 1) Upsert tenant with DSN plain (provider encrypts)
+				{
+					payload := map[string]any{
+						"id":   seed.Tenant.ID,
+						"slug": "local",
+						"name": "Local",
+						"settings": map[string]any{
+							"userDB": map[string]any{
+								"type": "postgres",
+								"dsn":  os.Getenv("STORAGE_DSN"),
+							},
+						},
+					}
+					b, _ := json.Marshal(payload)
+					req, _ := http.NewRequest(http.MethodPut, baseURL+"/v1/admin/tenants/local", bytes.NewReader(b))
+					req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+					req.Header.Set("Content-Type", "application/json")
+					if r1, e1 := c.Do(req); e1 == nil && r1 != nil {
+						io.Copy(io.Discard, r1.Body)
+						r1.Body.Close()
+					}
+				}
+
+				// 2) Upsert client local-web enabling password and default scopes
+				{
+					// Use camelCase keys expected by the Admin FS handler (controlplane.ClientInput)
+					payload := map[string]any{
+						"clientId":       seed.Clients.Web.ClientID,
+						"name":           "Web Frontend",
+						"type":           "public",
+						"redirectUris":   []string{baseURL + "/v1/auth/social/result", "http://localhost:7777/callback"},
+						"allowedOrigins": []string{"http://localhost:7777"},
+						"providers":      []string{"password"},
+						"scopes":         []string{"openid", "profile", "email", "offline_access"},
+						"enabled":        true, // ignored by server; kept for compatibility with sample
+					}
+					b, _ := json.Marshal(payload)
+					req, _ := http.NewRequest(http.MethodPut, baseURL+"/v1/admin/tenants/local/clients/"+seed.Clients.Web.ClientID, bytes.NewReader(b))
+					req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+					req.Header.Set("Content-Type", "application/json")
+					if r1, e1 := c.Do(req); e1 == nil && r1 != nil {
+						io.Copy(io.Discard, r1.Body)
+						r1.Body.Close()
+					}
+				}
+
+				// 3) Optional: declare scopes (idempotent)
+				{
+					payload := map[string]any{"scopes": []map[string]string{{"name": "openid"}, {"name": "profile"}, {"name": "email"}, {"name": "offline_access"}}}
+					b, _ := json.Marshal(payload)
+					req, _ := http.NewRequest(http.MethodPut, baseURL+"/v1/admin/tenants/local/scopes", bytes.NewReader(b))
+					req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+					req.Header.Set("Content-Type", "application/json")
+					if r1, e1 := c.Do(req); e1 == nil && r1 != nil {
+						io.Copy(io.Discard, r1.Body)
+						r1.Body.Close()
+					}
+				}
+
+				// 4) Test-connection and migrate per-tenant
+				for _, ep := range []string{"test-connection", "migrate"} {
+					req, _ := http.NewRequest(http.MethodPost, baseURL+"/v1/admin/tenants/local/user-store/"+ep, nil)
+					req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
+					if r1, e1 := c.Do(req); e1 == nil && r1 != nil {
+						io.Copy(io.Discard, r1.Body)
+						r1.Body.Close()
+					}
+				}
 				// list clients
 				req, _ := http.NewRequest(http.MethodGet, baseURL+"/v1/admin/clients?tenant_id="+seed.Tenant.ID, nil)
 				req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
@@ -215,9 +320,7 @@ func TestMain(m *testing.M) {
 	}
 
 	code := m.Run()
-
 	if srv != nil {
-		// Dump server logs for debugging social debug shortcut
 		if srv.out != nil {
 			println("--- SERVER LOGS START ---")
 			println(srv.out.String())

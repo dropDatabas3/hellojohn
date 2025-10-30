@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
@@ -21,14 +23,15 @@ import (
 
 func main() {
 	var (
-		flagEnvOnly    = flag.Bool("env", false, "usar SOLO env (y .env si se pasa -env-file)")
-		flagEnvFile    = flag.String("env-file", ".env", "ruta a .env")
-		flagConfigPath = flag.String("config", "", "ruta a config.yaml (si no se usa -env)")
-		cmdRotate      = flag.Bool("rotate", false, "genera nueva clave ACTIVE y pasa la anterior a RETIRING")
-		cmdRetire      = flag.Bool("retire", false, "marca claves RETIRING antiguas como RETIRED (limpia JWKS)")
-		cmdList        = flag.Bool("list", false, "lista todas las claves con sus estados")
-		flagNotBefore  = flag.String("not-before", "", "RFC3339 (opcional) para not_before de la nueva clave")
-		flagAge        = flag.String("age", "24h", "duración mínima para marcar retiring->retired")
+		flagEnvOnly     = flag.Bool("env", false, "usar SOLO env (y .env si se pasa -env-file)")
+		flagEnvFile     = flag.String("env-file", ".env", "ruta a .env")
+		flagConfigPath  = flag.String("config", "", "ruta a config.yaml (si no se usa -env)")
+		cmdRotate       = flag.Bool("rotate", false, "genera nueva clave ACTIVE y pasa la anterior a RETIRING")
+		cmdRetire       = flag.Bool("retire", false, "marca claves RETIRING antiguas como RETIRED (limpia JWKS)")
+		cmdList         = flag.Bool("list", false, "lista todas las claves con sus estados")
+		cmdGenSecretbox = flag.Bool("gen-secretbox", false, "genera nueva clave para SECRETBOX_MASTER_KEY")
+		flagNotBefore   = flag.String("not-before", "", "RFC3339 (opcional) para not_before de la nueva clave")
+		flagAge         = flag.String("age", "24h", "duración mínima para marcar retiring->retired")
 	)
 	flag.Parse()
 
@@ -77,6 +80,9 @@ func main() {
 	}
 
 	switch {
+	case *cmdGenSecretbox:
+		generateSecretboxKey()
+		return
 	case *cmdRotate:
 		var nb time.Time
 		if *flagNotBefore != "" {
@@ -155,7 +161,24 @@ func main() {
 		fmt.Println("  keys -rotate [-env | -config configs/config.yaml] [-env-file .env] [-not-before RFC3339]")
 		fmt.Println("  keys -retire [-age 24h]")
 		fmt.Println("  keys -list")
+		fmt.Println("  keys -gen-secretbox")
 	}
+}
+
+func generateSecretboxKey() {
+	fmt.Println("🔐 HelloJohn - Secret Key Generator")
+	fmt.Println("Generating 32-byte base64 key for SECRETBOX_MASTER_KEY...")
+
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		fmt.Printf("❌ Error generating key: %v\n", err)
+		os.Exit(1)
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(key)
+	fmt.Printf("✅ Generated key: %s\n", encoded)
+	fmt.Println("\n💡 Add this to your .env file:")
+	fmt.Printf("SECRETBOX_MASTER_KEY=%s\n", encoded)
 }
 
 func fileExists(p string) bool {

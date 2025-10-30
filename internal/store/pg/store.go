@@ -18,6 +18,29 @@ import (
 
 type Store struct{ pool *pgxpool.Pool }
 
+// Pool expone el pool interno para usos avanzados (metrics/migraciones).
+func (s *Store) Pool() *pgxpool.Pool {
+	if s == nil {
+		return nil
+	}
+	return s.pool
+}
+
+// PoolStats devuelve un snapshot del estado del pool (puede ser nil si el pool no está inicializado).
+func (s *Store) PoolStats() *pgxpool.Stat {
+	if s == nil || s.pool == nil {
+		return nil
+	}
+	return s.pool.Stat()
+}
+
+// Close cierra el pool subyacente (idempotente).
+func (s *Store) Close() {
+	if s != nil && s.pool != nil {
+		s.pool.Close()
+	}
+}
+
 type pgCfg struct {
 	MaxOpenConns    int
 	MaxIdleConns    int
@@ -38,11 +61,30 @@ func New(ctx context.Context, dsn string, cfg any) (*Store, error) {
 		if v.MaxOpenConns > 0 {
 			pcfg.MaxConns = int32(v.MaxOpenConns)
 		}
+		// Mapear MaxIdleConns → MinConns (pgxpool)
+		if v.MaxIdleConns > 0 {
+			pcfg.MinConns = int32(v.MaxIdleConns)
+		}
 		if v.ConnMaxLifetime != "" {
 			if d, err := time.ParseDuration(v.ConnMaxLifetime); err == nil {
 				pcfg.MaxConnLifetime = d
+				// También configurar MaxConnIdleTime si queremos
+				pcfg.MaxConnIdleTime = d
 			}
 		}
+	}
+
+	// Set default MaxConns if not specified
+	if pcfg.MaxConns == 0 {
+		pcfg.MaxConns = 5 // reduced for testing
+	}
+
+	// Límites más conservadores para desarrollo local
+	if pcfg.MaxConns > 8 {
+		pcfg.MaxConns = 8
+	}
+	if pcfg.MinConns > 4 {
+		pcfg.MinConns = 4
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, pcfg)
@@ -385,14 +427,15 @@ func (s *Store) CreateUserWithPassword(ctx context.Context, tenantID, email, pas
 
 // ====================== REFRESH TOKENS ======================
 
+// CreateRefreshToken - DEPRECATED: Usar CreateRefreshTokenTC en su lugar
 func (s *Store) CreateRefreshToken(ctx context.Context, userID, clientID, tokenHash string, expiresAt time.Time, rotatedFrom *string) (string, error) {
 	const q = `
-INSERT INTO refresh_token (id, user_id, client_id, token_hash, issued_at, expires_at, rotated_from)
+INSERT INTO refresh_token (id, user_id, client_id_text, token_hash, issued_at, expires_at, rotated_from)
 VALUES (gen_random_uuid(), $1, $2, $3, now(), $4, $5)
 RETURNING id`
 	var id string
 	if err := s.pool.QueryRow(ctx, q, userID, clientID, tokenHash, expiresAt, rotatedFrom).Scan(&id); err != nil {
-		log.Printf(`{"level":"error","msg":"pg_create_refresh_err","user_id":"%s","client_id":"%s","err":"%v"}`, userID, clientID, err)
+		log.Printf(`{"level":"error","msg":"pg_create_refresh_err","user_id":"%s","client_id_text":"%s","err":"%v"}`, userID, clientID, err)
 		return "", err
 	}
 	return id, nil
@@ -400,14 +443,14 @@ RETURNING id`
 
 func (s *Store) GetRefreshTokenByHash(ctx context.Context, tokenHash string) (*core.RefreshToken, error) {
 	const q = `
-SELECT id, user_id, client_id, token_hash, issued_at, expires_at, rotated_from, revoked_at
+SELECT id, user_id, client_id_text, token_hash, issued_at, expires_at, rotated_from, revoked_at, tenant_id
 FROM refresh_token
 WHERE token_hash = $1
 LIMIT 1`
 	row := s.pool.QueryRow(ctx, q, tokenHash)
 
 	var rt core.RefreshToken
-	if err := row.Scan(&rt.ID, &rt.UserID, &rt.ClientID, &rt.TokenHash, &rt.IssuedAt, &rt.ExpiresAt, &rt.RotatedFrom, &rt.RevokedAt); err != nil {
+	if err := row.Scan(&rt.ID, &rt.UserID, &rt.ClientIDText, &rt.TokenHash, &rt.IssuedAt, &rt.ExpiresAt, &rt.RotatedFrom, &rt.RevokedAt, &rt.TenantID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, core.ErrNotFound
 		}
@@ -445,7 +488,7 @@ func (s *Store) GetUserByID(ctx context.Context, userID string) (*core.User, err
 	return &u, nil
 }
 
-// RevokeAllRefreshTokens revoca todos los refresh de un usuario (opcionalmente filtrado por client_id).
+// RevokeAllRefreshTokens revoca todos los refresh de un usuario (opcionalmente filtrado por client_id_text).
 func (s *Store) RevokeAllRefreshTokens(ctx context.Context, userID, clientID string) error {
 	if strings.TrimSpace(clientID) == "" {
 		_, err := s.pool.Exec(ctx, `
@@ -458,7 +501,7 @@ func (s *Store) RevokeAllRefreshTokens(ctx context.Context, userID, clientID str
 	_, err := s.pool.Exec(ctx, `
 		UPDATE refresh_token
 		SET revoked_at = NOW()
-		WHERE user_id = $1 AND client_id = $2 AND revoked_at IS NULL
+		WHERE user_id = $1 AND client_id_text = $2 AND revoked_at IS NULL
 	`, userID, clientID)
 	return err
 }
@@ -565,7 +608,7 @@ func (s *Store) RevokeAllRefreshTokensByClient(ctx context.Context, clientID str
 	_, err := s.pool.Exec(ctx, `
         UPDATE refresh_token
         SET revoked_at = NOW()
-        WHERE client_id = $1 AND revoked_at IS NULL
+        WHERE client_id_text = $1 AND revoked_at IS NULL
     `, clientID)
 	return err
 }

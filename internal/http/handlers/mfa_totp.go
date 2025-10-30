@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -399,16 +400,28 @@ func (h *mfaHandler) challenge(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 1730)
 		return
 	}
-	hash := tokens.SHA256Base64URL(rawRT)
 	cl, _, err := h.c.Store.GetClientByClientID(r.Context(), ch.ClientID)
 	if err != nil {
 		httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1731)
 		return
 	}
 
-	if _, err := h.c.Store.CreateRefreshToken(r.Context(), uidStr, cl.ID, hash, time.Now().Add(h.refreshTTL), nil); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1732)
-		return
+	// Usar CreateRefreshTokenTC (tenant + client_id_text) en vez de legacy
+	if tcStore, ok := h.c.Store.(interface {
+		CreateRefreshTokenTC(context.Context, string, string, string, time.Time, *string) (string, error)
+	}); ok {
+		hash := tokens.SHA256Hex(rawRT)
+		if _, err := tcStore.CreateRefreshTokenTC(r.Context(), ch.TenantID, cl.ClientID, hash, time.Now().Add(h.refreshTTL), nil); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh TC", 1732)
+			return
+		}
+	} else {
+		// Fallback legacy
+		hash := tokens.SHA256Base64URL(rawRT)
+		if _, err := h.c.Store.CreateRefreshToken(r.Context(), uidStr, cl.ID, hash, time.Now().Add(h.refreshTTL), nil); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1732)
+			return
+		}
 	}
 
 	// Eliminar el token MFA solo después de éxito

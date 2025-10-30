@@ -54,11 +54,16 @@ func (h *googleHandler) issueSocialTokens(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	std := map[string]any{"tid": tid.String(), "amr": amr, "acr": acr}
+	// Scopes placeholder: use client default scopes for scp
+	scopes := []string{}
+	if cl, _, e2 := h.c.Store.GetClientByClientID(r.Context(), cid); e2 == nil && cl != nil && strings.EqualFold(cl.TenantID, tid.String()) {
+		scopes = append(scopes, cl.Scopes...)
+	}
+	std := map[string]any{"tid": tid.String(), "amr": amr, "acr": acr, "scp": strings.Join(scopes, " ")}
 	custom := map[string]any{}
 
 	// Hook + SYS_NS + roles/perms (best-effort)
-	std, custom = applyAccessClaimsHook(r.Context(), h.c, tid.String(), cid, uid.String(), []string{}, amr, std, custom)
+	std, custom = applyAccessClaimsHook(r.Context(), h.c, tid.String(), cid, uid.String(), scopes, amr, std, custom)
 	if u, err := h.c.Store.GetUserByID(r.Context(), uid.String()); err == nil && u != nil {
 		type rbacReader interface {
 			GetUserRoles(ctx context.Context, userID string) ([]string, error)
@@ -91,10 +96,22 @@ func (h *googleHandler) issueSocialTokens(w http.ResponseWriter, r *http.Request
 		httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 1622)
 		return true
 	}
-	hash := tokens.SHA256Base64URL(rawRT)
-	if _, err := h.c.Store.CreateRefreshToken(r.Context(), uid.String(), cl.ID, hash, time.Now().Add(h.issuerTok.refreshTTL), nil); err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1624)
-		return true
+	// Usar CreateRefreshTokenTC para social login
+	if tcStore, ok := h.c.Store.(interface {
+		CreateRefreshTokenTC(context.Context, string, string, string, time.Time, *string) (string, error)
+	}); ok {
+		hash := tokens.SHA256Hex(rawRT)
+		if _, err := tcStore.CreateRefreshTokenTC(r.Context(), tid.String(), cl.ClientID, hash, time.Now().Add(h.issuerTok.refreshTTL), nil); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh TC", 1624)
+			return true
+		}
+	} else {
+		// Fallback legacy
+		hash := tokens.SHA256Base64URL(rawRT)
+		if _, err := h.c.Store.CreateRefreshToken(r.Context(), uid.String(), cl.ID, hash, time.Now().Add(h.issuerTok.refreshTTL), nil); err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1624)
+			return true
+		}
 	}
 
 	respAuth := AuthLoginResponse{AccessToken: access, TokenType: "Bearer", ExpiresIn: int64(time.Until(exp).Seconds()), RefreshToken: rawRT}
