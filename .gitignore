@@ -32,3 +32,20 @@ migrate.exe
 hellojohn-service*.exe
 
 security_password_blacklist.txt
+contar_estructura.ps1
+
+
+# ───────── UI ─────────
+/ui/.next/
+/ui/out/
+/ui/node_modules/
+/ui/.env.local
+/ui/.env.development.local
+/ui/.env.test.local
+/ui/.env.production.local
+/ui/build.log
+/ui/.vercel/
+/ui/.vercel_build_output/
+
+# Context docs
+/docs/
