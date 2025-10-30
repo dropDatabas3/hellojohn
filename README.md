@@ -84,9 +84,9 @@ Notas de seguridad:
 Agregar ejemplo en configs/config.example.yaml o en README:
 
 ```yaml
-# Admin API (MVP)
-ADMIN_API_ENABLED: true
-ADMIN_API_KEY: dev-key
+# Admin API (JWT)
+# Desde Sprint 7, las rutas /v1/admin requieren Authorization: Bearer <token> (JWT admin).
+# El uso de X-Admin-API-Key queda deprecado.
 
 # Fase 5: rotación
 KEY_ROTATION_GRACE_SECONDS: 60
@@ -97,6 +97,26 @@ KEY_ROTATION_GRACE_SECONDS: 60
 # settings:
 #   issuerMode: path
 #   # issuerOverride: ""   # reservado futuro (domain/override)
+```
+
+### CLI rápido (Sprint 7)
+
+```bash
+# Login (o pasa HELLOJOHN_BEARER)
+export HELLOJOHN_ADMIN_URL="http://localhost:8080"
+export HELLOJOHN_EMAIL="admin@example.com"
+export HELLOJOHN_PASSWORD="Passw0rd!"
+export HELLOJOHN_TENANT_ID="local"
+export HELLOJOHN_CLIENT_ID="local-web"
+
+# Ping admin
+go run ./cmd/hellojohn admin ping
+
+# Cambiar issuerMode del tenant
+go run ./cmd/hellojohn admin tenants set-issuer-mode --slug acme --mode path
+
+# Rotar llaves del tenant (con 60s de gracia)
+go run ./cmd/hellojohn admin tenants rotate-keys --slug acme --grace-seconds 60
 ```
 ## Índice
 - [1. Introducción](#1-introducción)
@@ -123,6 +143,9 @@ KEY_ROTATION_GRACE_SECONDS: 60
 - [17. Troubleshooting](#17-troubleshooting)
 - [18. Glosario rápido](#18-glosario-rápido)
 - [19. Changelog (resumen)](#19-changelog-resumen)
+ - [Guía: Clientes y Microservicios](docs/clients_and_microservices.md)
+ - [Docs HA E2E](docs/e2e_ha.md)
+ - [Guía Multi-tenant](docs/multi-tenant_guide.md)
 
 ---
 
@@ -194,6 +217,9 @@ test/             # Suite E2E
 - Postgres 16 (dev mediante docker‑compose) y Redis (opcional, recomendado para rate/cache)
 - SMTP para emails (en desarrollo puede usarse un servidor de pruebas)
 
+Nota de alcance v1:
+- Esta versión v1 soporta oficialmente Postgres como base de datos. MySQL y MongoDB no están soportados en v1.
+
 ---
 
 ## 6. Puesta en marcha rápida
@@ -224,6 +250,37 @@ Notas
 - Por defecto escucha en :8080.
 - El flag `-env` usa solo variables de entorno (y `.env` si pasás `-env-file`).
 
+#### UI embebida (puerto dedicado)
+
+Desde Sprint 7 el servicio puede servir una GUI de administración embebida en un puerto separado:
+
+- ADMIN_UI_DIR: carpeta con los archivos estáticos ya construidos del UI (por ejemplo, el output de `next export` o un build de SPA)
+- UI_SERVER_ADDR: dirección de escucha para la UI (por ejemplo, `:8081` o `0.0.0.0:8081`)
+- UI_PUBLIC_ORIGIN: origen público para la UI (opcional). Si no se define, se intenta deducir `http://localhost:<puerto>` a partir de UI_SERVER_ADDR; este origen se agrega automáticamente a `SERVER_CORS_ALLOWED_ORIGINS` para que la UI pueda llamar al API.
+
+Ejemplo rápido en dev (Windows PowerShell):
+
+```
+$env:ADMIN_UI_DIR = "$(Resolve-Path ./ui/out)"  # apunte a la carpeta estática ya generada
+$env:UI_SERVER_ADDR = ":8081"
+go run ./cmd/service -env
+```
+
+Notas:
+- El API continúa en `SERVER_ADDR` (por defecto `:8080`).
+- La UI se sirve en `UI_SERVER_ADDR` con una CSP relajada para permitir recursos inline típicos de SPAs.
+- Si preferís montar la UI bajo el mismo puerto (legacy), podés no definir `UI_SERVER_ADDR` y servirla aparte con un reverse proxy.
+
+Atajo con script (Windows PowerShell):
+
+```
+pwsh -File scripts/dev-ui.ps1
+```
+
+El script instala deps (pnpm/npm), exporta el UI a `ui/out` y levanta el servicio con:
+- API en http://localhost:8080
+- UI en http://localhost:8081
+
 ---
 
 ## 7. Configuración
@@ -231,6 +288,7 @@ Precedencia: defaults → config.yaml → env → flags.
 
 ### 7.1 Variables clave
 - Servidor: SERVER_ADDR, SERVER_CORS_ALLOWED_ORIGINS
+- UI embebida: ADMIN_UI_DIR, UI_SERVER_ADDR, UI_PUBLIC_ORIGIN
 - JWT: JWT_ISSUER, JWT_ACCESS_TTL, JWT_REFRESH_TTL
 - Storage: STORAGE_DRIVER, STORAGE_DSN, POSTGRES_MAX_OPEN_CONNS, POSTGRES_MAX_IDLE_CONNS, POSTGRES_CONN_MAX_LIFETIME
 - Cache/Redis: CACHE_KIND, REDIS_ADDR, REDIS_DB, REDIS_PREFIX, CACHE_MEMORY_DEFAULT_TTL
@@ -242,6 +300,8 @@ Precedencia: defaults → config.yaml → env → flags.
 - Password: SECURITY_PASSWORD_POLICY_*, SECURITY_PASSWORD_BLACKLIST_PATH
 - Social Google: GOOGLE_ENABLED, GOOGLE_CLIENT_ID/SECRET, GOOGLE_REDIRECT_URL, GOOGLE_SCOPES, GOOGLE_ALLOWED_TENANTS/CLIENTS, SOCIAL_LOGIN_CODE_TTL
 - Claves: SIGNING_MASTER_KEY
+ - Cluster TLS (Raft): RAFT_TLS_ENABLE, RAFT_TLS_CERT_FILE (o RAFT_TLS_CERT), RAFT_TLS_KEY_FILE (o RAFT_TLS_KEY), RAFT_TLS_CA_FILE (o RAFT_TLS_CA), RAFT_TLS_SERVER_NAME
+ - Leader redirects allowlist (opcional): LEADER_REDIRECT_ALLOWED_HOSTS (CSV de host[:port] separado por coma o punto y coma)
 
 Autoconsent (seguro por defecto):
 - CONSENT_AUTO=1
@@ -488,8 +548,10 @@ Notas
 
 ## 15. Operación y salud
 - Health: `GET /readyz` verifica DB, cache y keystore.
+  - Campos extra: `cluster.role`, `cluster.leader_id`, `cluster.raft.*`, `fs_degraded` (true si el plano FS detectó errores recientes de escritura).
 - Logs estructurados con request id.
 - Timeouts y graceful shutdown configurables por ENV (`HTTP_*`).
+ - Endpoint de shutdown para dev/test (opcional): habilitar con `ALLOW_DEV_SHUTDOWN=1` y llamar `POST /__dev/shutdown`.
 
 ---
 

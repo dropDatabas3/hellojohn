@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
 	cp "github.com/dropDatabas3/hellojohn/internal/controlplane"
 	sec "github.com/dropDatabas3/hellojohn/internal/security/secretbox"
 	"github.com/google/uuid"
@@ -67,7 +68,16 @@ func writeYAML(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(path, b, 0o600)
+	if err := atomicWriteFile(path, b, 0o600); err != nil {
+		if cpctx.MarkFSDegraded != nil {
+			cpctx.MarkFSDegraded(fmt.Sprintf("writeYAML failed: %v", err))
+		}
+		return err
+	}
+	if cpctx.ClearFSDegraded != nil {
+		cpctx.ClearFSDegraded()
+	}
+	return nil
 }
 
 func ensureTenantLayout(root string, slug string) error {
@@ -315,6 +325,14 @@ func (p *FSProvider) UpsertClient(ctx context.Context, slug string, in cp.Client
 	found.Providers = uniqueStrings(in.Providers)
 	found.Scopes = uniqueStrings(in.Scopes)
 
+	// claims opcionales (MVP): persistir tal cual (validación mínima UI-side)
+	if in.ClaimSchema != nil {
+		found.ClaimSchema = in.ClaimSchema
+	}
+	if in.ClaimMapping != nil {
+		found.ClaimMapping = in.ClaimMapping
+	}
+
 	// secreto: si vino plain en input, cifrar y guardar
 	if in.Type == cp.ClientTypeConfidential {
 		if strings.TrimSpace(in.Secret) != "" {
@@ -512,8 +530,16 @@ func (p *FSProvider) writeYAMLAtomic(path string, v any) error {
 	if err != nil {
 		return fmt.Errorf("marshal yaml: %w", err)
 	}
-
-	return atomicWriteFile(path, data, 0600)
+	if err := atomicWriteFile(path, data, 0600); err != nil {
+		if cpctx.MarkFSDegraded != nil {
+			cpctx.MarkFSDegraded(fmt.Sprintf("writeYAMLAtomic failed: %v", err))
+		}
+		return err
+	}
+	if cpctx.ClearFSDegraded != nil {
+		cpctx.ClearFSDegraded()
+	}
+	return nil
 }
 
 // ===== utils =====

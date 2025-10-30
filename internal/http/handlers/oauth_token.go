@@ -12,6 +12,7 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
 	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
@@ -414,6 +415,99 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				"expires_in":    int64(time.Until(exp).Seconds()),
 				"access_token":  access,
 				"refresh_token": newRT,
+			})
+
+		// ───────────────── client_credentials (M2M) ─────────────────
+		case "client_credentials":
+			clientID := strings.TrimSpace(r.PostForm.Get("client_id"))
+			clientSecret := strings.TrimSpace(r.PostForm.Get("client_secret"))
+			scope := strings.TrimSpace(r.PostForm.Get("scope"))
+
+			if clientID == "" {
+				httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "client_id requerido", 2230)
+				return
+			}
+
+			ctx := r.Context()
+			client, tenantSlug, err := helpers.LookupClient(ctx, r, clientID)
+			if err != nil {
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client not found", 2231)
+				return
+			}
+
+			// Must be confidential and secret must match
+			if client.Type != "confidential" {
+				httpx.WriteError(w, http.StatusUnauthorized, "unauthorized_client", "client_credentials solo para clientes confidenciales", 2232)
+				return
+			}
+			if err := helpers.ValidateClientSecret(ctx, r, tenantSlug, client, clientSecret); err != nil {
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "credenciales inválidas", 2233)
+				return
+			}
+
+			// Validate requested scopes subset of client scopes
+			reqScopes := []string{}
+			if scope != "" {
+				for _, s := range strings.Fields(scope) {
+					reqScopes = append(reqScopes, s)
+				}
+			}
+			for _, s := range reqScopes {
+				if !controlplane.DefaultIsScopeAllowed(client, s) {
+					httpx.WriteError(w, http.StatusBadRequest, "invalid_scope", "scope no permitido", 2234)
+					return
+				}
+			}
+
+			// Standard M2M claims
+			amr := []string{"client"}
+			acr := "urn:hellojohn:loa:1"
+			std := map[string]any{
+				"tid": tenantSlug, // FS mode uses slug; hook may adjust or add further details
+				"amr": amr,
+				"acr": acr,
+			}
+			var scopeOut string
+			if len(reqScopes) > 0 {
+				scopeOut = strings.Join(reqScopes, " ")
+				std["scp"] = scopeOut
+				std["scope"] = scopeOut
+			} else {
+				// default to client's configured scopes
+				scopeOut = strings.Join(client.Scopes, " ")
+				std["scp"] = scopeOut
+				std["scope"] = scopeOut
+			}
+			custom := map[string]any{}
+
+			// Hook
+			std, custom = applyAccessClaimsHook(ctx, c, tenantSlug, clientID, "", reqScopes, amr, std, custom)
+
+			// Resolve effective issuer for tenant
+			effIss := c.Issuer.Iss
+			if cpctx.Provider != nil {
+				if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil {
+					effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+				}
+			}
+
+			// Issue access token on behalf of the client (sub = client_id)
+			// Issue token via issuer helper (per-tenant key if needed)
+			access, exp, err := c.Issuer.IssueAccessForTenant(tenantSlug, effIss, clientID, clientID, std, custom)
+			if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir access", 2236)
+				return
+			}
+
+			// No refresh token for client_credentials
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			httpx.WriteJSON(w, http.StatusOK, map[string]any{
+				"token_type":   "Bearer",
+				"expires_in":   int64(time.Until(exp).Seconds()),
+				"access_token": access,
+				"scope":        scopeOut,
 			})
 
 		default:

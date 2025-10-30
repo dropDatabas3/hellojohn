@@ -233,6 +233,152 @@ func startClusterNode(ctx context.Context, httpPort, raftPort int, fsRoot, nodeI
 	return &serverProc{cmd: cmd, out: &out}, base, nil
 }
 
+// startClusterNodeWithEnv allows callers to pass extra environment variables for the child process (e.g., RAFT TLS settings).
+// It otherwise behaves like startClusterNode.
+func startClusterNodeWithEnv(ctx context.Context, httpPort, raftPort int, fsRoot, nodeID string, peers map[string]string, redirects map[string]string, extraEnv map[string]string) (*serverProc, string, error) {
+	p, base, err := startClusterNode(ctx, httpPort, raftPort, fsRoot, nodeID, peers, redirects)
+	if err != nil || p == nil || p.cmd == nil {
+		return p, base, err
+	}
+	// Merge extra env and restart the process with merged env if provided.
+	if len(extraEnv) == 0 {
+		return p, base, nil
+	}
+	// Stop current and relaunch with env extended
+	p.stop()
+
+	root, err := findRepoRoot()
+	if err != nil {
+		return nil, "", err
+	}
+	addr := "127.0.0.1:" + strconv.Itoa(httpPort)
+	base = "http://localhost:" + strconv.Itoa(httpPort)
+	serialize := func(m map[string]string) string {
+		if len(m) == 0 {
+			return ""
+		}
+		var parts []string
+		for k, v := range m {
+			parts = append(parts, k+"="+v)
+		}
+		return strings.Join(parts, ";")
+	}
+	args := []string{"run", "./cmd/service", "-env", "-env-file", "notfound.env"}
+	cmd := exec.CommandContext(ctx, "go", args...)
+	cmd.Dir = root
+	env := append(os.Environ(), "GOFLAGS=-count=1")
+	env = append(env, "DISABLE_DOTENV=1")
+	env = append(env,
+		"SERVER_ADDR="+addr,
+		"JWT_ISSUER="+base,
+		"EMAIL_BASE_URL="+base,
+		"AUTH_SESSION_DOMAIN=localhost",
+		"FLAGS_MIGRATE=false",
+		"CONTROL_PLANE_FS_ROOT="+fsRoot,
+		"CLUSTER_MODE=embedded",
+		"NODE_ID="+nodeID,
+		"RAFT_ADDR=127.0.0.1:"+strconv.Itoa(raftPort),
+		"CLUSTER_NODES="+serialize(peers),
+		"LEADER_REDIRECTS="+serialize(redirects),
+	)
+	for k, v := range extraEnv {
+		if strings.TrimSpace(k) != "" {
+			env = append(env, k+"="+v)
+		}
+	}
+	if os.Getenv("SIGNING_MASTER_KEY") == "" {
+		env = append(env, "SIGNING_MASTER_KEY="+"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	}
+	if os.Getenv("SECRETBOX_MASTER_KEY") == "" {
+		env = append(env, "SECRETBOX_MASTER_KEY="+"e3wlUfaN91WoNvHa9aB47ARoAz1DusF2I+hV7Uyz/wU=")
+	}
+	env = append(env, "RATE_ENABLED=false")
+	cmd.Env = env
+
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Start(); err != nil {
+		return nil, "", fmt.Errorf("start clustered service (with env): %w", err)
+	}
+	return &serverProc{cmd: cmd, out: &out}, base, nil
+}
+
+// genRaftTestCerts generates a CA and two node certificates (plus a bad CA/node pair) in the given directory.
+// Returns file paths map for easy env assignment.
+func genRaftTestCerts(dir string) (map[string]string, error) {
+	// To keep dependencies minimal, require pre-generated assets or skip generating if openssl missing.
+	// For portability and speed, generate minimal self-signed CA and node certs using openssl if available.
+	// If openssl is not present, return an error so the test can t.Skip.
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	which := func(name string) bool {
+		_, err := exec.LookPath(name)
+		return err == nil
+	}
+	if !which("openssl") {
+		return nil, fmt.Errorf("openssl not found in PATH")
+	}
+	sh := func(args ...string) error {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Stdout = io.Discard
+		cmd.Stderr = io.Discard
+		return cmd.Run()
+	}
+	caKey := filepath.Join(dir, "ca.key")
+	caCrt := filepath.Join(dir, "ca.crt")
+	if err := sh("openssl", "genrsa", "-out", caKey, "2048"); err != nil {
+		return nil, err
+	}
+	if err := sh("openssl", "req", "-x509", "-new", "-nodes", "-key", caKey, "-subj", "/CN=hj-test-ca", "-days", "365", "-out", caCrt); err != nil {
+		return nil, err
+	}
+	mkNode := func(name string) (key, crt string, _ error) {
+		key = filepath.Join(dir, name+".key")
+		csr := filepath.Join(dir, name+".csr")
+		crt = filepath.Join(dir, name+".crt")
+		if err := sh("openssl", "genrsa", "-out", key, "2048"); err != nil {
+			return "", "", err
+		}
+		if err := sh("openssl", "req", "-new", "-key", key, "-subj", "/CN=127.0.0.1", "-out", csr); err != nil {
+			return "", "", err
+		}
+		// SAN IP=127.0.0.1
+		ext := filepath.Join(dir, name+".ext")
+		_ = os.WriteFile(ext, []byte("subjectAltName=IP:127.0.0.1\n"), 0o644)
+		if err := sh("openssl", "x509", "-req", "-in", csr, "-CA", caCrt, "-CAkey", caKey, "-CAcreateserial", "-out", crt, "-days", "365", "-extfile", ext); err != nil {
+			return "", "", err
+		}
+		return key, crt, nil
+	}
+	n1Key, n1Crt, err := mkNode("node1")
+	if err != nil {
+		return nil, err
+	}
+	n2Key, n2Crt, err := mkNode("node2")
+	if err != nil {
+		return nil, err
+	}
+	// Bad CA / node
+	badCAKey := filepath.Join(dir, "badca.key")
+	badCACrt := filepath.Join(dir, "badca.crt")
+	if err := sh("openssl", "genrsa", "-out", badCAKey, "2048"); err != nil {
+		return nil, err
+	}
+	if err := sh("openssl", "req", "-x509", "-new", "-nodes", "-key", badCAKey, "-subj", "/CN=hj-test-badca", "-days", "365", "-out", badCACrt); err != nil {
+		return nil, err
+	}
+	badKey, badCrt, err := mkNode("badnode")
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		"ca.crt": caCrt, "node1.key": n1Key, "node1.crt": n1Crt, "node2.key": n2Key, "node2.crt": n2Crt,
+		"badca.crt": badCACrt, "badnode.key": badKey, "badnode.crt": badCrt,
+	}, nil
+}
+
 // runCmd ejecuta "go <args...>" en el root del repo (go.mod)
 func runCmd(ctx context.Context, _ string, args ...string) (string, error) {
 	root, err := findRepoRoot()

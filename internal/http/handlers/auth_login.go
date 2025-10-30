@@ -110,8 +110,75 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 
 		log.Printf("DEBUG: after email normalization, validating fields")
 
-		if req.TenantID == "" || req.ClientID == "" || req.Email == "" || req.Password == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "tenant_id, client_id, email y password son obligatorios", 1002)
+		// Require email and password. Tenant and client are optional to support
+		// global FS-admins that do not belong to any tenant or client.
+		if req.Email == "" || req.Password == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "email y password son obligatorios", 1002)
+			return
+		}
+
+		// If tenant or client is missing, attempt FS-admin login when enabled.
+		if req.TenantID == "" || req.ClientID == "" {
+			if helpers.FSAdminEnabled() {
+				// Try to verify FS admin directly. If valid, issue an admin token and return.
+				if ufs, ok := helpers.FSAdminVerify(req.Email, req.Password); ok {
+					// Provider gating: if clientProviders declared and password not allowed, block.
+					// Since no client provided, we skip provider gating here for global admins.
+					amrSlice := []string{"pwd"}
+					grantedScopes := []string{"openid", "profile", "email"}
+					std := map[string]any{
+						"tid": "global",
+						"amr": amrSlice,
+						"acr": "urn:hellojohn:loa:1",
+						"scp": strings.Join(grantedScopes, " "),
+					}
+					custom := helpers.PutSystemClaimsV2(map[string]any{}, c.Issuer.Iss, ufs.Metadata, []string{"sys:admin"}, nil)
+
+					now := time.Now().UTC()
+					exp := now.Add(c.Issuer.AccessTTL)
+					kid, priv, _, kerr := c.Issuer.Keys.Active()
+					if kerr != nil {
+						httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo obtener clave de firma", 1204)
+						return
+					}
+					claims := jwtv5.MapClaims{
+						"iss": c.Issuer.Iss,
+						"sub": ufs.ID,
+						"aud": "admin",
+						"iat": now.Unix(),
+						"nbf": now.Unix(),
+						"exp": exp.Unix(),
+					}
+					for k, v := range std {
+						claims[k] = v
+					}
+					if custom != nil {
+						claims["custom"] = custom
+					}
+					tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
+					tk.Header["kid"] = kid
+					tk.Header["typ"] = "JWT"
+					token, err := tk.SignedString(priv)
+					if err != nil {
+						httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 1204)
+						return
+					}
+					w.Header().Set("Cache-Control", "no-store")
+					w.Header().Set("Pragma", "no-cache")
+					httpx.WriteJSON(w, http.StatusOK, AuthLoginResponse{
+						AccessToken: token,
+						TokenType:   "Bearer",
+						ExpiresIn:   int64(time.Until(exp).Seconds()),
+					})
+					return
+				}
+				// If FS admin verification failed, return invalid credentials.
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "usuario o password inválidos", 1202)
+				return
+			}
+
+			// If FS admin not enabled, require tenant and client.
+			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "tenant_id y client_id son obligatorios", 1002)
 			return
 		}
 
@@ -147,6 +214,84 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			// Phase 4: gate by tenant DB. No fallback to global store in FS-only mode.
 			if helpers.IsTenantNotFound(err) {
 				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "tenant inválido", 2100)
+				return
+			}
+			if helpers.FSAdminEnabled() {
+				// Optional FS-admin fallback: allow admin login when FS_ADMIN_ENABLE=1
+				// Triggered on any tenant repo open error when explicitly enabled.
+				ufs, ok := helpers.FSAdminVerify(req.Email, req.Password)
+				if !ok {
+					httpx.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "usuario o password inválidos", 1202)
+					return
+				}
+				// Provider gating remains: if FS had clientProviders and did not include password, block
+				if len(clientProviders) > 0 {
+					allowed := false
+					for _, p := range clientProviders {
+						if strings.EqualFold(p, "password") {
+							allowed = true
+							break
+						}
+					}
+					if !allowed {
+						httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "password login deshabilitado para este client", 1207)
+						return
+					}
+				}
+				// Issue admin token (no refresh persistence in FS mode)
+				amrSlice := []string{"pwd"}
+				grantedScopes := append([]string{}, clientScopes...)
+				if len(grantedScopes) == 0 {
+					grantedScopes = []string{"openid", "profile", "email"}
+				}
+				std := map[string]any{
+					"tid": "global",
+					"amr": amrSlice,
+					"acr": "urn:hellojohn:loa:1",
+					"scp": strings.Join(grantedScopes, " "),
+				}
+				custom := map[string]any{}
+				effIss := c.Issuer.Iss
+				custom = helpers.PutSystemClaimsV2(custom, effIss, ufs.Metadata, []string{"sys:admin"}, nil)
+
+				now := time.Now().UTC()
+				exp := now.Add(c.Issuer.AccessTTL)
+				kid, priv, _, kerr := c.Issuer.Keys.Active()
+				if kerr != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo obtener clave de firma", 1204)
+					return
+				}
+				claims := jwtv5.MapClaims{
+					"iss": effIss,
+					"sub": ufs.ID,
+					"aud": req.ClientID,
+					"iat": now.Unix(),
+					"nbf": now.Unix(),
+					"exp": exp.Unix(),
+				}
+				for k, v := range std {
+					claims[k] = v
+				}
+				if custom != nil {
+					claims["custom"] = custom
+				}
+				tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
+				tk.Header["kid"] = kid
+				tk.Header["typ"] = "JWT"
+				token, err := tk.SignedString(priv)
+				if err != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 1204)
+					return
+				}
+				// avoid cache
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set("Pragma", "no-cache")
+				httpx.WriteJSON(w, http.StatusOK, AuthLoginResponse{
+					AccessToken: token,
+					TokenType:   "Bearer",
+					ExpiresIn:   int64(time.Until(exp).Seconds()),
+					// No refresh in FS admin mode
+				})
 				return
 			}
 			if helpers.IsNoDBForTenant(err) {

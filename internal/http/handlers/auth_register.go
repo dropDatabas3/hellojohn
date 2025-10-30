@@ -60,16 +60,80 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 		req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 		req.TenantID = strings.TrimSpace(req.TenantID)
 		req.ClientID = strings.TrimSpace(req.ClientID)
-		if req.TenantID == "" || req.ClientID == "" || req.Email == "" || req.Password == "" {
-			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "tenant_id, client_id, email y password son obligatorios", 1002)
+		// Require email and password. Tenant and client optional to allow global FS-admin register.
+		if req.Email == "" || req.Password == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "email y password son obligatorios", 1002)
+			return
+		}
+		if req.TenantID == "" || req.ClientID == "" {
+			if helpers.FSAdminEnabled() {
+				// Register as FS admin directly
+				ufs, ferr := helpers.FSAdminRegister(req.Email, req.Password)
+				if ferr != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "register_failed", ferr.Error(), 1204)
+					return
+				}
+				grantedScopes := []string{"openid", "profile", "email"}
+				std := map[string]any{
+					"tid": "global",
+					"amr": []string{"pwd"},
+					"acr": "urn:hellojohn:loa:1",
+					"scp": strings.Join(grantedScopes, " "),
+				}
+				custom := map[string]any{}
+				effIss := c.Issuer.Iss
+				custom = helpers.PutSystemClaimsV2(custom, effIss, ufs.Metadata, []string{"sys:admin"}, nil)
+
+				now := time.Now().UTC()
+				exp := now.Add(c.Issuer.AccessTTL)
+				kid, priv, _, kerr := c.Issuer.Keys.Active()
+				if kerr != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo obtener clave de firma", 1201)
+					return
+				}
+				claims := jwtv5.MapClaims{
+					"iss": effIss,
+					"sub": ufs.ID,
+					"aud": "admin",
+					"iat": now.Unix(),
+					"nbf": now.Unix(),
+					"exp": exp.Unix(),
+				}
+				for k, v := range std {
+					claims[k] = v
+				}
+				if custom != nil {
+					claims["custom"] = custom
+				}
+				tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
+				tk.Header["kid"] = kid
+				tk.Header["typ"] = "JWT"
+				token, err := tk.SignedString(priv)
+				if err != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 1201)
+					return
+				}
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set("Pragma", "no-cache")
+				httpx.WriteJSON(w, http.StatusOK, AuthRegisterResponse{
+					UserID:      ufs.ID,
+					AccessToken: token,
+					TokenType:   "Bearer",
+					ExpiresIn:   int64(time.Until(exp).Seconds()),
+				})
+				return
+			}
+			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "tenant_id y client_id son obligatorios", 1002)
 			return
 		}
 
-		// Primero: resolver client desde FS; si no existe, intentaremos fallback a catálogo DB más adelante.
+		// Contexto
 		ctx := r.Context()
 
-		// Resolver slug + UUID a partir del identificador provisto
+		// Resolver slug + UUID del tenant
 		tenantSlug, tenantUUID := helpers.ResolveTenantSlugAndID(ctx, req.TenantID)
+
+		// Resolver client desde FS si existe
 		var (
 			fsClient        helpers.FSClient
 			haveFSClient    bool
@@ -83,16 +147,73 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			clientScopes = append([]string{}, fsClient.Scopes...)
 		}
 
-		// Abrir repo por tenant (gating por DSN) con fallback a global store si está presente.
+		// Abrir repo por tenant (gating por DSN)
 		if c == nil || c.TenantSQLManager == nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "internal_error", "tenant manager not initialized", 1003)
 			return
 		}
 		var repo core.Repository
-		if rc, err := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, tenantSlug); err != nil {
-			// Phase 4: gate by tenant DB. Do not fallback to global store when tenant DB is missing.
+		rc, err := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, tenantSlug)
+		if err != nil {
 			if helpers.IsTenantNotFound(err) {
 				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "tenant inválido", 2100)
+				return
+			}
+			// Fallback FS-admin para cualquier error de apertura (excepto tenant inexistente)
+			if helpers.FSAdminEnabled() {
+				ufs, ferr := helpers.FSAdminRegister(req.Email, req.Password)
+				if ferr != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "register_failed", ferr.Error(), 1204)
+					return
+				}
+				grantedScopes := []string{"openid", "profile", "email"}
+				std := map[string]any{
+					"tid": "global",
+					"amr": []string{"pwd"},
+					"acr": "urn:hellojohn:loa:1",
+					"scp": strings.Join(grantedScopes, " "),
+				}
+				custom := map[string]any{}
+				effIss := c.Issuer.Iss
+				custom = helpers.PutSystemClaimsV2(custom, effIss, ufs.Metadata, []string{"sys:admin"}, nil)
+
+				now := time.Now().UTC()
+				exp := now.Add(c.Issuer.AccessTTL)
+				kid, priv, _, kerr := c.Issuer.Keys.Active()
+				if kerr != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo obtener clave de firma", 1201)
+					return
+				}
+				claims := jwtv5.MapClaims{
+					"iss": effIss,
+					"sub": ufs.ID,
+					"aud": req.ClientID,
+					"iat": now.Unix(),
+					"nbf": now.Unix(),
+					"exp": exp.Unix(),
+				}
+				for k, v := range std {
+					claims[k] = v
+				}
+				if custom != nil {
+					claims["custom"] = custom
+				}
+				tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
+				tk.Header["kid"] = kid
+				tk.Header["typ"] = "JWT"
+				token, err := tk.SignedString(priv)
+				if err != nil {
+					httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 1201)
+					return
+				}
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set("Pragma", "no-cache")
+				httpx.WriteJSON(w, http.StatusOK, AuthRegisterResponse{
+					UserID:      ufs.ID,
+					AccessToken: token,
+					TokenType:   "Bearer",
+					ExpiresIn:   int64(time.Until(exp).Seconds()),
+				})
 				return
 			}
 			if helpers.IsNoDBForTenant(err) {
@@ -101,10 +222,8 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			}
 			httpx.WriteTenantDBError(w, err.Error())
 			return
-		} else {
-			repo = rc
 		}
-		ctx = helpers.WithTenantRepo(ctx, repo)
+		repo = rc
 
 		// Si no hay client en FS, intentar obtenerlo desde DB (modo compat)
 		if !haveFSClient {
@@ -125,7 +244,8 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 				return
 			}
 		}
-		// Provider gating: if Providers exists and doesn't include password, block
+
+		// Provider gating: si existen providers y no incluye password => bloquear
 		if len(clientProviders) > 0 {
 			allowed := false
 			for _, p := range clientProviders {
@@ -142,7 +262,7 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 
 		// Blacklist opcional
 		p := strings.TrimSpace(blacklistPath)
-		if p == "" { // modo env-only
+		if p == "" {
 			p = strings.TrimSpace(os.Getenv("SECURITY_PASSWORD_BLACKLIST_PATH"))
 		}
 		if p != "" {
@@ -180,14 +300,13 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			return
 		}
 
-		// Si no hay auto-login, devolvés sólo el user_id (no hay tokens)
+		// Si no hay auto-login, devolver sólo user_id
 		if !autoLogin {
 			httpx.WriteJSON(w, http.StatusOK, AuthRegisterResponse{UserID: u.ID})
 			return
 		}
 
 		// Auto-login + refresh inicial
-		// Scopes placeholder: client default scopes
 		grantedScopes := append([]string{}, clientScopes...)
 		std := map[string]any{
 			"tid": tenantUUID,
@@ -207,7 +326,6 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 				effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
 			}
 		}
-		// Build JWT manually to control iss and key selection
 		now := time.Now().UTC()
 		exp := now.Add(c.Issuer.AccessTTL)
 		var (
@@ -256,7 +374,6 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh token", 1202)
 			return
 		}
-		// Usar método TC (Tenant+Client) para Phase 3
 		if tcs, ok := any(repo).(interface {
 			CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
 		}); ok {
@@ -267,7 +384,6 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 				return
 			}
 		} else {
-			// Fallback a método viejo (no debería llegar aquí en Phase 3)
 			hash := tokens.SHA256Base64URL(rawRT)
 			if _, err := repo.CreateRefreshToken(ctx, u.ID, req.ClientID, hash, time.Now().Add(refreshTTL), nil); err != nil {
 				log.Printf("register: create refresh err: %v", err)

@@ -29,6 +29,7 @@ type HealthResponse struct {
 	ActiveKeyID string                  `json:"active_key_id,omitempty"`
 	Timestamp   time.Time               `json:"timestamp"`
 	Cluster     map[string]any          `json:"cluster,omitempty"`
+	FSDegraded  bool                    `json:"fs_degraded,omitempty"`
 }
 
 func NewReadyzHandler(c *app.Container, checkRedis func(ctx context.Context) error) http.HandlerFunc {
@@ -239,6 +240,12 @@ func NewReadyzHandler(c *app.Container, checkRedis func(ctx context.Context) err
 				}
 			}
 			response.Cluster = clusterInfo
+		}
+
+		// Degraded toggle for FS (surface via cpctx hooks in control-plane fs provider)
+		if c != nil && c.FSDegraded.Load() {
+			response.FSDegraded = true
+			hasErrors = true
 		}
 
 		// Determinar estado general

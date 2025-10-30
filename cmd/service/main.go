@@ -413,6 +413,37 @@ func loadConfigFromEnv() *config.Config {
 		c.Cluster.MaxLogMB = v
 	}
 
+	// Raft TLS (optional) with fallback aliases
+	c.Cluster.RaftTLSEnable = getenvBool("RAFT_TLS_ENABLE", c.Cluster.RaftTLSEnable)
+	certFile := getenv("RAFT_TLS_CERT_FILE", "")
+	if certFile == "" {
+		certFile = getenv("RAFT_TLS_CERT", c.Cluster.RaftTLSCertFile)
+	} else {
+		c.Cluster.RaftTLSCertFile = certFile
+	}
+	if certFile != "" {
+		c.Cluster.RaftTLSCertFile = certFile
+	}
+	keyFile := getenv("RAFT_TLS_KEY_FILE", "")
+	if keyFile == "" {
+		keyFile = getenv("RAFT_TLS_KEY", c.Cluster.RaftTLSKeyFile)
+	} else {
+		c.Cluster.RaftTLSKeyFile = keyFile
+	}
+	if keyFile != "" {
+		c.Cluster.RaftTLSKeyFile = keyFile
+	}
+	caFile := getenv("RAFT_TLS_CA_FILE", "")
+	if caFile == "" {
+		caFile = getenv("RAFT_TLS_CA", c.Cluster.RaftTLSCAFile)
+	} else {
+		c.Cluster.RaftTLSCAFile = caFile
+	}
+	if caFile != "" {
+		c.Cluster.RaftTLSCAFile = caFile
+	}
+	c.Cluster.RaftTLSServerName = getenv("RAFT_TLS_SERVER_NAME", c.Cluster.RaftTLSServerName)
+
 	return c
 }
 
@@ -741,6 +772,19 @@ func main() {
 	container.ClusterNode = clusterNode
 	// Pasar mapa de redirects para 307 opcional
 	container.LeaderRedirects = cfg.Cluster.LeaderRedirects
+	// Optional redirect allowlist: LEADER_REDIRECT_ALLOWED_HOSTS
+	// Accepts comma or semicolon separators; trims spaces.
+	if s := strings.TrimSpace(os.Getenv("LEADER_REDIRECT_ALLOWED_HOSTS")); s != "" {
+		allow := map[string]bool{}
+		parts := strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ';' })
+		for _, part := range parts {
+			h := strings.ToLower(strings.TrimSpace(part))
+			if h != "" {
+				allow[h] = true
+			}
+		}
+		container.RedirectHostAllowlist = allow
+	}
 	if stores != nil {
 		container.ScopesConsents = stores.ScopesConsents // nil si no hay DB/PG
 	}
@@ -775,6 +819,10 @@ func main() {
 			container.JWKSCache.Invalidate(tenant)
 		}
 	}
+
+	// Wire FS degraded hooks so FS provider can degrade readyz
+	cpctx.MarkFSDegraded = func(reason string) { container.SetFSDegraded(true) }
+	cpctx.ClearFSDegraded = func() { container.SetFSDegraded(false) }
 
 	jwksHandler := handlers.NewJWKSHandler(container.JWKSCache)
 	authLoginHandler := handlers.NewAuthLoginHandler(&container, cfg, refreshTTL)
@@ -1030,11 +1078,71 @@ func main() {
 	// Discovery de providers (siempre expuesto, sólo devuelve estado/URLs)
 	providersHandler := handlers.NewProvidersHandler(&container, cfg)
 	mux.Handle("/v1/auth/providers", providersHandler)
+	// Back-compat for earlier Admin UI endpoint
+	mux.Handle("/v1/providers/status", providersHandler)
 
 	// social/result: montarlo solo si algún provider social lo usa (por ahora: Google)
 	if cfg.Providers.Google.Enabled {
 		socialResultHandler := handlers.NewSocialResultHandler(&container)
 		mux.Handle("/v1/auth/social/result", socialResultHandler)
+	}
+
+	// Optional Admin UI: serve in a dedicated port if UI_SERVER_ADDR and ADMIN_UI_DIR are set.
+	// Also add UI origin to API CORS to allow cross-origin API calls from UI → API.
+	uiDir := strings.TrimSpace(os.Getenv("ADMIN_UI_DIR"))
+	uiAddr := strings.TrimSpace(os.Getenv("UI_SERVER_ADDR")) // e.g. ":8081" or "0.0.0.0:8081"
+	if uiDir != "" && uiAddr != "" {
+		if st, err := os.Stat(uiDir); err == nil && st.IsDir() {
+			// Derive UI public origin if provided or guess by port on localhost
+			uiOrigin := strings.TrimSpace(os.Getenv("UI_PUBLIC_ORIGIN"))
+			if uiOrigin == "" {
+				// best-effort guess
+				if strings.Contains(uiAddr, ":") {
+					parts := strings.Split(uiAddr, ":")
+					port := parts[len(parts)-1]
+					uiOrigin = "http://localhost:" + port
+				}
+			}
+			if uiOrigin != "" {
+				cfg.Server.CORSAllowedOrigins = append(cfg.Server.CORSAllowedOrigins, uiOrigin)
+			}
+
+			// Build a small SPA-friendly file handler with index.html fallback
+			spa := func(root string) http.Handler {
+				d := http.Dir(root)
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					// sanitize path
+					p := r.URL.Path
+					if p == "/" {
+						p = "/index.html"
+					}
+					f, err := d.Open(p)
+					if err != nil {
+						// fallback to index.html for SPA routes
+						if ff, e2 := d.Open("/index.html"); e2 == nil {
+							defer ff.Close()
+							w.Header().Set("Content-Type", "text/html; charset=utf-8")
+							http.ServeContent(w, r, "index.html", time.Now(), ff)
+							return
+						}
+						http.NotFound(w, r)
+						return
+					}
+					defer f.Close()
+					// Override CSP for UI (less strict than API)
+					w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src *")
+					// Serve the file
+					http.ServeContent(w, r, p, time.Now(), f)
+				})
+			}
+			uiMux := http.NewServeMux()
+			uiMux.Handle("/", spa(uiDir))
+			if _, err := httpserver.StartBackground(uiAddr, uiMux); err == nil {
+				log.Printf("admin ui: serving %s at %s (origin=%s)", uiDir, uiAddr, uiOrigin)
+			} else {
+				log.Printf("admin ui: failed to start: %v", err)
+			}
+		}
 	}
 
 	handler := httpserver.WithLogging(
@@ -1051,6 +1159,69 @@ func main() {
 			),
 		),
 	)
+
+	// ─── Simple Claims Mapping Hook (FS control-plane based) ───
+	// Supports string substitutions like ${user.id}, ${user.email}, ${tenant.id}, ${tenant.slug}, ${client.id}
+	container.ClaimsHook = func(ctx context.Context, ev app.ClaimsEvent) (map[string]any, map[string]any, error) {
+		// Resolve tenant slug by UUID using FS provider
+		var tenantSlug string
+		if cpctx.Provider != nil {
+			if tenants, err := cpctx.Provider.ListTenants(ctx); err == nil {
+				for _, t := range tenants {
+					if strings.EqualFold(t.ID, ev.TenantID) || strings.EqualFold(t.Slug, ev.TenantID) {
+						tenantSlug = t.Slug
+						break
+					}
+				}
+			}
+		}
+		if tenantSlug == "" {
+			// fallback to resolver or local
+			tenantSlug = ev.TenantID
+		}
+		// Load client from FS if available
+		var mapping map[string]any
+		if cpctx.Provider != nil {
+			if cobj, err := cpctx.Provider.GetClient(ctx, tenantSlug, ev.ClientID); err == nil && cobj != nil {
+				if cobj.ClaimMapping != nil {
+					mapping = cobj.ClaimMapping
+				}
+			}
+		}
+		if len(mapping) == 0 {
+			return nil, nil, nil
+		}
+		// Optional: fetch user minimal info for substitutions
+		var userEmail string
+		if container.Store != nil && strings.TrimSpace(ev.UserID) != "" {
+			if u, err := container.Store.GetUserByID(ctx, ev.UserID); err == nil && u != nil {
+				userEmail = u.Email
+			}
+		}
+
+		repl := func(s string) any {
+			// Only string substitutions supported in MVP; passthrough non-strings
+			val := s
+			val = strings.ReplaceAll(val, "${user.id}", ev.UserID)
+			val = strings.ReplaceAll(val, "${user.email}", userEmail)
+			val = strings.ReplaceAll(val, "${tenant.id}", ev.TenantID)
+			val = strings.ReplaceAll(val, "${tenant.slug}", tenantSlug)
+			val = strings.ReplaceAll(val, "${client.id}", ev.ClientID)
+			return val
+		}
+		addStd := map[string]any{}
+		addExtra := map[string]any{}
+		for k, v := range mapping {
+			switch vv := v.(type) {
+			case string:
+				addExtra[k] = repl(vv)
+			default:
+				// pass through literals (numbers, bools, objects)
+				addExtra[k] = vv
+			}
+		}
+		return addStd, addExtra, nil
+	}
 
 	mode := "yaml"
 	if flag.Lookup("env").Value.String() == "true" {

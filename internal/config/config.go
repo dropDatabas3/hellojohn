@@ -760,11 +760,18 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v, ok := getEnvStr("RAFT_TLS_CERT_FILE"); ok {
 		c.Cluster.RaftTLSCertFile = v
+	} else if v, ok := getEnvStr("RAFT_TLS_CERT"); ok {
+		// fallback alias
+		c.Cluster.RaftTLSCertFile = v
 	}
 	if v, ok := getEnvStr("RAFT_TLS_KEY_FILE"); ok {
 		c.Cluster.RaftTLSKeyFile = v
+	} else if v, ok := getEnvStr("RAFT_TLS_KEY"); ok {
+		c.Cluster.RaftTLSKeyFile = v
 	}
 	if v, ok := getEnvStr("RAFT_TLS_CA_FILE"); ok {
+		c.Cluster.RaftTLSCAFile = v
+	} else if v, ok := getEnvStr("RAFT_TLS_CA"); ok {
 		c.Cluster.RaftTLSCAFile = v
 	}
 	if v, ok := getEnvStr("RAFT_TLS_SERVER_NAME"); ok {

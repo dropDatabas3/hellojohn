@@ -660,9 +660,28 @@ func RequireLeader(c *app.Container) Middleware {
 				strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("leader_redirect")), "1")
 			if wantsRedirect && leaderID != "" && c.LeaderRedirects != nil {
 				if base, ok := c.LeaderRedirects[leaderID]; ok && strings.TrimSpace(base) != "" {
-					// Validar que base sea una URL absoluta http/https y que esté en whitelist explícita
+					// Validar que base sea una URL absoluta http/https y que pase allowlist (si provista)
 					ub := strings.TrimSpace(base)
-					if (strings.HasPrefix(strings.ToLower(ub), "http://") || strings.HasPrefix(strings.ToLower(ub), "https://")) && !strings.Contains(ub, " ") {
+					low := strings.ToLower(ub)
+					if (strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "https://")) && !strings.Contains(ub, " ") {
+						// If allowlist is configured, require host match
+						if c.RedirectHostAllowlist != nil && len(c.RedirectHostAllowlist) > 0 {
+							// Extract host:port
+							host := ub
+							// fast parse to host part
+							// Expect format scheme://host[:port]
+							if i := strings.Index(ub, "://"); i >= 0 {
+								host = ub[i+3:]
+							}
+							if j := strings.Index(host, "/"); j >= 0 {
+								host = host[:j]
+							}
+							if _, ok := c.RedirectHostAllowlist[strings.ToLower(strings.TrimSpace(host))]; !ok {
+								// Not allowed; fall through to 409
+								WriteError(w, http.StatusConflict, "not_leader", "este nodo es follower", 4001)
+								return
+							}
+						}
 						// Construir Location conservando path y query
 						ub = strings.TrimRight(ub, "/")
 						loc := ub + r.URL.RequestURI()

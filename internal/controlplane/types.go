@@ -115,4 +115,7 @@ type ClientInput struct {
 	Providers      []string   `json:"providers,omitempty" yaml:"providers,omitempty"`
 	Scopes         []string   `json:"scopes,omitempty" yaml:"scopes,omitempty"`
 	Secret         string     `json:"secret,omitempty" yaml:"secret,omitempty"` // plain entrante; se cifra al persistir
+	// Opcionales: configuración de claims por versión simple en FS (MVP)
+	ClaimSchema  map[string]any `json:"claimSchema,omitempty" yaml:"claimSchema,omitempty"`
+	ClaimMapping map[string]any `json:"claimMapping,omitempty" yaml:"claimMapping,omitempty"`
 }

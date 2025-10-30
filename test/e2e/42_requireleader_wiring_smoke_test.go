@@ -1,8 +1,10 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -133,6 +135,36 @@ func Test_42_RequireLeader_Wiring_Smoke(t *testing.T) {
 		t.Skip("no leader/follower in time")
 	}
 
+	// Acquire a valid admin access token so the request path traverses RequireAuth -> RequireSysAdmin -> RequireLeader
+	login := func(base string) string {
+		c := newHTTPClient()
+		body := map[string]string{
+			"tenant_id": seed.Tenant.ID,
+			"client_id": seed.Clients.Web.ClientID,
+			"email":     seed.Users.Admin.Email,
+			"password":  seed.Users.Admin.Password,
+		}
+		buf, _ := json.Marshal(body)
+		resp, err := c.Post(base+"/v1/auth/login", "application/json", bytes.NewReader(buf))
+		if err != nil || resp == nil {
+			t.Skipf("login error at %s: %v", base, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			b, _ := io.ReadAll(resp.Body)
+			t.Skipf("login failed at %s status=%d body=%s", base, resp.StatusCode, string(b))
+		}
+		var tok struct {
+			AccessToken string `json:"access_token"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&tok)
+		if tok.AccessToken == "" {
+			t.Skip("empty access token from login")
+		}
+		return tok.AccessToken
+	}
+	token := login(followerBase)
+
 	// Test a minimal set of gated routes against follower expecting 409
 	gated := []struct{ method, path string }{
 		{"POST", "/v1/admin/tenants"},
@@ -143,9 +175,8 @@ func Test_42_RequireLeader_Wiring_Smoke(t *testing.T) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	for _, r := range gated {
 		req, _ := http.NewRequest(r.method, followerBase+r.path, nil)
-		// We intentionally do NOT set Authorization; depending on chain order we may see 401 first.
-		// If 401 occurs consistently the canary loses value; try with a fake token to force deeper middleware.
-		req.Header.Set("Authorization", "Bearer fake-token")
+		// Use a valid admin token to ensure we hit the RequireLeader gate on followers
+		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatalf("%s %s: %v", r.method, r.path, err)
@@ -161,7 +192,7 @@ func Test_42_RequireLeader_Wiring_Smoke(t *testing.T) {
 
 	// Quick sanity: same call on leader should not return 409 (expect 401/403/200 depending on auth)
 	req, _ := http.NewRequest("POST", leaderBase+"/v1/admin/tenants", nil)
-	req.Header.Set("Authorization", "Bearer fake-token")
+	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := client.Do(req)
 	if err == nil {
 		resp.Body.Close()

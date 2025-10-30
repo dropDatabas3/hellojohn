@@ -15,9 +15,16 @@ import (
 
 type client struct {
 	BaseURL   string
-	APIKey    string
+	APIKey    string // deprecated: prefer Bearer
+	Bearer    string
 	OutFormat string // "json" | "text"
 	HTTP      *http.Client
+
+	// Optional login credentials to acquire a Bearer token automatically
+	TenantID string
+	ClientID string
+	Email    string
+	Password string
 }
 
 func (c *client) do(method, path string, body []byte, headers map[string]string) (int, []byte, error) {
@@ -26,7 +33,12 @@ func (c *client) do(method, path string, body []byte, headers map[string]string)
 	if err != nil {
 		return 0, nil, err
 	}
-	req.Header.Set("X-Admin-API-Key", c.APIKey)
+	// Prefer Bearer if present; keep legacy header for backward compatibility with older servers
+	if strings.TrimSpace(c.Bearer) != "" {
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(c.Bearer))
+	} else if strings.TrimSpace(c.APIKey) != "" {
+		req.Header.Set("X-Admin-API-Key", c.APIKey)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -58,10 +70,53 @@ func (c *client) print(status int, body []byte) {
 	}
 }
 
+// ensureToken logs in using credentials when Bearer is empty and creds are provided.
+func (c *client) ensureToken() error {
+	if strings.TrimSpace(c.Bearer) != "" {
+		return nil
+	}
+	// Require minimal credentials
+	if strings.TrimSpace(c.Email) == "" || strings.TrimSpace(c.Password) == "" {
+		return fmt.Errorf("missing credentials: set --email/--password or HELLOJOHN_EMAIL/HELLOJOHN_PASSWORD or provide --bearer")
+	}
+	tenant := strings.TrimSpace(c.TenantID)
+	if tenant == "" {
+		tenant = "local"
+	}
+	clientID := strings.TrimSpace(c.ClientID)
+	if clientID == "" {
+		clientID = "local-web"
+	}
+	payload := map[string]string{
+		"tenant_id": tenant,
+		"client_id": clientID,
+		"email":     c.Email,
+		"password":  c.Password,
+	}
+	body, _ := json.Marshal(payload)
+	status, resp, err := c.do("POST", "/v1/auth/login", body, nil)
+	if err != nil {
+		return err
+	}
+	if status/100 != 2 {
+		return fmt.Errorf("login failed: status=%d body=%s", status, string(resp))
+	}
+	var tok struct {
+		AccessToken string `json:"access_token"`
+	}
+	_ = json.Unmarshal(resp, &tok)
+	if strings.TrimSpace(tok.AccessToken) == "" {
+		return fmt.Errorf("login did not return access_token")
+	}
+	c.Bearer = tok.AccessToken
+	return nil
+}
+
 func main() {
 	var (
 		baseURL = envOr("HELLOJOHN_ADMIN_URL", "http://localhost:8080")
-		apiKey  = envOr("HELLOJOHN_ADMIN_KEY", "")
+		apiKey  = envOr("HELLOJOHN_ADMIN_KEY", "") // deprecated
+		bearer  = envOr("HELLOJOHN_BEARER", "")
 		out     = envOr("HELLOJOHN_OUT", "text")
 		timeout = 30 * time.Second
 	)
@@ -70,19 +125,29 @@ func main() {
 		Use:   "hellojohn",
 		Short: "CLI admin para HelloJohn (solo /v1/admin)",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if apiKey == "" {
-				return fmt.Errorf("falta API key (flag --admin-api-key o env HELLOJOHN_ADMIN_KEY)")
-			}
+			// If neither Bearer nor API key is provided, we will attempt interactive/login based on flags/envs when needed.
 			return nil
 		},
 	}
 
 	root.PersistentFlags().StringVar(&baseURL, "admin-api-url", baseURL, "URL base del Admin API (env HELLOJOHN_ADMIN_URL)")
-	root.PersistentFlags().StringVar(&apiKey, "admin-api-key", apiKey, "API key del Admin API (env HELLOJOHN_ADMIN_KEY)")
+	root.PersistentFlags().StringVar(&apiKey, "admin-api-key", apiKey, "[Deprecated] API key del Admin API (env HELLOJOHN_ADMIN_KEY)")
+	root.PersistentFlags().StringVar(&bearer, "bearer", bearer, "Bearer token (env HELLOJOHN_BEARER); si falta, intenta login con credenciales")
 	root.PersistentFlags().StringVar(&out, "out", out, "Formato de salida: json|text")
 
 	httpClient := &http.Client{Timeout: timeout}
-	cl := &client{BaseURL: baseURL, APIKey: apiKey, OutFormat: out, HTTP: httpClient}
+	// Optional login credentials
+	tenantID := envOr("HELLOJOHN_TENANT_ID", "")
+	clientID := envOr("HELLOJOHN_CLIENT_ID", "")
+	email := envOr("HELLOJOHN_EMAIL", "")
+	password := envOr("HELLOJOHN_PASSWORD", "")
+
+	root.PersistentFlags().StringVar(&tenantID, "tenant", tenantID, "Tenant ID/slug para login (env HELLOJOHN_TENANT_ID; default local)")
+	root.PersistentFlags().StringVar(&clientID, "client-id", clientID, "Client ID para login (env HELLOJOHN_CLIENT_ID; default local-web)")
+	root.PersistentFlags().StringVar(&email, "email", email, "Email admin para login (env HELLOJOHN_EMAIL)")
+	root.PersistentFlags().StringVar(&password, "password", password, "Password para login (env HELLOJOHN_PASSWORD)")
+
+	cl := &client{BaseURL: baseURL, APIKey: apiKey, Bearer: bearer, OutFormat: out, HTTP: httpClient, TenantID: tenantID, ClientID: clientID, Email: email, Password: password}
 
 	// grupo admin
 	adminCmd := &cobra.Command{
@@ -93,8 +158,14 @@ func main() {
 	// ping: usa GET /v1/admin/clients con limit=1
 	pingCmd := &cobra.Command{
 		Use:   "ping",
-		Short: "Ping al Admin API (requiere X-Admin-API-Key)",
+		Short: "Ping al Admin API (requiere Bearer o API key legacy)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Ensure we have a token if none provided
+			if strings.TrimSpace(cl.Bearer) == "" && strings.TrimSpace(cl.APIKey) == "" {
+				if err := cl.ensureToken(); err != nil {
+					return err
+				}
+			}
 			status, body, err := cl.do("GET", "/v1/admin/clients?limit=1", nil, nil)
 			if err != nil {
 				return err
@@ -156,6 +227,11 @@ func main() {
 		Use:   "rotate-keys",
 		Short: "Rotar claves de firma del tenant (mantiene ventana de gracia)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(cl.Bearer) == "" && strings.TrimSpace(cl.APIKey) == "" {
+				if err := cl.ensureToken(); err != nil {
+					return err
+				}
+			}
 			if rotSlug == "" {
 				return fmt.Errorf("--slug es requerido")
 			}

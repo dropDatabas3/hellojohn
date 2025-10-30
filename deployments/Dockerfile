@@ -40,11 +40,14 @@ COPY configs/config.example.yaml /app/config.example.yaml
 # Data/control-plane volume (tenants, keys, raft) - mount externally
 VOLUME ["/data"]
 
-# Expose HTTP + optional metrics (same port) + raft (example 18081) left unexposed by default
-EXPOSE 8080
+# Expose HTTP API and optional UI port. Raft port (e.g., 18081) is not exposed by default.
+EXPOSE 8080 8081
 
 # Environment documentation (optional defaults)
 ENV SERVER_ADDR=":8080" \
+	ADMIN_UI_DIR="" \
+	UI_SERVER_ADDR="" \
+	UI_PUBLIC_ORIGIN="" \
 	CLUSTER_MODE=0 \
 	CLUSTER_BOOTSTRAP=0 \
 	RAFT_ADDR=":18081" \

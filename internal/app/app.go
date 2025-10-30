@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/dropDatabas3/hellojohn/internal/cache"
 	"github.com/dropDatabas3/hellojohn/internal/cluster"
@@ -33,6 +34,14 @@ type Container struct {
 	// LeaderRedirects: nodeID -> baseURL para 307 opcional hacia el líder
 	LeaderRedirects map[string]string
 
+	// RedirectHostAllowlist: optional set of allowed hosts for 307 redirects
+	// If empty or nil, legacy behavior applies (no host restriction beyond URL scheme check)
+	RedirectHostAllowlist map[string]bool
+
+	// FSDegraded is set to true when the FS control plane detects write errors;
+	// readyz should surface this as a degraded status.
+	FSDegraded atomic.Bool
+
 	// ClaimsHook es opcional. Si está seteado, permite inyectar/alterar claims
 	// de Access/ID Tokens a partir de una policy (CEL, webhooks, reglas estáticas, etc).
 	// Convención:
@@ -61,4 +70,16 @@ func (c *Container) Close() error {
 		return c.Stores.Close()
 	}
 	return nil
+}
+
+// SetFSDegraded flips the degraded flag; used by fs provider via cpctx hooks.
+func (c *Container) SetFSDegraded(v bool) {
+	if c == nil {
+		return
+	}
+	if v {
+		c.FSDegraded.Store(true)
+	} else {
+		c.FSDegraded.Store(false)
+	}
 }

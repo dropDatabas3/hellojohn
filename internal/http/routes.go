@@ -3,6 +3,7 @@ package http
 import (
 	stdhttp "net/http"
 	"os"
+	"syscall"
 )
 
 func NewMux(
@@ -185,6 +186,24 @@ func NewMux(
 		}
 		_, _ = w.Write([]byte("cache introspection no implementada en este scope"))
 	})
+
+	// Dev/Test: graceful shutdown trigger (only enabled if ALLOW_DEV_SHUTDOWN=1)
+	if os.Getenv("ALLOW_DEV_SHUTDOWN") == "1" {
+		mux.HandleFunc("/__dev/shutdown", func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+			if r.Method != stdhttp.MethodPost && r.Method != stdhttp.MethodGet {
+				w.WriteHeader(405)
+				return
+			}
+			// Notify our server loop via SIGTERM (Start listens for it and performs graceful shutdown)
+			p, _ := os.FindProcess(os.Getpid())
+			if p != nil {
+				// Best-effort: ignore error in Windows if unsupported; the server may run in tests
+				_ = p.Signal(syscall.SIGTERM)
+			}
+			w.WriteHeader(200)
+			_, _ = w.Write([]byte("shutting down"))
+		})
+	}
 
 	return mux
 }
