@@ -137,6 +137,8 @@ go run ./cmd/hellojohn admin tenants rotate-keys --slug acme --grace-seconds 60
 - [11. Seguridad](#11-seguridad)
 - [12. Rate limiting](#12-rate-limiting)
 - [13. Migraciones, seed y claves](#13-migraciones-seed-y-claves)
+ - [13. Migraciones, seed y claves](#13-migraciones-seed-y-claves)
+ - [13.1 Admin global (FS) sin tenant/client](#131-admin-global-fs-sin-tenantclient)
 - [14. Pruebas E2E](#14-pruebas-e2e)
 - [15. Operación y salud](#15-operación-y-salud)
 - [16. Roadmap](#16-roadmap)
@@ -508,6 +510,97 @@ Redis almacena contadores con TTL de la ventana. Fallo de Redis ⇒ fail‑open 
 - Retirar claves: `go run ./cmd/keys -retire -retire-after=168h`
 
 El servicio puede ejecutar migraciones al arrancar si `FLAGS_MIGRATE=true`.
+
+---
+
+### 13.1 Admin global (FS) sin tenant/client
+
+Caso de uso: operar el panel de administración como “admin general” sin pertenecer a ningún tenant o client. Esto es útil para bootstrap inicial: crear tenants, clients, scopes, etc.
+
+Hay dos caminos compatibles:
+
+1) Admin FS habilitado por flag (recomendado en dev)
+2) Admin con DB (seed) por tenant (no cubierto aquí)
+
+Esta sección describe el admin FS.
+
+Variables de entorno requeridas (añadir a `.env`):
+
+```
+FS_ADMIN_ENABLE=1
+CONTROL_PLANE_FS_ROOT=./data/hellojohn
+SECRETBOX_MASTER_KEY=<base64 de 32 bytes>
+SIGNING_MASTER_KEY=<mín 32 chars>
+```
+
+Ruta de archivo de admins FS:
+
+```
+data/hellojohn/admin/admin_users.json
+```
+
+Formato del archivo (gestionado por el CLI a continuación):
+
+```json
+{
+  "users": {
+    "admin@local.test": {
+      "id": "<uuid>",
+      "email": "admin@local.test",
+      "password_hash": "$argon2id$v=19$m=65536,t=3,p=1$<salt>$<hash>",
+      "roles": ["sys:admin"],
+      "metadata": {"is_admin": true},
+      "created_at": "2025-11-11T12:34:56Z"
+    }
+  }
+}
+```
+
+Importante
+- El email se normaliza en minúsculas.
+- El nombre del archivo debe ser exactamente `admin_users.json` (plural).
+
+CLI: crear/actualizar admin FS
+
+Se incluye un comando para administrar usuarios admin del FS:
+
+```
+go run ./cmd/adminfs -set -email admin@local.test -password "NuevaClaveSegura123!"
+```
+
+Opciones:
+- `-set`: crea o actualiza SIEMPRE la contraseña (upsert).
+- `-ensure`: crea solo si no existe (no cambia la password si ya existía).
+- `-path`: muestra la ruta efectiva de `admin_users.json` según `CONTROL_PLANE_FS_ROOT`.
+
+Ejemplos:
+
+```bash
+# Crear o actualizar password
+go run ./cmd/adminfs -set -email admin@local.test -password "NuevaClaveSegura123!"
+
+# Crear solo si no existe
+go run ./cmd/adminfs -ensure -email admin@local.test -password "Inicial123!"
+
+# Ver ruta
+go run ./cmd/adminfs -path
+```
+
+Login como admin global (sin tenant/client)
+
+- Frontend: usar el formulario de login con email/password.
+- Backend: si faltan `tenant_id` o `client_id` y `FS_ADMIN_ENABLE=1`, el handler intentará login FS admin.
+- Si las credenciales son válidas, emite un access token (sin refresh en modo FS) con rol `sys:admin` en `custom` claims.
+
+Notas de seguridad
+- Usa Argon2id para `password_hash`; no depende de `SIGNING_MASTER_KEY`.
+- `SIGNING_MASTER_KEY` se usa para cifrado de secretos (MFA/privadas), no afecta al hash de password.
+- Mantener `admin_users.json` fuera de repos públicos y con permisos adecuados.
+
+Troubleshooting
+- 400/401 pidiendo tenant/client: verificar `FS_ADMIN_ENABLE=1` cargado por el servicio (usar `-env` y estar en la raíz para que se lea `.env`).
+- “No funciona la password”: confirmar que el archivo es `admin_users.json`, que el email está en minúsculas y que el hash fue actualizado (usar `-set`).
+- Ruta efectiva: `go run ./cmd/adminfs -path`.
 
 ---
 

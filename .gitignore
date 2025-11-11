@@ -10,8 +10,10 @@ configs/config.yaml
 # ───────── Local utility scripts (keep out of repo) ─────────
 codeprinter.bat
 dump_code.ps1
+project_tree.ps1
 dump_code_*.txt
 code_dump_*.txt
+project_tree_*.txt
 seed_data.*
 test_*.ps1
 test-*.ps1

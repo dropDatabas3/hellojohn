@@ -1,7 +1,9 @@
-// Root page - redirect to /home
+// Root page - redirect unauthenticated users to /login
 
 import { redirect } from "next/navigation"
 
 export default function RootRedirect() {
-  redirect("/home")
+  // Simple default: send users to the login page.
+  // After successful login, the app will route them to /admin.
+  redirect("/login")
 }
