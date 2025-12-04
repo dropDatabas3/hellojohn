@@ -182,9 +182,22 @@ func (s *FileSigningKeyStore) ListPublicSigningKeysForTenant(ctx context.Context
 		}
 		return keys, nil
 	} else if errors.Is(err, fs.ErrNotExist) {
-		// If tenant has no keys yet, do not implicitly fall back here; let caller decide.
-		// Returning an error will make higher layers choose global JWKS if desired.
-		return nil, err
+		// Bootstrap: create tenant-specific key if missing (Lazy Generation)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("create tenant keys dir: %w", err)
+		}
+		newKey, gerr := s.generateNewKey()
+		if gerr != nil {
+			return nil, fmt.Errorf("generate tenant key: %w", gerr)
+		}
+		if serr := s.saveKeyToDirFile(dir, "active.json", newKey); serr != nil {
+			return nil, fmt.Errorf("save tenant active key: %w", serr)
+		}
+		// Return the new key as the only public key
+		pub := *newKey
+		pub.PrivateKey = nil
+		keys = append(keys, pub)
+		return keys, nil
 	}
 	// Fallback to global
 	if k, err := s.loadKeyFromDirFile(s.dirForTenant("global"), "active.json"); err == nil {

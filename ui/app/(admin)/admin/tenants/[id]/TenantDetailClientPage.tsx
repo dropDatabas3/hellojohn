@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft, Settings, Users, Key, Shield, DatabaseZap, Globe2, KeyRound } from "lucide-react"
+import { ArrowLeft, Settings, Users, Key, Shield, DatabaseZap, Globe2, KeyRound, LayoutTemplate } from "lucide-react"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { Button } from "@/components/ui/button"
@@ -61,7 +61,9 @@ export default function TenantDetailClientPage() {
     queryKey: ["tenant-oidc", tenantId],
     enabled: !!tenantId,
     queryFn: async () => {
-      const res = await fetch(`${api.getBaseUrl()}/v1/tenants/${tenantId}/.well-known/openid-configuration`, {
+      if (!tenant) return null
+      const tnt = tenant as Tenant
+      const res = await fetch(`${api.getBaseUrl()}/t/${tnt.slug}/.well-known/openid-configuration`, {
         headers: { Accept: "application/json" },
       })
       if (!res.ok) return null
@@ -228,6 +230,12 @@ export default function TenantDetailClientPage() {
               <Link href={`/admin/tenants/users?id=${tenantId}`}>
                 <Users className="mr-2 h-4 w-4" />
                 {t("users.manage")}
+              </Link>
+            </Button>
+            <Button variant="outline" className="w-full justify-start bg-transparent" asChild>
+              <Link href={`/admin/tenants/forms?id=${tenantId}`}>
+                <LayoutTemplate className="mr-2 h-4 w-4" />
+                Forms
               </Link>
             </Button>
             <Button variant="outline" className="w-full justify-start bg-transparent" asChild>

@@ -2,6 +2,7 @@ package jwt
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
 )
@@ -20,15 +21,43 @@ func NewHybridSigningKeyStore(global signingKeyStore, tenant *FileSigningKeyStor
 
 // signingKeyStore (global)
 func (h *HybridSigningKeyStore) GetActiveSigningKey(ctx context.Context) (*core.SigningKey, error) {
-	return h.global.GetActiveSigningKey(ctx)
+	k, err := h.global.GetActiveSigningKey(ctx)
+	if err == nil {
+		return k, nil
+	}
+	fmt.Printf("DEBUG: Hybrid global store failed: %v. Falling back to tenant store.\n", err)
+	// Fallback to file store if global fails (e.g. DB down)
+	res, err2 := h.tenant.GetActiveSigningKey(ctx)
+	if err2 != nil {
+		fmt.Printf("DEBUG: Hybrid tenant store also failed: %v\n", err2)
+	} else {
+		fmt.Printf("DEBUG: Hybrid tenant store success\n")
+	}
+	return res, err2
 }
 
 func (h *HybridSigningKeyStore) ListPublicSigningKeys(ctx context.Context) ([]core.SigningKey, error) {
-	return h.global.ListPublicSigningKeys(ctx)
+	keys, err := h.global.ListPublicSigningKeys(ctx)
+	if err == nil {
+		return keys, nil
+	}
+	// Fallback to file store
+	return h.tenant.ListPublicSigningKeys(ctx)
 }
 
 func (h *HybridSigningKeyStore) InsertSigningKey(ctx context.Context, k *core.SigningKey) error {
-	return h.global.InsertSigningKey(ctx, k)
+	// Try to write to global (DB)
+	errGlobal := h.global.InsertSigningKey(ctx, k)
+
+	// Always try to write to tenant (File) as backup/cache
+	errTenant := h.tenant.InsertSigningKey(ctx, k)
+
+	// If both fail, return error (prefer global error if set)
+	if errGlobal != nil && errTenant != nil {
+		return errGlobal
+	}
+	// If at least one succeeded, consider it success (resilience)
+	return nil
 }
 
 // tenantSigningKeyStore (per-tenant) via FS

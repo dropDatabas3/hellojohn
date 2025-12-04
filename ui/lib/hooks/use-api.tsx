@@ -8,6 +8,7 @@ import { ApiClient } from "../api"
 import { useAuthStore } from "../auth-store"
 import { useUIStore } from "../ui-store"
 import { useToast } from "@/hooks/use-toast"
+import { ToastAction } from "@/components/ui/toast"
 
 export function useApi() {
   const router = useRouter()
@@ -34,10 +35,15 @@ export function useApi() {
       toast({
         title: "Nodo seguidor detectado",
         description: `Este nodo es un seguidor. ¿Cambiar al líder? ${leaderUrl}`,
-        action: {
-          label: "Cambiar",
-          onClick: () => setApiBaseOverride(leaderUrl),
-        },
+        action: (
+          <ToastAction
+            altText="Cambiar"
+            onClick={() => setApiBaseOverride(leaderUrl)
+            }
+          >
+            Cambiar
+          </ToastAction>
+        ),
       })
     },
     [toast, setApiBaseOverride],

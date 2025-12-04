@@ -107,6 +107,48 @@ export class ApiClient {
     return this.request<T>(endpoint, { method: "GET", ...options })
   }
 
+  async getWithHeaders<T>(endpoint: string, options: RequestInit = {}): Promise<{ data: T; headers: Headers }> {
+    const token = this.getToken()
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(options.headers as Record<string, string>),
+    }
+
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`
+    }
+
+    const url = `${this.baseUrl}${endpoint}`
+
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        ...options,
+        headers,
+      })
+
+      if (response.status === 401) {
+        this.onUnauthorized()
+        throw new Error("Unauthorized")
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        const error: ApiError = {
+          error: errorData.error || "server_error",
+          error_description: errorData.error_description || response.statusText,
+          status: response.status,
+        }
+        throw error
+      }
+
+      const data = await response.json()
+      return { data, headers: response.headers }
+    } catch (error) {
+      throw error
+    }
+  }
+
   async post<T>(endpoint: string, data?: any, options: RequestInit = {}): Promise<T> {
     return this.request<T>(endpoint, {
       method: "POST",
@@ -158,12 +200,12 @@ export const api = new ApiClient(
   API_BASE,
   () => useAuthStore.getState().token,
   () => {
-    ;(useAuthStore.getState() as any).logout?.()
+    ; (useAuthStore.getState() as any).logout?.()
     if (typeof window !== "undefined") {
       window.location.href = "/login"
     }
   },
   (leaderUrl: string) => {
-    ;(useUIStore.getState() as any).setLeaderUrl?.(leaderUrl)
+    ; (useUIStore.getState() as any).setLeaderUrl?.(leaderUrl)
   },
 )

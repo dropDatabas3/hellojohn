@@ -3,6 +3,7 @@
 export type Tenant = {
   id: string
   name: string
+  display_name?: string
   slug: string
   createdAt: string
   updatedAt: string
@@ -12,6 +13,10 @@ export type Tenant = {
 export type TenantSettings = {
   logoUrl?: string
   brandColor?: string
+  session_lifetime_seconds?: number
+  refresh_token_lifetime_seconds?: number
+  mfa_enabled?: boolean
+  social_login_enabled?: boolean
   smtp?: {
     host: string
     port: number
@@ -31,6 +36,13 @@ export type TenantSettings = {
   }
   issuerMode?: "global" | "path" | "domain"
   issuerOverride?: string
+  user_fields?: UserFieldDefinition[]
+}
+
+export type UserFieldDefinition = {
+  name: string
+  type: "string" | "number" | "boolean"
+  required?: boolean
 }
 
 export type ClientInput = {
@@ -72,6 +84,7 @@ export type User = {
   disabled: boolean
   createdAt: string
   updatedAt: string
+  custom_fields?: Record<string, any>
 }
 
 export type Role = {
@@ -101,7 +114,7 @@ export type ReadyzResponse = {
   fs_degraded: boolean
   // Some backends may return plain strings ("ok"/"error"), others objects like { status: "ok" }
   // Use a flexible record to support both.
-  components: Record<string, string | { status: string; [k: string]: any }>
+  components: Record<string, string | { status: string;[k: string]: any }>
 }
 
 export type LoginRequest = {

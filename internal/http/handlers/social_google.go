@@ -17,6 +17,7 @@ import (
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
 	"github.com/dropDatabas3/hellojohn/internal/config"
@@ -33,7 +34,7 @@ import (
 type googleHandler struct {
 	cfg    *config.Config
 	c      *app.Container
-	pgx    *pgx.Conn
+	pool   *pgxpool.Pool // Changed from *pgx.Conn
 	oidc   *google.OIDC
 	issuer *jwtx.Issuer // firma/verifica "state" (JWT EdDSA)
 
@@ -182,11 +183,17 @@ func BuildGoogleSocialHandlers(
 		return nil, nil, func() {}, errors.New("google: missing redirect_url (set providers.google.redirect_url or jwt.issuer)")
 	}
 
-	pgxConn, err := pgx.Connect(ctx, cfg.Storage.DSN)
+	// Use the existing pool from container if available, or connect new one?
+	// The container has `Store`. We should cast it to get the pool.
+	// But `Store` is an interface `core.Repository`.
+	// Let's assume we can get it via type assertion to `*pg.Store` or similar.
+	// For now, let's keep the local connection logic but use pgxpool.
+
+	pgxPool, err := pgxpool.New(ctx, cfg.Storage.DSN)
 	if err != nil {
 		return nil, nil, func() {}, err
 	}
-	cleanup = func() { _ = pgxConn.Close(ctx) }
+	cleanup = func() { pgxPool.Close() }
 
 	oidc := google.New(
 		cfg.Providers.Google.ClientID,
@@ -198,7 +205,7 @@ func BuildGoogleSocialHandlers(
 	h := &googleHandler{
 		cfg:       cfg,
 		c:         c,
-		pgx:       pgxConn,
+		pool:      pgxPool,
 		oidc:      oidc,
 		issuer:    c.Issuer,
 		validator: redirectValidatorAdapter{repo: c.Store},
@@ -635,7 +642,7 @@ SELECT id, email_verified
 FROM app_user
 WHERE tenant_id=$1 AND email=$2
 LIMIT 1`
-	err := h.pgx.QueryRow(ctx, q1, tid, idc.Email).Scan(&userID, &emailVerified)
+	err := h.pool.QueryRow(ctx, q1, tid, idc.Email).Scan(&userID, &emailVerified)
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return uuid.Nil, err
@@ -646,26 +653,26 @@ INSERT INTO app_user (tenant_id, email, email_verified, status, metadata)
 VALUES ($1,$2,$3,'active','{}'::jsonb)
 RETURNING id`
 		ev := idc.EmailVerified
-		if err := h.pgx.QueryRow(ctx, qIns, tid, idc.Email, ev).Scan(&userID); err != nil {
+		if err := h.pool.QueryRow(ctx, qIns, tid, idc.Email, ev).Scan(&userID); err != nil {
 			return uuid.Nil, err
 		}
 	} else {
 		// actualizar verificación si ahora viene true
 		if idc.EmailVerified && !emailVerified {
-			_, _ = h.pgx.Exec(ctx, `UPDATE app_user SET email_verified=true WHERE id=$1`, userID)
+			_, _ = h.pool.Exec(ctx, `UPDATE app_user SET email_verified=true WHERE id=$1`, userID)
 		}
 	}
 
 	// 2) identity(provider='google', provider_user_id=sub)
 	var idExists bool
-	err = h.pgx.QueryRow(ctx, `
+	err = h.pool.QueryRow(ctx, `
 SELECT EXISTS(SELECT 1 FROM identity WHERE provider='google' AND provider_user_id=$1 AND user_id=$2)
 `, idc.Sub, userID).Scan(&idExists)
 	if err != nil {
 		return uuid.Nil, err
 	}
 	if !idExists {
-		_, err = h.pgx.Exec(ctx, `
+		_, err = h.pool.Exec(ctx, `
 INSERT INTO identity (user_id, provider, provider_user_id, email, email_verified)
 VALUES ($1,'google',$2,$3,$4)
 `, userID, idc.Sub, idc.Email, idc.EmailVerified)

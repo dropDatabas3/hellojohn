@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 )
 
 type TokenKind int
@@ -20,10 +19,10 @@ const (
 )
 
 type TokenStore struct {
-	DB *pgx.Conn
+	DB DBOps
 }
 
-func NewTokenStore(db *pgx.Conn) *TokenStore { return &TokenStore{DB: db} }
+func NewTokenStore(db DBOps) *TokenStore { return &TokenStore{DB: db} }
 
 func generate() (plaintext string, hash []byte, err error) {
 	raw := make([]byte, 32)

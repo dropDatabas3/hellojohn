@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type UserStore struct{ DB *pgx.Conn }
+type UserStore struct{ DB DBOps }
 
 func (s *UserStore) SetEmailVerified(ctx context.Context, userID uuid.UUID) error {
 	_, err := s.DB.Exec(ctx, `UPDATE app_user SET email_verified = TRUE WHERE id = $1`, userID)

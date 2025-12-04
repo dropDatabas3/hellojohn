@@ -3,7 +3,7 @@
 "use client"
 
 import type React from "react"
-import { useEffect, useState } from "react"
+import { useEffect, useState, Suspense } from "react"
 
 import AdminShell from "./admin-shell"
 
@@ -16,5 +16,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return null
   }
 
-  return <AdminShell>{children}</AdminShell>
+  return (
+    <Suspense fallback={null}>
+      <AdminShell>{children}</AdminShell>
+    </Suspense>
+  )
 }

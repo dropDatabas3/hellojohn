@@ -51,3 +51,7 @@ contar_estructura.ps1
 
 # Context docs
 /docs/
+
+
+# ───────── SDKs ─────────
+sdks/

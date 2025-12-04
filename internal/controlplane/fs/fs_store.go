@@ -148,6 +148,23 @@ func (p *FSProvider) GetTenantBySlug(ctx context.Context, slug string) (*cp.Tena
 	return &t, nil
 }
 
+func (p *FSProvider) GetTenantByID(ctx context.Context, id string) (*cp.Tenant, error) {
+	// Scan all tenants to find match by ID
+	// This is O(N) but acceptable for FS provider scale
+	tenants, err := p.ListTenants(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range tenants {
+		if t.ID == id {
+			// Re-fetch to ensure full details (though ListTenants usually fetches full)
+			// ListTenants calls GetTenantBySlug internally so 't' is already fully populated
+			return &t, nil
+		}
+	}
+	return nil, ErrTenantNotFound
+}
+
 func (p *FSProvider) UpsertTenant(ctx context.Context, t *cp.Tenant) error {
 	if strings.TrimSpace(t.Slug) == "" || strings.TrimSpace(t.Name) == "" {
 		return fmt.Errorf("%w: tenant name/slug required", ErrBadInput)

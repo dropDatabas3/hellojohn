@@ -43,6 +43,7 @@ type User struct {
 	CreatedAt      time.Time
 	DisabledAt     *time.Time
 	DisabledReason *string
+	CustomFields   map[string]any
 }
 
 type Identity struct {

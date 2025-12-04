@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	rdb "github.com/redis/go-redis/v9"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
@@ -213,11 +214,11 @@ func BuildEmailFlowHandlers(
 	refreshTTL time.Duration,
 ) (verifyStart http.Handler, verifyConfirm http.Handler, forgot http.Handler, reset http.Handler, cleanup func(), err error) {
 
-	// Mailer
-	mailer := email.NewSMTPSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From, cfg.SMTP.Username, cfg.SMTP.Password)
-	mailer.TLSMode = cfg.SMTP.TLS
-	mailer.InsecureSkipVerify = cfg.SMTP.InsecureSkipVerify
-	log.Printf(`{"level":"info","msg":"email_wiring_mailer","host":"%s","port":%d,"from":"%s","tls_mode":"%s"}`, cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From, cfg.SMTP.TLS)
+	// Mailer initialization removed in favor of SenderProvider
+	// mailer := email.NewSMTPSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From, cfg.SMTP.Username, cfg.SMTP.Password)
+	// mailer.TLSMode = cfg.SMTP.TLS
+	// mailer.InsecureSkipVerify = cfg.SMTP.InsecureSkipVerify
+	// log.Printf(`{"level":"info","msg":"email_wiring_mailer","host":"%s","port":%d,"from":"%s","tls_mode":"%s"}`, cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From, cfg.SMTP.TLS)
 
 	// Templates
 	tmpls, err := email.LoadTemplates(cfg.Email.TemplatesDir)
@@ -257,16 +258,26 @@ func BuildEmailFlowHandlers(
 	}
 
 	// Stores: reusar pool existente si es posible para evitar "too many connections"
-	pgxConn, err := pgx.Connect(ctx, cfg.Storage.DSN)
-	if err != nil {
-		log.Printf(`{"level":"error","msg":"email_wiring_pgx_connect_err","err":"%v"}`, err)
-		return nil, nil, nil, nil, func() {}, err
+	var dbOps store.DBOps
+	if pgStore, ok := c.Store.(interface{ Pool() *pgxpool.Pool }); ok {
+		dbOps = pgStore.Pool()
+		log.Printf(`{"level":"info","msg":"email_wiring_reuse_pool"}`)
+		cleanup = func() {} // Pool managed by main store
+	} else {
+		// Fallback: connect manually (should not happen if hasGlobalDB is true and driver is PG)
+		log.Printf(`{"level":"warn","msg":"email_wiring_new_conn","reason":"store_not_pool_compatible"}`)
+		pgxConn, err := pgx.Connect(ctx, cfg.Storage.DSN)
+		if err != nil {
+			log.Printf(`{"level":"error","msg":"email_wiring_pgx_connect_err","err":"%v"}`, err)
+			return nil, nil, nil, nil, func() {}, err
+		}
+		dbOps = pgxConn
+		cleanup = func() { _ = pgxConn.Close(ctx) }
 	}
-	cleanup = func() { _ = pgxConn.Close(ctx) }
 	log.Printf(`{"level":"info","msg":"email_wiring_pgx_ok"}`)
 
-	ts := store.NewTokenStore(pgxConn)
-	us := &store.UserStore{DB: pgxConn} // sin constructor
+	ts := store.NewTokenStore(dbOps)
+	us := &store.UserStore{DB: dbOps} // sin constructor
 
 	// Adapters
 	rvalidator := redirectValidatorAdapter{repo: c.Store}
@@ -277,7 +288,7 @@ func BuildEmailFlowHandlers(
 	ef := &EmailFlowsHandler{
 		Tokens:         ts,
 		Users:          us,
-		Mailer:         mailer,
+		SenderProvider: c.SenderProvider,
 		Tmpl:           tmpls,
 		Policy:         pol,
 		Redirect:       rvalidator,

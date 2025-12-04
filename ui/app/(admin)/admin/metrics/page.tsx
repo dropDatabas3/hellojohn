@@ -116,15 +116,18 @@ export default function MetricsPage() {
             </CardHeader>
             <CardContent>
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {Object.entries(health.components).map(([key, value]) => (
-                  <div key={key} className="flex items-center justify-between rounded-lg border p-4">
-                    <div>
-                      <p className="font-medium capitalize">{key.replace(/_/g, " ")}</p>
-                      <p className="text-sm text-muted-foreground">{key}</p>
+                {Object.entries(health.components).map(([key, value]) => {
+                  const status = typeof value === "string" ? value : value.status
+                  return (
+                    <div key={key} className="flex items-center justify-between rounded-lg border p-4">
+                      <div>
+                        <p className="font-medium capitalize">{key.replace(/_/g, " ")}</p>
+                        <p className="text-sm text-muted-foreground">{key}</p>
+                      </div>
+                      <Badge variant={status === "ok" ? "default" : "destructive"}>{status}</Badge>
                     </div>
-                    <Badge variant={value === "ok" ? "default" : "destructive"}>{value}</Badge>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </CardContent>
           </Card>

@@ -138,7 +138,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 					exp := now.Add(c.Issuer.AccessTTL)
 					kid, priv, _, kerr := c.Issuer.Keys.Active()
 					if kerr != nil {
-						httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo obtener clave de firma", 1204)
+						httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo obtener clave de firma 1", 1204)
 						return
 					}
 					claims := jwtv5.MapClaims{
@@ -163,12 +163,32 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 						httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 1204)
 						return
 					}
+					// Issue refresh token as JWT for stateless admin session
+					rtClaims := jwtv5.MapClaims{
+						"iss":       c.Issuer.Iss,
+						"sub":       ufs.ID,
+						"aud":       "admin",
+						"iat":       now.Unix(),
+						"nbf":       now.Unix(),
+						"exp":       now.Add(refreshTTL).Unix(),
+						"token_use": "refresh",
+					}
+					rtToken := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, rtClaims)
+					rtToken.Header["kid"] = kid
+					rtToken.Header["typ"] = "JWT"
+					rtString, err := rtToken.SignedString(priv)
+					if err != nil {
+						httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el refresh token", 1204)
+						return
+					}
+
 					w.Header().Set("Cache-Control", "no-store")
 					w.Header().Set("Pragma", "no-cache")
 					httpx.WriteJSON(w, http.StatusOK, AuthLoginResponse{
-						AccessToken: token,
-						TokenType:   "Bearer",
-						ExpiresIn:   int64(time.Until(exp).Seconds()),
+						AccessToken:  token,
+						TokenType:    "Bearer",
+						ExpiresIn:    int64(time.Until(exp).Seconds()),
+						RefreshToken: rtString,
 					})
 					return
 				}
@@ -258,7 +278,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 				exp := now.Add(c.Issuer.AccessTTL)
 				kid, priv, _, kerr := c.Issuer.Keys.Active()
 				if kerr != nil {
-					httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo obtener clave de firma", 1204)
+					httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo obtener clave de firma 2", 1204)
 					return
 				}
 				claims := jwtv5.MapClaims{
@@ -507,7 +527,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			kid, priv, _, kerr = c.Issuer.Keys.Active()
 		}
 		if kerr != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo obtener clave de firma", 1204)
+			httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo obtener clave de firma 3", 1204)
 			return
 		}
 		claims := jwtv5.MapClaims{

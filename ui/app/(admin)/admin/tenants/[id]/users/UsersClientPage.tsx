@@ -38,6 +38,7 @@ export default function UsersClientPage() {
   const [newUser, setNewUser] = useState({
     email: "",
     password: "",
+    custom_fields: {} as Record<string, any>,
   })
 
   const { data: tenant } = useQuery({
@@ -57,7 +58,7 @@ export default function UsersClientPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
       setCreateDialogOpen(false)
-      setNewUser({ email: "", password: "" })
+      setNewUser({ email: "", password: "", custom_fields: {} })
       toast({
         title: t("users.created"),
         description: t("users.createdDesc"),
@@ -125,6 +126,31 @@ export default function UsersClientPage() {
       })
       return
     }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(newUser.email)) {
+      toast({
+        title: t("common.error"),
+        description: "El formato del email no es válido.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Validar campos requeridos custom
+    if (tenant?.settings.user_fields) {
+      for (const field of tenant.settings.user_fields) {
+        if (field.required && (newUser.custom_fields[field.name] === undefined || newUser.custom_fields[field.name] === "")) {
+          toast({
+            title: t("common.error"),
+            description: `El campo ${field.name} es requerido.`,
+            variant: "destructive",
+          })
+          return
+        }
+      }
+    }
+
     createMutation.mutate(newUser)
   }
 
@@ -136,6 +162,7 @@ export default function UsersClientPage() {
 
   return (
     <div className="space-y-6">
+      {/* ... (Header and Table remains same) ... */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="sm" asChild>
@@ -194,7 +221,19 @@ export default function UsersClientPage() {
               ) : (
                 filteredUsers?.map((user) => (
                   <TableRow key={user.id}>
-                    <TableCell className="font-medium">{user.email}</TableCell>
+                    <TableCell className="font-medium">
+                      <div>{user.email}</div>
+                      {/* Mostrar campos custom en pequeño si existen */}
+                      {user.custom_fields && Object.keys(user.custom_fields).length > 0 && (
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {Object.entries(user.custom_fields).map(([k, v]) => (
+                            <span key={k} className="mr-2">
+                              {k}: {String(v)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell>
                       {user.emailVerified ? (
                         <Badge variant="default">{t("users.verified")}</Badge>
@@ -276,6 +315,52 @@ export default function UsersClientPage() {
                 placeholder="••••••••"
               />
             </div>
+
+            {/* Campos Dinámicos */}
+            {tenant?.settings.user_fields?.map((field) => (
+              <div key={field.name} className="space-y-2">
+                <Label htmlFor={`field-${field.name}`}>
+                  {field.name} {field.required && "*"}
+                </Label>
+                {field.type === "boolean" ? (
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id={`field-${field.name}`}
+                      checked={!!newUser.custom_fields[field.name]}
+                      onChange={(e) =>
+                        setNewUser({
+                          ...newUser,
+                          custom_fields: {
+                            ...newUser.custom_fields,
+                            [field.name]: e.target.checked,
+                          },
+                        })
+                      }
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                    <span className="text-sm text-muted-foreground">Activo</span>
+                  </div>
+                ) : (
+                  <Input
+                    id={`field-${field.name}`}
+                    type={field.type === "number" ? "number" : "text"}
+                    value={newUser.custom_fields[field.name] || ""}
+                    onChange={(e) => {
+                      const val = field.type === "number" ? Number(e.target.value) : e.target.value
+                      setNewUser({
+                        ...newUser,
+                        custom_fields: {
+                          ...newUser.custom_fields,
+                          [field.name]: val,
+                        },
+                      })
+                    }}
+                    placeholder={field.type}
+                  />
+                )}
+              </div>
+            ))}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>

@@ -51,6 +51,9 @@ func NewMux(
 	// Social exchange
 	socialExchange stdhttp.Handler, // POST /v1/auth/social/exchange
 
+	// Dynamic Social Handler
+	socialHandler stdhttp.Handler, // /v1/auth/social/
+
 	// ─── Admin clásicos ───
 	adminScopes stdhttp.Handler,
 	adminConsents stdhttp.Handler,
@@ -136,6 +139,9 @@ func NewMux(
 
 	// Social exchange
 	mux.Handle("/v1/auth/social/exchange", socialExchange)
+
+	// Dynamic Social Handler
+	mux.Handle("/v1/auth/social/", socialHandler)
 
 	// ─── Admin Scopes ───
 	mux.Handle("/v1/admin/scopes", adminScopes)

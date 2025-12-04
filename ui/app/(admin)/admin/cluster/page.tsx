@@ -206,12 +206,15 @@ export default function ClusterPage() {
             </CardHeader>
             <CardContent>
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {Object.entries(health.components).map(([key, value]) => (
-                  <div key={key} className="flex items-center justify-between rounded-lg border p-3">
-                    <span className="text-sm font-medium capitalize">{key.replace(/_/g, " ")}</span>
-                    <Badge variant={value === "ok" ? "default" : "destructive"}>{value}</Badge>
-                  </div>
-                ))}
+                {Object.entries(health.components).map(([key, value]) => {
+                  const status = typeof value === "string" ? value : value.status
+                  return (
+                    <div key={key} className="flex items-center justify-between rounded-lg border p-3">
+                      <span className="text-sm font-medium capitalize">{key.replace(/_/g, " ")}</span>
+                      <Badge variant={status === "ok" ? "default" : "destructive"}>{status}</Badge>
+                    </div>
+                  )
+                })}
               </div>
             </CardContent>
           </Card>

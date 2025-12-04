@@ -45,16 +45,17 @@ type RateLimiter interface {
 // --- Handler ---
 
 type EmailFlowsHandler struct {
-	Tokens        *store.TokenStore
-	Users         *store.UserStore
-	Mailer        email.Sender
-	Tmpl          *email.Templates
-	Policy        password.Policy
-	Redirect      RedirectValidator
-	Issuer        TokenIssuer
-	Auth          CurrentUserProvider
-	Limiter       RateLimiter
-	BlacklistPath string
+	Tokens *store.TokenStore
+	Users  *store.UserStore
+	// Mailer        email.Sender // Removed in favor of provider
+	SenderProvider email.SenderProvider
+	Tmpl           *email.Templates
+	Policy         password.Policy
+	Redirect       RedirectValidator
+	Issuer         TokenIssuer
+	Auth           CurrentUserProvider
+	Limiter        RateLimiter
+	BlacklistPath  string
 
 	// Phase 4.1: per-tenant DB gating for email flows
 	TenantMgr *tenantsql.Manager
@@ -201,7 +202,17 @@ func (h *EmailFlowsHandler) verifyEmailStart(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := h.Mailer.Send(emailStr, "Verificá tu email", htmlBody, textBody); err != nil {
+	// Resolve sender
+	sender, err := h.SenderProvider.GetSender(r.Context(), in.TenantID)
+	if err != nil {
+		log.Printf(`{"level":"error","msg":"verify_start_sender_err","request_id":"%s","err":"%v"}`, rid, err)
+		// Don't fail the request to avoid leaking info? Or maybe 500 is appropriate here as it's config error.
+		// Let's log and return 500 for now as it's a server misconfiguration.
+		writeErr(w, "server_error", "email configuration error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := sender.Send(emailStr, "Verificá tu email", htmlBody, textBody); err != nil {
 		diag := email.DiagnoseSMTP(err)
 		lvl := "error"
 		if diag.Temporary {
@@ -356,7 +367,14 @@ func (h *EmailFlowsHandler) forgot(w http.ResponseWriter, r *http.Request) {
 			htmlBody, textBody, _ := renderReset(h.Tmpl, email.ResetVars{
 				UserEmail: in.Email, Tenant: in.TenantID.String(), Link: link, TTL: h.ResetTTL.String(),
 			})
-			if err := h.Mailer.Send(in.Email, "Restablecé tu contraseña", htmlBody, textBody); err != nil {
+			// Resolve sender
+			sender, err := h.SenderProvider.GetSender(r.Context(), in.TenantID)
+			if err != nil {
+				log.Printf(`{"level":"error","msg":"forgot_sender_err","request_id":"%s","err":"%v"}`, rid, err)
+				// Log only, try with nil sender? No, it will panic.
+				// We should probably fail or use a fallback if we had one.
+				// For now, fail.
+			} else if err := sender.Send(in.Email, "Restablecé tu contraseña", htmlBody, textBody); err != nil {
 				diag := email.DiagnoseSMTP(err)
 				lvl := "error"
 				if diag.Temporary {

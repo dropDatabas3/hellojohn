@@ -66,6 +66,106 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 		// Resolve UUID too if needed later; source of truth remains RT
 		_, _ = helpers.ResolveTenantSlugAndID(ctx, tenantSlug)
 
+		// Check if it's a JWT refresh token (stateless admin)
+		if strings.Count(req.RefreshToken, ".") == 2 {
+			// Parse and verify JWT
+			token, err := jwtv5.Parse(req.RefreshToken, func(token *jwtv5.Token) (interface{}, error) {
+				// Extract kid from header
+				kid, ok := token.Header["kid"].(string)
+				if !ok {
+					return nil, jwtv5.ErrTokenUnverifiable
+				}
+				// Use specific key by KID
+				return c.Issuer.Keys.PublicKeyByKID(kid)
+			})
+
+			if err == nil && token.Valid {
+				if claims, ok := token.Claims.(jwtv5.MapClaims); ok {
+					if use, ok := claims["token_use"].(string); ok && use == "refresh" {
+						// It's a valid admin refresh token
+						userID, _ := claims.GetSubject()
+
+						// Issue new access token
+						now := time.Now().UTC()
+						exp := now.Add(c.Issuer.AccessTTL)
+						kid, priv, _, kerr := c.Issuer.Keys.Active()
+						if kerr != nil {
+							httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo obtener clave de firma", 1405)
+							return
+						}
+
+						// Admin claims
+						amrSlice := []string{"pwd", "refresh"}
+						grantedScopes := []string{"openid", "profile", "email"}
+						std := map[string]any{
+							"tid": "global",
+							"amr": amrSlice,
+							"acr": "urn:hellojohn:loa:1",
+							"scp": strings.Join(grantedScopes, " "),
+						}
+						// Minimal system claims for admin
+						custom := helpers.PutSystemClaimsV2(map[string]any{}, c.Issuer.Iss, map[string]any{"is_admin": true}, []string{"sys:admin"}, nil)
+
+						atClaims := jwtv5.MapClaims{
+							"iss": c.Issuer.Iss,
+							"sub": userID,
+							"aud": "admin",
+							"iat": now.Unix(),
+							"nbf": now.Unix(),
+							"exp": exp.Unix(),
+						}
+						for k, v := range std {
+							atClaims[k] = v
+						}
+						if custom != nil {
+							atClaims["custom"] = custom
+						}
+
+						atToken := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, atClaims)
+						atToken.Header["kid"] = kid
+						atToken.Header["typ"] = "JWT"
+						atString, err := atToken.SignedString(priv)
+						if err != nil {
+							httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el access token", 1405)
+							return
+						}
+
+						// Issue new refresh token (rotation)
+						rtClaims := jwtv5.MapClaims{
+							"iss":       c.Issuer.Iss,
+							"sub":       userID,
+							"aud":       "admin",
+							"iat":       now.Unix(),
+							"nbf":       now.Unix(),
+							"exp":       now.Add(refreshTTL).Unix(),
+							"token_use": "refresh",
+						}
+						rtToken := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, rtClaims)
+						rtToken.Header["kid"] = kid
+						rtToken.Header["typ"] = "JWT"
+						rtString, err := rtToken.SignedString(priv)
+						if err != nil {
+							httpx.WriteError(w, http.StatusInternalServerError, "issue_failed", "no se pudo emitir el refresh token", 1204)
+							return
+						}
+
+						w.Header().Set("Cache-Control", "no-store")
+						w.Header().Set("Pragma", "no-cache")
+						httpx.WriteJSON(w, http.StatusOK, RefreshResponse{
+							AccessToken:  atString,
+							TokenType:    "Bearer",
+							ExpiresIn:    int64(time.Until(exp).Seconds()),
+							RefreshToken: rtString,
+						})
+						return
+					}
+				}
+			}
+			// If JWT parsing failed or invalid, fall through to DB check (could be a coincidence or invalid token)
+			// But since it looked like a JWT, we might want to log it.
+			log.Printf("refresh: invalid JWT refresh token: %v", err)
+		}
+
 		// 1) Cargar RT como fuente de verdad (por hash). No usar c.Store en runtime.
 		var (
 			rt  *core.RefreshToken

@@ -104,6 +104,21 @@ func (k *PersistentKeystore) Active() (kid string, priv ed25519.PrivateKey, pub 
 	rec, err := k.store.GetActiveSigningKey(k.ctx)
 	if err != nil {
 		if errors.Is(err, core.ErrNotFound) {
+			// Try to bootstrap if missing (e.g. DB was down at startup)
+			fmt.Println("DEBUG: Active key not found, attempting lazy bootstrap...")
+			if bErr := k.EnsureBootstrap(); bErr == nil {
+				fmt.Println("DEBUG: Bootstrap success, retrying fetch...")
+				// Retry fetch
+				rec, err = k.store.GetActiveSigningKey(k.ctx)
+			} else {
+				fmt.Printf("DEBUG: Bootstrap failed: %v\n", bErr)
+			}
+		} else {
+			fmt.Printf("DEBUG: GetActiveSigningKey error (not NotFound): %v\n", err)
+		}
+	}
+	if err != nil {
+		if errors.Is(err, core.ErrNotFound) {
 			return "", nil, nil, ErrNoActiveKey
 		}
 		return "", nil, nil, err

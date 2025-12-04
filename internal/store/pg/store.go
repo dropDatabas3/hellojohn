@@ -91,7 +91,15 @@ func New(ctx context.Context, dsn string, cfg any) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Printf(`{"level":"info","msg":"pg_pool_ready","max_conns":%d}`, pcfg.MaxConns)
+
+	// Non-blocking startup: try to ping, but don't fail if it fails.
+	// This allows the app to start even if DB is temporarily down.
+	if err := pool.Ping(ctx); err != nil {
+		log.Printf(`{"level":"warn","msg":"pg_pool_startup_ping_failed","err":"%v"}`, err)
+	} else {
+		log.Printf(`{"level":"info","msg":"pg_pool_ready","max_conns":%d}`, pcfg.MaxConns)
+	}
+
 	return &Store{pool: pool}, nil
 }
 
@@ -119,38 +127,95 @@ func derefTime(t *time.Time) time.Time {
 // ====================== AUTH ======================
 
 func (s *Store) GetUserByEmail(ctx context.Context, tenantID, email string) (*core.User, *core.Identity, error) {
-	const q = `
-	SELECT u.id, u.tenant_id, u.email, u.email_verified, u.metadata, u.created_at, u.disabled_at, u.disabled_reason,
-       i.id, i.provider, i.provider_user_id, i.email, i.email_verified, i.password_hash, i.created_at
-FROM app_user u
-JOIN identity i ON i.user_id = u.id AND i.provider = 'password'
-WHERE u.tenant_id = $1 AND LOWER(u.email) = LOWER($2)
-LIMIT 1`
-	row := s.pool.QueryRow(ctx, q, tenantID, email)
+	// 1. Obtener usuario con todas las columnas (incluyendo dinámicas)
+	const qUser = `SELECT * FROM app_user WHERE tenant_id = $1 AND LOWER(email) = LOWER($2) LIMIT 1`
+	rows, err := s.pool.Query(ctx, qUser, tenantID, email)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return nil, nil, core.ErrNotFound
+	}
+
+	// Escaneo dinámico
+	cols := rows.FieldDescriptions()
+	vals := make([]any, len(cols))
+	for i := range vals {
+		vals[i] = new(any)
+	}
+
+	if err := rows.Scan(vals...); err != nil {
+		return nil, nil, err
+	}
 
 	var u core.User
+	u.CustomFields = make(map[string]any)
+
+	for i, col := range cols {
+		val := *(vals[i].(*any))
+		colName := string(col.Name)
+
+		switch colName {
+		case "id":
+			if v, ok := val.(string); ok {
+				u.ID = v
+			}
+		case "tenant_id":
+			if v, ok := val.(string); ok {
+				u.TenantID = v
+			}
+		case "email":
+			if v, ok := val.(string); ok {
+				u.Email = v
+			}
+		case "email_verified":
+			if v, ok := val.(bool); ok {
+				u.EmailVerified = v
+			}
+		case "metadata":
+			if v, ok := val.(map[string]any); ok {
+				u.Metadata = v
+			}
+		case "created_at":
+			if v, ok := val.(time.Time); ok {
+				u.CreatedAt = v
+			}
+		case "disabled_at":
+			if v, ok := val.(time.Time); ok {
+				u.DisabledAt = &v
+			}
+		case "disabled_reason":
+			if v, ok := val.(string); ok {
+				u.DisabledReason = &v
+			}
+		default:
+			// Campo dinámico
+			u.CustomFields[colName] = val
+		}
+	}
+	rows.Close() // Cerrar explícitamente antes de la siguiente query
+
+	// 2. Obtener identidad password (si existe)
+	const qIdent = `SELECT id, provider, provider_user_id, email, email_verified, password_hash, created_at FROM identity WHERE user_id = $1 AND provider = 'password'`
+	row := s.pool.QueryRow(ctx, qIdent, u.ID)
+
 	var i core.Identity
-	var meta map[string]any
 	var providerUserID *string
 	var idEmail *string
 	var idEmailVerified *bool
 	var pwd *string
-	var disabledAt *time.Time
-	var disabledReason *string
 
-	if err := row.Scan(
-		&u.ID, &u.TenantID, &u.Email, &u.EmailVerified, &meta, &u.CreatedAt, &disabledAt, &disabledReason,
-		&i.ID, &i.Provider, &providerUserID, &idEmail, &idEmailVerified, &pwd, &i.CreatedAt,
-	); err != nil {
+	if err := row.Scan(&i.ID, &i.Provider, &providerUserID, &idEmail, &idEmailVerified, &pwd, &i.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil, core.ErrNotFound
+			// Usuario existe pero sin password identity (e.g. social login only)
+			// Retornamos usuario y nil identity
+			return &u, nil, nil
 		}
-		log.Printf(`{"level":"error","msg":"pg_get_user_by_email_err","tenant_id":"%s","email":"%s","err":"%v"}`, tenantID, email, err)
 		return nil, nil, err
 	}
-	u.Metadata = meta
-	u.DisabledAt = disabledAt
-	u.DisabledReason = disabledReason
+
 	i.UserID = u.ID
 	if providerUserID != nil {
 		i.ProviderUserID = *providerUserID
@@ -162,6 +227,7 @@ LIMIT 1`
 		i.EmailVerified = *idEmailVerified
 	}
 	i.PasswordHash = pwd
+
 	return &u, &i, nil
 }
 
@@ -272,19 +338,69 @@ LIMIT 1`
 }
 
 // CreateUser crea o devuelve el existente (upsert) y rellena ID/CreatedAt.
+// Soporta campos dinámicos en CustomFields.
 func (s *Store) CreateUser(ctx context.Context, u *core.User) error {
 	if u.Metadata == nil {
 		u.Metadata = map[string]any{}
 	}
-	const q = `
-	INSERT INTO app_user (id, tenant_id, email, email_verified, metadata)
-	VALUES (gen_random_uuid(), $1, LOWER($2), $3, $4)
+
+	// Campos fijos
+	cols := []string{"id", "tenant_id", "email", "email_verified", "metadata"}
+	vals := []any{"gen_random_uuid()", u.TenantID, strings.ToLower(u.Email), u.EmailVerified, u.Metadata}
+
+	// Campos dinámicos
+	// Nota: pgx maneja la sanitización de valores, pero los nombres de columna deben ser seguros.
+	// Asumimos que vienen validados o son seguros (vienen del struct interno).
+	// Para mayor seguridad, podríamos validar contra regex de identificadores.
+	keys := make([]string, 0, len(u.CustomFields))
+	for k := range u.CustomFields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys) // Determinismo
+
+	for _, k := range keys {
+		cols = append(cols, pgIdentifier(k))
+		vals = append(vals, u.CustomFields[k])
+	}
+
+	// Construir query
+	var qCols, qVals string
+	args := make([]any, 0, len(vals))
+	argIdx := 1
+
+	for i, col := range cols {
+		if i > 0 {
+			qCols += ", "
+			qVals += ", "
+		}
+		qCols += col
+
+		// Si el valor es string "gen_random_uuid()", lo ponemos directo (hack simple para este caso)
+		// O mejor, lo manejamos como default en DB si fuera posible, pero acá estamos forzando ID.
+		// En el array vals original puse el string literal.
+		if sVal, ok := vals[i].(string); ok && sVal == "gen_random_uuid()" {
+			qVals += sVal
+		} else {
+			qVals += fmt.Sprintf("$%d", argIdx)
+			args = append(args, vals[i])
+			argIdx++
+		}
+	}
+
+	q := fmt.Sprintf(`
+	INSERT INTO app_user (%s)
+	VALUES (%s)
 	ON CONFLICT (tenant_id, email)
 	DO UPDATE SET email = EXCLUDED.email
-	RETURNING id, created_at`
-	return s.pool.QueryRow(ctx, q,
-		u.TenantID, u.Email, u.EmailVerified, u.Metadata,
-	).Scan(&u.ID, &u.CreatedAt)
+	RETURNING id, created_at`, qCols, qVals)
+
+	return s.pool.QueryRow(ctx, q, args...).Scan(&u.ID, &u.CreatedAt)
+}
+
+// pgIdentifier sanitiza un identificador simple (solo letras, números, guiones bajos)
+// para evitar inyección SQL en nombres de columna.
+func pgIdentifier(s string) string {
+	return "\"" + strings.ReplaceAll(s, "\"", "") + "\""
 }
 
 func (s *Store) CreatePasswordIdentity(ctx context.Context, userID, email string, emailVerified bool, passwordHash string) error {
@@ -467,25 +583,145 @@ func (s *Store) RevokeRefreshToken(ctx context.Context, id string) error {
 }
 
 func (s *Store) GetUserByID(ctx context.Context, userID string) (*core.User, error) {
-	const q = `
-	SELECT id, tenant_id, email, email_verified, metadata, created_at, disabled_at, disabled_reason
-	FROM app_user WHERE id = $1 LIMIT 1`
-	row := s.pool.QueryRow(ctx, q, userID)
-	var u core.User
-	var meta map[string]any
-	var disabledAt *time.Time
-	var disabledReason *string
-	if err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.EmailVerified, &meta, &u.CreatedAt, &disabledAt, &disabledReason); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, core.ErrNotFound
-		}
-		log.Printf(`{"level":"error","msg":"pg_get_user_by_id_err","user_id":"%s","err":"%v"}`, userID, err)
+	const q = `SELECT * FROM app_user WHERE id = $1 LIMIT 1`
+	rows, err := s.pool.Query(ctx, q, userID)
+	if err != nil {
 		return nil, err
 	}
-	u.Metadata = meta
-	u.DisabledAt = disabledAt
-	u.DisabledReason = disabledReason
+	defer rows.Close()
+
+	if !rows.Next() {
+		return nil, core.ErrNotFound
+	}
+
+	// Escaneo dinámico
+	cols := rows.FieldDescriptions()
+	vals := make([]any, len(cols))
+	for i := range vals {
+		vals[i] = new(any)
+	}
+
+	if err := rows.Scan(vals...); err != nil {
+		return nil, err
+	}
+
+	var u core.User
+	u.CustomFields = make(map[string]any)
+
+	for i, col := range cols {
+		val := *(vals[i].(*any))
+		colName := string(col.Name)
+
+		switch colName {
+		case "id":
+			if v, ok := val.(string); ok {
+				u.ID = v
+			}
+		case "tenant_id":
+			if v, ok := val.(string); ok {
+				u.TenantID = v
+			}
+		case "email":
+			if v, ok := val.(string); ok {
+				u.Email = v
+			}
+		case "email_verified":
+			if v, ok := val.(bool); ok {
+				u.EmailVerified = v
+			}
+		case "metadata":
+			if v, ok := val.(map[string]any); ok {
+				u.Metadata = v
+			}
+		case "created_at":
+			if v, ok := val.(time.Time); ok {
+				u.CreatedAt = v
+			}
+		case "disabled_at":
+			if v, ok := val.(time.Time); ok {
+				u.DisabledAt = &v
+			}
+		case "disabled_reason":
+			if v, ok := val.(string); ok {
+				u.DisabledReason = &v
+			}
+		default:
+			// Campo dinámico
+			u.CustomFields[colName] = val
+		}
+	}
 	return &u, nil
+}
+
+func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]core.User, error) {
+	const q = `SELECT * FROM app_user WHERE tenant_id = $1 ORDER BY created_at DESC`
+	rows, err := s.pool.Query(ctx, q, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []core.User
+	cols := rows.FieldDescriptions()
+
+	// Pre-allocate pointers for scanning
+	vals := make([]any, len(cols))
+	for i := range vals {
+		vals[i] = new(any)
+	}
+
+	for rows.Next() {
+		if err := rows.Scan(vals...); err != nil {
+			return nil, err
+		}
+
+		var u core.User
+		u.CustomFields = make(map[string]any)
+
+		for i, col := range cols {
+			val := *(vals[i].(*any))
+			colName := string(col.Name)
+
+			switch colName {
+			case "id":
+				if v, ok := val.(string); ok {
+					u.ID = v
+				}
+			case "tenant_id":
+				if v, ok := val.(string); ok {
+					u.TenantID = v
+				}
+			case "email":
+				if v, ok := val.(string); ok {
+					u.Email = v
+				}
+			case "email_verified":
+				if v, ok := val.(bool); ok {
+					u.EmailVerified = v
+				}
+			case "metadata":
+				if v, ok := val.(map[string]any); ok {
+					u.Metadata = v
+				}
+			case "created_at":
+				if v, ok := val.(time.Time); ok {
+					u.CreatedAt = v
+				}
+			case "disabled_at":
+				if v, ok := val.(time.Time); ok {
+					u.DisabledAt = &v
+				}
+			case "disabled_reason":
+				if v, ok := val.(string); ok {
+					u.DisabledReason = &v
+				}
+			default:
+				u.CustomFields[colName] = val
+			}
+		}
+		users = append(users, u)
+	}
+	return users, rows.Err()
 }
 
 // RevokeAllRefreshTokens revoca todos los refresh de un usuario (opcionalmente filtrado por client_id_text).

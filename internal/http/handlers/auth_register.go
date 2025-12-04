@@ -21,10 +21,11 @@ import (
 )
 
 type AuthRegisterRequest struct {
-	TenantID string `json:"tenant_id"`
-	ClientID string `json:"client_id"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	TenantID     string         `json:"tenant_id"`
+	ClientID     string         `json:"client_id"`
+	Email        string         `json:"email"`
+	Password     string         `json:"password"`
+	CustomFields map[string]any `json:"custom_fields,omitempty"`
 }
 
 type AuthRegisterResponse struct {
@@ -283,6 +284,7 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 			Email:         req.Email,
 			EmailVerified: false,
 			Metadata:      map[string]any{},
+			CustomFields:  req.CustomFields,
 		}
 		if err := repo.CreateUser(ctx, u); err != nil {
 			log.Printf("register: create user err: %v", err)

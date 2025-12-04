@@ -23,6 +23,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/cluster"
 	"github.com/dropDatabas3/hellojohn/internal/config"
 	cpfs "github.com/dropDatabas3/hellojohn/internal/controlplane/fs"
+	"github.com/dropDatabas3/hellojohn/internal/email"
 	httpmetrics "github.com/dropDatabas3/hellojohn/internal/http"
 	httpserver "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/http/handlers"
@@ -620,7 +621,8 @@ func main() {
 			MaxIdleConns:    1,
 			ConnMaxLifetime: 30 * time.Minute,
 		},
-		MetricsFunc: httpmetrics.RecordTenantMigration,
+		MigrationsDir: "migrations/postgres/tenant",
+		MetricsFunc:   httpmetrics.RecordTenantMigration,
 	})
 	if err != nil {
 		log.Fatalf("tenant sql manager: %v", err)
@@ -655,6 +657,7 @@ func main() {
 		stores *store.Stores
 		repo   core.Repository
 	)
+
 	if hasGlobalDB {
 		var err error
 		storePtr, err := store.OpenStores(ctx, store.Config{
@@ -679,11 +682,27 @@ func main() {
 
 		// Migraciones globales solo si hay DB
 		if cfg.Flags.Migrate {
-			if pg, ok := repo.(interface {
-				RunMigrations(context.Context, string) error
-			}); ok {
-				if err := pg.RunMigrations(ctx, "migrations/postgres"); err != nil {
-					log.Fatalf("migrations: %v", err)
+			// Check connectivity first
+			if pinger, ok := repo.(interface{ Ping(context.Context) error }); ok {
+				if err := pinger.Ping(ctx); err != nil {
+					log.Printf("WARN: Skipping migrations, DB unreachable: %v", err)
+				} else {
+					if pg, ok := repo.(interface {
+						RunMigrations(context.Context, string) error
+					}); ok {
+						if err := pg.RunMigrations(ctx, "migrations/postgres"); err != nil {
+							log.Fatalf("migrations: %v", err)
+						}
+					}
+				}
+			} else {
+				// Fallback if no Ping method (shouldn't happen for PG)
+				if pg, ok := repo.(interface {
+					RunMigrations(context.Context, string) error
+				}); ok {
+					if err := pg.RunMigrations(ctx, "migrations/postgres"); err != nil {
+						log.Printf("WARN: migrations failed (possibly DB down): %v", err)
+					}
 				}
 			}
 		}
@@ -727,7 +746,7 @@ func main() {
 		log.Printf("Using persistent file keystore at: %s", keysDir)
 	}
 	if err := ks.EnsureBootstrap(); err != nil {
-		log.Fatalf("bootstrap signing key: %v", err)
+		log.Printf("WARN: bootstrap signing key failed (DB down?): %v", err)
 	}
 
 	iss := cfg.JWT.Issuer
@@ -767,6 +786,7 @@ func main() {
 		Cache:            cc,
 		TenantSQLManager: tenantSQLManager,
 		Stores:           stores,
+		SenderProvider:   email.NewTenantSenderProvider(cpctx.Provider, cfg.Security.SecretBoxMasterKey),
 	}
 	// Asignar cluster node si existe
 	container.ClusterNode = clusterNode
@@ -972,19 +992,20 @@ func main() {
 	}
 
 	// ───────── Social: Google (solo si tenemos DB) ─────────
-	var googleStart, googleCallback http.Handler
-	var googleCleanup func()
-	if hasGlobalDB {
-		var gerr error
-		googleStart, googleCallback, googleCleanup, gerr =
-			handlers.BuildGoogleSocialHandlers(ctx, cfg, &container, refreshTTL)
-		if gerr != nil {
-			log.Fatalf("google social: %v", gerr)
-		}
-		if googleCleanup != nil {
-			defer googleCleanup()
-		}
-	}
+	// DEPRECATED: Replaced by DynamicSocialHandler
+	// var googleStart, googleCallback http.Handler
+	// var googleCleanup func()
+	// if hasGlobalDB {
+	// 	var gerr error
+	// 	googleStart, googleCallback, googleCleanup, gerr =
+	// 		handlers.BuildGoogleSocialHandlers(ctx, cfg, &container, refreshTTL)
+	// 	if gerr != nil {
+	// 		log.Fatalf("google social: %v", gerr)
+	// 	}
+	// 	if googleCleanup != nil {
+	// 		defer googleCleanup()
+	// 	}
+	// }
 
 	// MFA TOTP handlers (si store soporta) – se registran siempre; retornarán 501 si no hay soporte
 	mfa := handlers.NewMFAHandler(&container, cfg, refreshTTL)
@@ -996,6 +1017,9 @@ func main() {
 
 	// Social exchange (intercambio de código efímero -> tokens)
 	socialExchangeHandler := handlers.NewSocialExchangeHandler(&container)
+
+	// Dynamic Social Handler (replaces static Google handlers)
+	dynamicSocialHandler := handlers.NewDynamicSocialHandler(cfg, &container, refreshTTL)
 
 	// Mux base ampliado (incluye sprint 5 + MFA + social exchange)
 	mux := httpserver.NewMux(
@@ -1034,6 +1058,8 @@ func main() {
 		mfaRecoveryRotateHandler,
 		// social exchange
 		socialExchangeHandler,
+		// dynamic social
+		dynamicSocialHandler,
 
 		// admin
 		adminScopes,
@@ -1066,14 +1092,6 @@ func main() {
 	// Per-tenant OIDC Discovery (MVP compatible):
 	// Keep global endpoints; expose issuer/jwks per-tenant under /t/{slug}/.well-known/openid-configuration
 	mux.Handle("/t/", tenantOIDCDiscoveryHandler) // handler validates the exact suffix
-
-	// Rutas Google (solo si está habilitado)
-	if googleStart != nil {
-		mux.Handle("/v1/auth/social/google/start", googleStart)
-	}
-	if googleCallback != nil {
-		mux.Handle("/v1/auth/social/google/callback", googleCallback)
-	}
 
 	// Discovery de providers (siempre expuesto, sólo devuelve estado/URLs)
 	providersHandler := handlers.NewProvidersHandler(&container, cfg)

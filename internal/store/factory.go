@@ -3,15 +3,15 @@ package store
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
 	"github.com/dropDatabas3/hellojohn/internal/store/mongo"
 	"github.com/dropDatabas3/hellojohn/internal/store/mysql"
 	"github.com/dropDatabas3/hellojohn/internal/store/pg"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Config struct {
@@ -147,10 +147,10 @@ func openPGPool(ctx context.Context, dsn string, pc struct {
 	if err != nil {
 		return nil, fmt.Errorf("new pgxpool: %w", err)
 	}
-	// Conectar para fallar rápido si hay problema
+	// Non-blocking startup
 	if err := pool.Ping(ctx); err != nil {
-		pool.Close()
-		return nil, fmt.Errorf("pgxpool ping: %w", err)
+		// Log warning but proceed
+		log.Printf("WARN: pgxpool_startup_ping_failed: %v", err)
 	}
 	return pool, nil
 }

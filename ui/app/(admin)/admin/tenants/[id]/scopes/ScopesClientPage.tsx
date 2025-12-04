@@ -117,6 +117,17 @@ export default function ScopesClientPage() {
       })
       return
     }
+
+    const scopeRegex = /^[a-z0-9:._-]+$/
+    if (!scopeRegex.test(newScope.name)) {
+      toast({
+        title: t("common.error"),
+        description: "El nombre del scope solo puede contener minúsculas, números, ':', '.', '_' y '-'.",
+        variant: "destructive",
+      })
+      return
+    }
+
     createMutation.mutate(newScope)
   }
 

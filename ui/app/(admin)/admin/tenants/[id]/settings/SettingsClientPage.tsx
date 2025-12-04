@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft, Save } from "lucide-react"
+import { ArrowLeft, Save, Download } from "lucide-react"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { Button } from "@/components/ui/button"
@@ -30,10 +30,8 @@ export default function SettingsClientPage() {
     enabled: !!tenantId,
     queryFn: () => api.get<Tenant>(`/v1/admin/tenants/${tenantId}`),
   })
-  // Captura de ETag requerida para PUT de settings (If-Match)
-  const [settingsEtag, setSettingsEtag] = useState<string | undefined>(undefined)
   const { data: settings, isLoading } = useQuery({
-    queryKey: ["tenant-settings", tenantId],
+    queryKey: ["tenant-settings", tenantId, "v2"],
     enabled: !!tenantId,
     queryFn: async () => {
       const token = (await import("@/lib/auth-store")).useAuthStore.getState().token
@@ -43,8 +41,9 @@ export default function SettingsClientPage() {
         },
       })
       const et = resp.headers.get("ETag") || undefined
-      setSettingsEtag(et || undefined)
-      return (await resp.json()) as any
+      const data = await resp.json()
+      // Return data with ETag embedded so it persists in cache
+      return { ...data, _etag: et }
     },
   })
 
@@ -53,13 +52,18 @@ export default function SettingsClientPage() {
 
   useEffect(() => {
     if (tenant) {
-      setFormData({ name: tenant.name, slug: tenant.slug })
+      setFormData({
+        name: tenant.name,
+        slug: tenant.slug,
+        display_name: tenant.display_name,
+      })
     }
   }, [tenant])
 
   useEffect(() => {
     if (settings) {
-      setSettingsData(settings)
+      const { _etag, ...rest } = settings
+      setSettingsData(rest)
     }
   }, [settings])
 
@@ -83,9 +87,15 @@ export default function SettingsClientPage() {
   })
 
   const updateSettingsMutation = useMutation({
-    mutationFn: (data: any) => api.put<any>(`/v1/admin/tenants/${tenantId}/settings`, data, settingsEtag),
+    mutationFn: (data: any) => {
+      const etag = settings?._etag
+      if (!etag) {
+        throw new Error("Missing ETag. Please refresh the page.")
+      }
+      return api.put<any>(`/v1/admin/tenants/${tenantId}/settings`, data, etag)
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["tenant-settings", tenantId] })
+      queryClient.invalidateQueries({ queryKey: ["tenant-settings", tenantId, "v2"] })
       toast({
         title: t("tenants.settingsUpdated"),
         description: t("tenants.settingsUpdatedDesc"),
@@ -106,6 +116,46 @@ export default function SettingsClientPage() {
 
   const handleSaveSettings = () => {
     updateSettingsMutation.mutate(settingsData)
+  }
+
+  const handleExport = async () => {
+    try {
+      const [clients, scopes, users] = await Promise.all([
+        api.get(`/v1/admin/tenants/${tenantId}/clients`),
+        api.get(`/v1/admin/tenants/${tenantId}/scopes`),
+        api.get(`/v1/admin/tenants/${tenantId}/users`),
+      ])
+
+      const exportData = {
+        tenant: tenant,
+        settings: settingsData,
+        clients,
+        scopes,
+        users,
+        exportedAt: new Date().toISOString(),
+      }
+
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `tenant-${tenant?.slug}-config.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      toast({
+        title: "Exportación exitosa",
+        description: "La configuración se ha descargado correctamente.",
+      })
+    } catch (e) {
+      toast({
+        title: "Error al exportar",
+        description: "No se pudo generar el archivo de configuración.",
+        variant: "destructive",
+      })
+    }
   }
 
   if (isLoading) {
@@ -130,6 +180,10 @@ export default function SettingsClientPage() {
             <p className="text-muted-foreground">{tenant?.name}</p>
           </div>
         </div>
+        <Button variant="outline" onClick={handleExport}>
+          <Download className="mr-2 h-4 w-4" />
+          Exportar Configuración
+        </Button>
       </div>
 
       <Tabs defaultValue="basic" className="space-y-6">

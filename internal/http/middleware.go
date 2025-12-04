@@ -53,10 +53,10 @@ func WithCORS(next http.Handler, allowed []string) http.Handler {
 			h := w.Header()
 			h.Set("Access-Control-Allow-Origin", allowedOrigin)
 			h.Set("Access-Control-Allow-Credentials", "true")
-			h.Set("Access-Control-Allow-Methods", "GET,POST,HEAD,OPTIONS")
-			h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID")
+			h.Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,HEAD,OPTIONS")
+			h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, If-Match")
 			// Exponer headers útiles a fetch()
-			h.Set("Access-Control-Expose-Headers", "X-Request-ID, X-RateLimit-Remaining, X-RateLimit-Limit, X-RateLimit-Reset, Retry-After, WWW-Authenticate, Location")
+			h.Set("Access-Control-Expose-Headers", "ETag, X-Request-ID, X-RateLimit-Remaining, X-RateLimit-Limit, X-RateLimit-Reset, Retry-After, WWW-Authenticate, Location")
 			h.Set("Access-Control-Max-Age", "600") // preflight 10m
 		}
 

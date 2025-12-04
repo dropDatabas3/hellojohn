@@ -21,7 +21,9 @@ type ConsentRow = {
   created_at?: string
 }
 
-export default function ConsentsPage() {
+import { Suspense } from "react"
+
+function ConsentsContent() {
   const params = useParams()
   const search = useSearchParams()
   const { t } = useI18n()
@@ -145,5 +147,13 @@ export default function ConsentsPage() {
         )}
       </Card>
     </div>
+  )
+}
+
+export default function ConsentsPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <ConsentsContent />
+    </Suspense>
   )
 }

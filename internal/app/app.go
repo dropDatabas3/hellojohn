@@ -6,7 +6,9 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/cache"
 	"github.com/dropDatabas3/hellojohn/internal/cluster"
+	"github.com/dropDatabas3/hellojohn/internal/email"
 	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
+	"github.com/dropDatabas3/hellojohn/internal/infra/tenantcache"
 	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/store"
@@ -27,6 +29,9 @@ type Container struct {
 
 	// TenantSQLManager para bases de datos por tenant (S3/S4)
 	TenantSQLManager *tenantsql.Manager
+
+	// TenantCacheManager para caches por tenant
+	TenantCacheManager *tenantcache.Manager
 
 	// ClusterNode provee acceso a estado/rol de Raft embebido
 	ClusterNode *cluster.Node
@@ -50,6 +55,9 @@ type Container struct {
 	//       * para "access": addStd -> claims top-level; addExtra -> claims bajo "custom"
 	//       * para "id":     addStd -> claims top-level; addExtra -> claims top-level (extras benignos)
 	ClaimsHook func(ctx context.Context, ev ClaimsEvent) (addStd map[string]any, addExtra map[string]any, err error)
+
+	// SenderProvider resolves email sender for tenants
+	SenderProvider email.SenderProvider
 }
 
 // ClaimsEvent encapsula el contexto de emisión que se expone al hook.

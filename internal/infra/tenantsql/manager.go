@@ -14,19 +14,21 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/security/secretbox"
 	"github.com/dropDatabas3/hellojohn/internal/store/pg"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
-	ErrNoDBForTenant           = errors.New("no database configured for tenant")
 	ErrResolverNotConfigured   = errors.New("tenant resolver not configured")
-	ErrControlPlaneUnavailable = errors.New("control plane provider not initialized")
+	ErrControlPlaneUnavailable = errors.New("control plane unavailable")
 	ErrTenantNotFound          = errors.New("tenant not found")
+	ErrNoDBForTenant           = errors.New("no database configured for tenant")
 )
 
-// IsNoDBForTenant indicates whether the error means a tenant lacks DB configuration.
-func IsNoDBForTenant(err error) bool { return errors.Is(err, ErrNoDBForTenant) }
+// IsNoDBForTenant checks if the error indicates that no database is configured for the tenant.
+func IsNoDBForTenant(err error) bool {
+	return errors.Is(err, ErrNoDBForTenant)
+}
 
-// TenantConnection representa la configuración mínima necesaria para abrir un pool.
 type TenantConnection struct {
 	Driver string
 	DSN    string
@@ -222,7 +224,7 @@ func (m *Manager) createStore(ctx context.Context, slug string) (*pg.Store, erro
 			tenantID = t.ID
 		}
 	}
-	applied, err := RunMigrationsWithLock(ctx, store.Pool(), m.migrationsDir, tenantID)
+	applied, err := RunMigrationsWithLock(ctx, store.Pool(), m.migrationsDir, tenantID, conn.Schema)
 	migrationDuration := time.Since(start)
 
 	if err != nil {
@@ -247,6 +249,65 @@ func (m *Manager) createStore(ctx context.Context, slug string) (*pg.Store, erro
 
 	log.Printf(`{"level":"info","msg":"tenant_pg_pool_ready","tenant":"%s","max_conns":%d}`, slug, m.poolCfg.MaxOpenConns)
 	return store, nil
+}
+
+// MigrateTenant forces migration execution for a specific tenant.
+func (m *Manager) MigrateTenant(ctx context.Context, slug string) (int, error) {
+	// 1. Resolve connection
+	conn, err := m.resolver(ctx, slug)
+	if err != nil {
+		return 0, err
+	}
+	if conn == nil || strings.TrimSpace(conn.DSN) == "" {
+		return 0, ErrNoDBForTenant
+	}
+
+	// 2. Create transient pool
+	pool, err := pgxpool.New(ctx, conn.DSN)
+	if err != nil {
+		return 0, fmt.Errorf("connect: %w", err)
+	}
+	defer pool.Close()
+
+	// 3. Run Migrations (Tracked)
+	// Use slug as tenantIdent for locking
+	return RunMigrationsWithLock(ctx, pool, m.migrationsDir, slug, conn.Schema)
+}
+
+// MigrateAll runs migrations for all tenants concurrently.
+// It requires a list of tenants (slugs) to iterate over.
+func (m *Manager) MigrateAll(ctx context.Context, tenants []string) (map[string]string, error) {
+	results := make(map[string]string)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// Worker pool size
+	concurrency := 5
+	sem := make(chan struct{}, concurrency)
+
+	for _, slug := range tenants {
+		wg.Add(1)
+		go func(s string) {
+			defer wg.Done()
+			sem <- struct{}{}        // Acquire
+			defer func() { <-sem }() // Release
+
+			count, err := m.MigrateTenant(ctx, s)
+
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				results[s] = fmt.Sprintf("error: %v", err)
+				log.Printf("Migration failed for %s: %v", s, err)
+			} else {
+				results[s] = fmt.Sprintf("success: %d applied", count)
+				log.Printf("Migration success for %s: %d applied", s, count)
+			}
+		}(slug)
+	}
+
+	wg.Wait()
+	return results, nil
 }
 
 // HasPendingMigrations returns whether the tenant likely has pending migrations.
@@ -341,4 +402,32 @@ func (m *Manager) Close() error {
 		delete(m.stores, slug)
 	}
 	return nil
+}
+
+// GetStats returns database statistics for a tenant.
+func (m *Manager) GetStats(ctx context.Context, slug string) (map[string]any, error) {
+	// Get store (creates connection if needed)
+	store, err := m.GetPG(ctx, slug)
+	if err != nil {
+		return nil, err
+	}
+
+	var size string
+	var tableCount int
+
+	// Execute queries
+	// 1. DB Size
+	if err := store.Pool().QueryRow(ctx, "SELECT pg_size_pretty(pg_database_size(current_database()))").Scan(&size); err != nil {
+		return nil, fmt.Errorf("failed to get db size: %w", err)
+	}
+
+	// 2. Table Count (public schema)
+	if err := store.Pool().QueryRow(ctx, "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'").Scan(&tableCount); err != nil {
+		return nil, fmt.Errorf("failed to get table count: %w", err)
+	}
+
+	return map[string]any{
+		"size":        size,
+		"table_count": tableCount,
+	}, nil
 }

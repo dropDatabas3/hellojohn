@@ -216,8 +216,8 @@ export default function DashboardPage() {
                 const variant = ["ok", "ready", "healthy"].includes(status)
                   ? "default"
                   : status === "degraded"
-                  ? "secondary"
-                  : "destructive"
+                    ? "secondary"
+                    : "destructive"
                 return (
                   <div key={key} className="flex items-center justify-between rounded-lg border p-3">
                     <span className="text-sm font-medium capitalize">{key.replace(/_/g, " ")}</span>
@@ -251,7 +251,7 @@ export default function DashboardPage() {
               {tenants.slice(0, 5).map((tenant) => (
                 <Link
                   key={tenant.id}
-                  href={`/admin/tenants/${tenant.slug}`}
+                  href={`/admin/tenants/detail?id=${tenant.id}`}
                   className="flex items-center justify-between rounded-lg border p-3 transition-colors hover:bg-accent"
                 >
                   <div className="flex items-center gap-3">
