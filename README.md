@@ -2,7 +2,7 @@
 
 > **Plataforma de Identidad y Autenticación Multi-tenant Distribuida**
 >
-> HelloJohn es una solución moderna, segura y escalable para la gestión de identidad (IAM), diseñada para soportar múltiples inquilinos (tenants) con aislamiento estricto de datos y configuración flexible.
+> HelloJohn es una solución moderna, segura y escalable para la gestión de identidad (IAM), diseñada para soportar múltiples organizaciones (tenants) con aislamiento estricto de datos y configuración flexible.
 
 ![Go Version](https://img.shields.io/badge/Go-1.23-00ADD8?style=flat&logo=go)
 ![Next.js Version](https://img.shields.io/badge/Next.js-16-black?style=flat&logo=next.js)
