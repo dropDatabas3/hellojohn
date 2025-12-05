@@ -50,7 +50,7 @@ contar_estructura.ps1
 /ui/.vercel_build_output/
 
 # Context docs
-/docs/
+
 
 
 # ───────── SDKs ─────────
