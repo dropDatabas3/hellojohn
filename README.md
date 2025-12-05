@@ -8,9 +8,9 @@
 ![Next.js Version](https://img.shields.io/badge/Next.js-16-black?style=flat&logo=next.js)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
-
+![Ask DeepWiki](https://deepwiki.com/badge.svg)
 > **Documentación Extendida (Deep Dives):**
-> *   [![Ask DeepWiki](https://deepwiki.com/badge.svg) Documentación Interactiva](https://deepwiki.com/dropDatabas3/hellojohn)
+> *   [🤖 Documentación Interactiva](https://deepwiki.com/dropDatabas3/hellojohn)
 > *   [🏛 Arquitectura: Control Plane & Raft](docs/architecture/control_plane_raft.md)
 > *   [💾 Datos & Multi-tenancy](docs/data/multitenancy.md)
 > *   [🔒 API, Auth & Seguridad](docs/api/endpoints_security.md)
