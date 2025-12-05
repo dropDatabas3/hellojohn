@@ -10,7 +10,7 @@
 ![Build Status](https://img.shields.io/badge/build-passing-brightgreen)
 
 > **Documentación Extendida (Deep Dives):**
-> *   [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/dropDatabas3/hellojohn)
+> *   [![Ask DeepWiki](https://deepwiki.com/badge.svg) Documentación Interactiva](https://deepwiki.com/dropDatabas3/hellojohn)
 > *   [🏛 Arquitectura: Control Plane & Raft](docs/architecture/control_plane_raft.md)
 > *   [💾 Datos & Multi-tenancy](docs/data/multitenancy.md)
 > *   [🔒 API, Auth & Seguridad](docs/api/endpoints_security.md)
