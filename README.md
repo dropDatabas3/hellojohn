@@ -71,9 +71,9 @@ graph TD
     App -->|Cache| Redis[(Redis)]
     
     subgraph "Data Isolation"
-        DB --> SchemaPublic[Schema: Public (Config)]
-        DB --> SchemaT1[Schema: Tenant A]
-        DB --> SchemaT2[Schema: Tenant B]
+        DB --> SchemaPublic["Schema: Public (Config)"]
+        DB --> SchemaT1["Schema: Tenant A"]
+        DB --> SchemaT2["Schema: Tenant B"]
     end
     
     App <-->|Consensus| Raft
@@ -101,12 +101,16 @@ graph TD
 
 > ⚙️ [Ver detalles de Infraestructura e Implementación](docs/ops/infra_util.md)
 
-### Frontend (Admin Panel)
-*   **Framework**: [Next.js 16](https://nextjs.org/) (App Router).
-*   **UI Library**: [React 19](https://react.dev/).
-*   **Estilos**: [Tailwind CSS 4](https://tailwindcss.com/).
-*   **Componentes**: Radix UI / Shadcn.
-*   **Estado**: React Query (Server State) + Zustand (Client State).
+### Frontend (Panel de Administración)
+
+Ubicado en la carpeta `ui/`, este panel es el centro de control de HelloJohn.
+*   **Funcionalidades**:
+    *   **Gestión de Organizaciones**: Crear, suspender y configurar tenants.
+    *   **Gestión de Usuarios**: ABM completo de usuarios con soporte para Campos Dinámicos.
+    *   **Clientes OAuth**: Registro y configuración de apps cliente.
+    *   **Configuración**: Ajustes de seguridad, SMTP y personalización visual.
+*   **Arquitectura**: Diseñado para ser exportado estáticamente y **embebido dentro del binario de Go**, permitiendo una distribución de "Single Binary" sin dependencias externas de Node.js en producción.
+*   **Stack**: Next.js 16 (App Router), React 19, Tailwind CSS 4, React Query, Zustand.
 
 ---
 
@@ -270,7 +274,7 @@ sequenceDiagram
 Hacia dónde nos dirigimos para hacer de HelloJohn la plataforma de identidad definitiva:
 
 *   **Soporte Multi-Driver de Base de Datos**: Abstracción de la capa de almacenamiento para soportar no solo PostgreSQL, sino también MySQL, SQLite (para Edge/IoT) y bases de datos distribuidas como CockroachDB.
-*   **Componentes UI Exportables**: Desarrollo de una librería de componentes React (`@hellojohn/ui`) que los desarrolladores puedan importar en sus propias aplicaciones para incrustar formularios de login, registro y perfil, manteniendo la coherencia visual.
+*   **Componentes UI Exportables (En Progreso)**: Estamos trabajando en desacoplar los formularios de login/registro para crear una librería de componentes que puedan ser integrados directamente en las aplicaciones de los clientes.
 *   **Claims Dinámicos & RBAC Avanzado**: Implementación de un motor de reglas (posiblemente basado en CEL o Lua) para inyectar *claims* personalizados en los tokens en tiempo de ejecución, basados en contexto (IP, hora, grupo).
 *   **Auditoría y Observabilidad**: Sistema de logs estructurados y dashboards integrados para visualizar eventos de seguridad, intentos de login fallidos y actividad de administración.
 *   **Integración con WebAuthn/Passkeys**: Soporte nativo para autenticación biométrica sin contraseñas.

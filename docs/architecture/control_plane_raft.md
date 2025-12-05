@@ -81,7 +81,7 @@ El `Provider` es la interfaz que el resto de la aplicación usa para leer la con
 
 ### Estructuras Importantes (`types.go`)
 
-*   `Tenant`: Define la identidad y settings globales de un inquilino.
+*   `Tenant`: Define la identidad y settings globales de una organización.
 *   `TenantSettings`: Configuración encriptada (SMTP, DB DSN) y pública (UserFields, UI customization).
 *   `Client`: Aplicaciones OAuth2 registradas.
 

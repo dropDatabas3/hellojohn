@@ -2,7 +2,7 @@
 
 ## Introducción
 
-La arquitectura de datos de HelloJohn está diseñada para garantizar el aislamiento estricto de los datos de cada tenant ("Inquilino"), permitiendo al mismo tiempo flexibilidad en el esquema de datos (Campos Dinámicos) y escalabilidad.
+La arquitectura de datos de HelloJohn está diseñada para garantizar el aislamiento estricto de los datos de cada tenant ("Organización"), permitiendo al mismo tiempo flexibilidad en el esquema de datos (Campos Dinámicos) y escalabilidad.
 
 Categorías cubiertas: `@[internal/infra/db]`, `@[internal/store/pg]`, `@[internal/store]`.
 

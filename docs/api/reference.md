@@ -34,7 +34,7 @@ Endpoints utilizados por la interfaz de usuario de Login/Registro (UI) para inte
 
 ## 🛠 Admin API: Tenants
 
-Gestión de inquilinos y su configuración. Requiere autenticación de administrador.
+Gestión de organizaciones y su configuración. Requiere autenticación de administrador.
 
 | Método | Endpoint | Descripción |
 | :--- | :--- | :--- |
@@ -47,7 +47,7 @@ Gestión de inquilinos y su configuración. Requiere autenticación de administr
 
 ## 👥 Admin API: Usuarios
 
-Gestión de usuarios dentro de un tenant.
+Gestión de usuarios dentro de una organización.
 
 | Método | Endpoint | Descripción |
 | :--- | :--- | :--- |

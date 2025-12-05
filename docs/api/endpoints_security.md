@@ -21,7 +21,7 @@ Endpoints públicos para flujos de autenticación.
 
 ### 2. Admin API (`/v1/admin`)
 Endpoints protegidos para gestión del sistema. Requieren autenticación y roles de administrador.
-*   `/tenants`: Gestión de inquilinos.
+*   `/tenants`: Gestión de organizaciones.
 *   `/users`: Gestión de usuarios (Disable, Delete, Campos Custom).
 *   `/clients`: Gestión de aplicaciones OAuth.
 
