@@ -46,12 +46,30 @@ contar_estructura.ps1
 /ui/.env.test.local
 /ui/.env.production.local
 /ui/build.log
-/ui/.vercel/
-/ui/.vercel_build_output/
 
 # Context docs
 
-
+roadmap.md
+roadmap_v2.md
 
 # ───────── SDKs ─────────
-sdks/
+/sdks/
+/sdks/js/node_modules
+/sdks/js/.next
+/sdks/js/.env.local
+/sdks/js/.env.development.local
+/sdks/js/.env.test.local
+/sdks/js/.env.production.local
+/sdks/node/node_modules
+/sdks/node/.next
+/sdks/react/node_modules
+/sdks/react/.next
+
+
+/images
+/bananacorp
+
+/bananacorp/node_modules
+/bananacorp/.next/
+/deployments/docker-compose-storage.yaml
+/deployments/run-3nodes.ps1

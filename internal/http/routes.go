@@ -3,6 +3,8 @@ package http
 import (
 	stdhttp "net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -33,6 +35,7 @@ func NewMux(
 	verifyEmailConfirmHandler stdhttp.Handler, // GET  /v1/auth/verify-email
 	forgotHandler stdhttp.Handler, // POST /v1/auth/forgot
 	resetHandler stdhttp.Handler, // POST /v1/auth/reset
+	authConfigHandler stdhttp.Handler, // GET /v1/auth/config
 
 	// CSRF token issuer
 	csrfGet stdhttp.Handler, // GET /v1/csrf
@@ -111,7 +114,6 @@ func NewMux(
 	mux.Handle("/v1/auth/logout", authLogoutHandler)
 	mux.Handle("/v1/me", meHandler)
 
-	// Logout all
 	mux.Handle("/v1/auth/logout-all", authLogoutAll)
 
 	// Cookie session para /oauth2/authorize
@@ -126,6 +128,9 @@ func NewMux(
 	mux.Handle("/v1/auth/verify-email", verifyEmailConfirmHandler)     // GET
 	mux.Handle("/v1/auth/forgot", forgotHandler)                       // POST
 	mux.Handle("/v1/auth/reset", resetHandler)                         // POST
+
+	// Branding / Public Config
+	mux.Handle("/v1/auth/config", authConfigHandler) // GET
 
 	// CSRF token endpoint
 	mux.Handle("/v1/csrf", csrfGet)
@@ -210,6 +215,19 @@ func NewMux(
 			_, _ = w.Write([]byte("shutting down"))
 		})
 	}
+
+	// Assets: Serve tenant images from ./data/hellojohn
+	// Security: Only allow image extensions to prevent reading tenant.yaml or other sensitive data
+	fileServer := stdhttp.FileServer(stdhttp.Dir("./data/hellojohn"))
+	mux.Handle("/v1/assets/", stdhttp.StripPrefix("/v1/assets/", stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		ext := strings.ToLower(filepath.Ext(r.URL.Path))
+		switch ext {
+		case ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico":
+			fileServer.ServeHTTP(w, r)
+		default:
+			stdhttp.Error(w, "Forbidden: Only image assets are allowed", stdhttp.StatusForbidden)
+		}
+	})))
 
 	return mux
 }

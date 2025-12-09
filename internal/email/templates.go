@@ -14,6 +14,13 @@ type Templates struct {
 	ResetTXT   *texttpl.Template
 }
 
+const (
+	TemplateVerify        = "verify_email"
+	TemplateReset         = "reset_password"
+	TemplateUserBlocked   = "user_blocked"
+	TemplateUserUnblocked = "user_unblocked"
+)
+
 type VerifyVars struct {
 	UserEmail string
 	Tenant    string

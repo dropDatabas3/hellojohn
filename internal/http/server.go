@@ -37,7 +37,6 @@ func intFromEnv(key string, def int) int {
 // Timeouts por defecto (overridable por env):
 //
 //	HTTP_READ_HEADER_TIMEOUT = 5s
-//	HTTP_READ_TIMEOUT        = 15s
 //	HTTP_WRITE_TIMEOUT       = 15s
 //	HTTP_IDLE_TIMEOUT        = 60s
 //	HTTP_SHUTDOWN_TIMEOUT    = 10s

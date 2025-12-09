@@ -100,3 +100,8 @@ func DecryptPrivateKey(encrypted []byte, masterKeyHex string) ([]byte, error) {
 func EncodeBase64URL(b []byte) string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
+
+// DecodeBase64URL decodifica base64url sin padding.
+func DecodeBase64URL(s string) ([]byte, error) {
+	return base64.RawURLEncoding.DecodeString(s)
+}

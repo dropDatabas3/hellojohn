@@ -37,29 +37,8 @@ import {
   Power,
   Eye,
   EyeOff,
-  Plus,
-  Trash2,
-  Settings2,
 } from "lucide-react"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 
-import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -83,19 +62,9 @@ interface CacheSettings {
   passEnc?: string // To check if configured
 }
 
-interface UserFieldDefinition {
-  name: string
-  type: string // text, int, boolean, date
-  required?: boolean
-  unique?: boolean
-  indexed?: boolean
-  description?: string
-}
-
 interface TenantSettings {
   userDb?: UserDBSettings
   cache?: CacheSettings
-  user_fields?: UserFieldDefinition[]
 }
 
 export default function DatabasePage() {
@@ -128,19 +97,8 @@ export default function DatabasePage() {
     prefix: "",
   })
 
-  // Fields State
-  const [isFieldsDialogOpen, setIsFieldsDialogOpen] = useState(false)
-  const [editingFieldIdx, setEditingFieldIdx] = useState<number | null>(null)
-  const [fieldForm, setFieldForm] = useState<UserFieldDefinition>({
-    name: "",
-    type: "text",
-    required: false,
-    unique: false,
-    indexed: false,
-    description: "",
-  })
-  const [localFields, setLocalFields] = useState<UserFieldDefinition[]>([])
-  const [hasFieldChanges, setHasFieldChanges] = useState(false)
+
+
 
   // --- Queries ---
   // ... (existing queries)
@@ -219,8 +177,7 @@ export default function DatabasePage() {
         setIsEditingCache(false)
       }
       // Fields Init
-      setLocalFields(settings.user_fields || [])
-      setHasFieldChanges(false)
+
     }
   }, [settings])
 
@@ -377,80 +334,7 @@ export default function DatabasePage() {
     setIsEditingCache(false)
   }
 
-  // --- Fields Handlers ---
-  const handleOpenFieldDialog = (field?: UserFieldDefinition, idx?: number) => {
-    if (field) {
-      setFieldForm(field)
-      setEditingFieldIdx(idx ?? null)
-    } else {
-      setFieldForm({
-        name: "",
-        type: "text",
-        required: false,
-        unique: false,
-        indexed: false,
-        description: "",
-      })
-      setEditingFieldIdx(null)
-    }
-    setIsFieldsDialogOpen(true)
-  }
 
-  const handleLocalSaveField = () => {
-    // Validate
-    if (!fieldForm.name || !fieldForm.type) {
-      toast({
-        variant: "destructive",
-        title: t("common.error"),
-        description: "Name and Type are required",
-      })
-      return
-    }
-
-    const nameExists = localFields.some((f, i) =>
-      f.name.toLowerCase() === fieldForm.name.toLowerCase() && i !== editingFieldIdx
-    )
-
-    if (nameExists) {
-      toast({
-        variant: "destructive",
-        title: t("common.error"),
-        description: "Field name already exists",
-      })
-      return
-    }
-
-    let newFields = [...localFields]
-    if (editingFieldIdx !== null) {
-      // Edit
-      newFields[editingFieldIdx] = fieldForm
-    } else {
-      // Add
-      newFields.push(fieldForm)
-    }
-
-    setLocalFields(newFields)
-    setHasFieldChanges(true)
-    setIsFieldsDialogOpen(false)
-  }
-
-  const handleLocalDeleteField = (idx: number) => {
-    const newFields = localFields.filter((_, i) => i !== idx)
-    setLocalFields(newFields)
-    setHasFieldChanges(true)
-  }
-
-  const handleSaveAllFields = () => {
-    updateSettingsMutation.mutate({
-      user_fields: localFields,
-    })
-    setHasFieldChanges(false)
-  }
-
-  const handleCancelFieldChanges = () => {
-    setLocalFields(settings?.user_fields || [])
-    setHasFieldChanges(false)
-  }
 
 
 
@@ -467,7 +351,8 @@ export default function DatabasePage() {
   }
 
   const isDBConfigured = !!settings?.userDb?.dsnEnc || !!settings?.userDb?.dsn
-  const isCacheConfigured = !!settings?.cache?.enabled
+  const isCacheConfigured = !!settings?.cache // Show config if struct exists
+
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -684,11 +569,6 @@ export default function DatabasePage() {
                 <CardTitle>{t("database.cacheTitle")}</CardTitle>
               </div>
               <div className="flex items-center space-x-2">
-                <Label htmlFor="cache-mode" className="text-sm font-normal text-muted-foreground">
-                  {cacheForm.enabled
-                    ? t("common.enabled")
-                    : t("common.disabled")}
-                </Label>
                 <Switch
                   id="cache-mode"
                   checked={cacheForm.enabled}
@@ -807,7 +687,7 @@ export default function DatabasePage() {
             ) : (
               // VIEW MODE
               <div className="space-y-4 py-2">
-                {cacheForm.enabled ? (
+                {isCacheConfigured ? (
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div className="p-3 rounded-lg bg-muted/50">
                       <span className="font-medium text-muted-foreground block mb-1 text-xs uppercase tracking-wider">
@@ -903,184 +783,8 @@ export default function DatabasePage() {
           </CardFooter>
         </Card>
       </div>
-
-      {/* USER FIELDS CARD */}
-      <Card className="flex flex-col h-full">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <div className="p-2 bg-purple-500/10 rounded-lg">
-                <Settings2 className="h-5 w-5 text-purple-600" />
-              </div>
-              <CardTitle>Campos de Usuario</CardTitle>
-            </div>
-            <Button size="sm" onClick={() => handleOpenFieldDialog()}>
-              <Plus className="mr-2 h-4 w-4" />
-              Agregar Campo
-            </Button>
-          </div>
-          <CardDescription>
-            Define campos personalizados para el perfil de usuario. Estos se agregarán como columnas en la base de datos.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nombre</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead className="text-center">Requerido</TableHead>
-                  <TableHead className="text-center">Único</TableHead>
-                  <TableHead className="text-center">Indexado</TableHead>
-                  <TableHead className="text-right">Acciones</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(!localFields || localFields.length === 0) ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center">
-                      No hay campos personalizados definidos.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  localFields.map((field, idx) => (
-                    <TableRow key={idx}>
-                      <TableCell className="font-medium">{field.name}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{field.type}</Badge>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {field.required && <CheckCircle2 className="h-4 w-4 mx-auto text-green-500" />}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {field.unique && <CheckCircle2 className="h-4 w-4 mx-auto text-blue-500" />}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {field.indexed && <CheckCircle2 className="h-4 w-4 mx-auto text-gray-500" />}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="icon" onClick={() => handleOpenFieldDialog(field, idx)}>
-                            <Edit2 className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600" onClick={() => handleLocalDeleteField(idx)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-        <CardFooter className="mt-auto flex items-center justify-end gap-2 px-4 py-4">
-          {hasFieldChanges && (
-            <>
-              <Button variant="ghost" onClick={handleCancelFieldChanges}>
-                Cancelar
-              </Button>
-              <Button onClick={handleSaveAllFields} disabled={updateSettingsMutation.isPending}>
-                {updateSettingsMutation.isPending ? "Guardando..." : "Guardar Cambios"}
-              </Button>
-            </>
-          )}
-        </CardFooter>
-      </Card>
-
-      {/* FIELD DIALOG */}
-      <Dialog open={isFieldsDialogOpen} onOpenChange={setIsFieldsDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingFieldIdx !== null ? "Editar Campo" : "Agregar Campo"}</DialogTitle>
-            <DialogDescription>
-              Configura las propiedades del campo. Los cambios se aplicarán al guardar la lista completa.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Nombre</Label>
-                <Input
-                  placeholder="ej. telefono"
-                  value={fieldForm.name}
-                  onChange={(e) => setFieldForm({ ...fieldForm, name: e.target.value })}
-                  disabled={editingFieldIdx !== null} // Prevent renaming for now
-                />
-                {editingFieldIdx !== null && <p className="text-xs text-muted-foreground">El nombre no se puede cambiar una vez creado.</p>}
-              </div>
-              <div className="space-y-2">
-                <Label>Tipo</Label>
-                <Select
-                  value={fieldForm.type}
-                  onValueChange={(val) => setFieldForm({ ...fieldForm, type: val })}
-                  disabled={editingFieldIdx !== null} // Prevent type change for now
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="text">Texto</SelectItem>
-                    <SelectItem value="int">Número Entero</SelectItem>
-                    <SelectItem value="boolean">Booleano</SelectItem>
-                    <SelectItem value="date">Fecha/Hora</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Descripción</Label>
-              <Textarea
-                placeholder="Descripción opcional..."
-                value={fieldForm.description || ""}
-                onChange={(e) => setFieldForm({ ...fieldForm, description: e.target.value })}
-              />
-            </div>
-            <div className="flex flex-col gap-4 border p-4 rounded-lg">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Requerido (Not Null)</Label>
-                  <p className="text-xs text-muted-foreground">Si se activa en una tabla con datos, fallará si hay nulos.</p>
-                </div>
-                <Switch
-                  checked={fieldForm.required}
-                  onCheckedChange={(c) => setFieldForm({ ...fieldForm, required: c })}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Único (Unique)</Label>
-                  <p className="text-xs text-muted-foreground">No permitir valores duplicados.</p>
-                </div>
-                <Switch
-                  checked={fieldForm.unique}
-                  onCheckedChange={(c) => setFieldForm({ ...fieldForm, unique: c })}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Indexado</Label>
-                  <p className="text-xs text-muted-foreground">Mejora la velocidad de búsqueda.</p>
-                </div>
-                <Switch
-                  checked={fieldForm.indexed}
-                  onCheckedChange={(c) => setFieldForm({ ...fieldForm, indexed: c })}
-                />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsFieldsDialogOpen(false)}>Cancelar</Button>
-            <Button onClick={handleLocalSaveField}>
-              Agregar a Lista
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-
     </div>
   )
 }
+
+

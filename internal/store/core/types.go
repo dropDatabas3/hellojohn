@@ -35,15 +35,23 @@ type ClientVersion struct {
 }
 
 type User struct {
-	ID             string
-	TenantID       string
-	Email          string
-	EmailVerified  bool
-	Metadata       map[string]any
-	CreatedAt      time.Time
-	DisabledAt     *time.Time
-	DisabledReason *string
-	CustomFields   map[string]any
+	ID             string         `json:"id"`
+	TenantID       string         `json:"tenant_id"`
+	Email          string         `json:"email"`
+	EmailVerified  bool           `json:"email_verified"`
+	Metadata       map[string]any `json:"metadata"`
+	CreatedAt      time.Time      `json:"created_at"`
+	DisabledAt     *time.Time     `json:"disabled_at,omitempty"`
+	DisabledUntil  *time.Time     `json:"disabled_until,omitempty"`
+	DisabledReason *string        `json:"disabled_reason,omitempty"`
+	CustomFields   map[string]any `json:"custom_fields,omitempty"`
+
+	// Profile fields
+	Name       string `json:"name,omitempty"`
+	GivenName  string `json:"given_name,omitempty"`
+	FamilyName string `json:"family_name,omitempty"`
+	Picture    string `json:"picture,omitempty"`
+	Locale     string `json:"locale,omitempty"`
 }
 
 type Identity struct {

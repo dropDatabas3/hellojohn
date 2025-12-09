@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/cluster"
 	cp "github.com/dropDatabas3/hellojohn/internal/controlplane"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
+	"github.com/google/uuid"
 )
 
 type adminClientsFS struct {
@@ -19,6 +21,25 @@ type adminClientsFS struct {
 
 func NewAdminClientsFSHandler(c *app.Container) http.Handler {
 	return &adminClientsFS{container: c}
+}
+
+// isUUID checks if a string is a valid UUID
+func isUUID(s string) bool {
+	_, err := uuid.Parse(s)
+	return err == nil
+}
+
+// resolveTenantSlug converts a tenant ID (UUID) to its slug
+func resolveTenantSlug(ctx context.Context, idOrSlug string) string {
+	if !isUUID(idOrSlug) {
+		return idOrSlug
+	}
+	if fsp, ok := cp.AsFSProvider(cpctx.Provider); ok {
+		if t, err := fsp.GetTenantByID(ctx, idOrSlug); err == nil && t != nil {
+			return t.Slug
+		}
+	}
+	return idOrSlug // fallback
 }
 
 func (h *adminClientsFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -33,11 +54,11 @@ func (h *adminClientsFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if v := r.Header.Get("X-Tenant-Slug"); v != "" {
 		slug = v
 	} else if v := r.Header.Get("X-Tenant-ID"); v != "" {
-		slug = v
+		slug = resolveTenantSlug(r.Context(), v)
 	} else if v := r.URL.Query().Get("tenant"); v != "" {
 		slug = v
 	} else if v := r.URL.Query().Get("tenant_id"); v != "" {
-		slug = v
+		slug = resolveTenantSlug(r.Context(), v)
 	}
 
 	// helper JSON

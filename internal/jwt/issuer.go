@@ -301,13 +301,8 @@ func (i *Issuer) KeyfuncFromTokenClaims() jwtv5.Keyfunc {
 						}
 					}
 				}
-				if tenantSlug == "" {
-					// Fallback: última parte del path
-					segs := strings.Split(strings.Trim(issRaw, "/"), "/")
-					if len(segs) > 0 {
-						tenantSlug = segs[len(segs)-1]
-					}
-				}
+				// Fallback removed: splitting raw URL yields domain/port which is not a tenant slug.
+				// if tenantSlug == "" { ... }
 			}
 
 			// 2) Si no se obtuvo desde iss, usar tid. Si parece UUID, mapear a slug; si no, tratarlo como slug.
@@ -333,12 +328,21 @@ func (i *Issuer) KeyfuncFromTokenClaims() jwtv5.Keyfunc {
 			}
 		}
 
-		if tenantSlug == "" {
-			return nil, errors.New("tenant_unresolved")
+		// 3) Intentar buscar en el Tenant Keyring
+		if tenantSlug != "" {
+			pub, err := i.Keys.PublicKeyByKIDForTenant(tenantSlug, kid)
+			if err == nil {
+				return ed25519.PublicKey(pub), nil
+			}
+			// Si falla (ej. key not found), no retornar error todavía.
+			// Puede que el token haya sido firmado con la llave global compartida.
 		}
-		pub, err := i.Keys.PublicKeyByKIDForTenant(tenantSlug, kid)
+
+		// 4) Fallback: Buscar en el Global Keyring
+		// Esto maneja el caso donde IssuerMode=Global y se usa una llave compartida para todos los tenants.
+		pub, err := i.Keys.PublicKeyByKID(kid)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("kid_not_found: %s (tenant=%s)", kid, tenantSlug)
 		}
 		return ed25519.PublicKey(pub), nil
 	}

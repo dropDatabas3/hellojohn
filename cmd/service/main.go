@@ -1045,6 +1045,9 @@ func main() {
 		verifyEmailConfirmHandler,
 		forgotHandler,
 		resetHandler,
+		// Branding
+		handlers.NewAuthConfigHandler(&container),
+
 		// CSRF token GET
 		handlers.NewCSRFGetHandler(getenv("CSRF_COOKIE_NAME", "csrf_token"), 30*time.Minute),
 		// sprint 5
@@ -1098,6 +1101,10 @@ func main() {
 	mux.Handle("/v1/auth/providers", providersHandler)
 	// Back-compat for earlier Admin UI endpoint
 	mux.Handle("/v1/providers/status", providersHandler)
+
+	// Complete profile endpoint for post-social custom fields
+	completeProfileHandler := handlers.NewCompleteProfileHandler(&container)
+	mux.Handle("/v1/auth/complete-profile", completeProfileHandler)
 
 	// social/result: montarlo solo si algún provider social lo usa (por ahora: Google)
 	if cfg.Providers.Google.Enabled {

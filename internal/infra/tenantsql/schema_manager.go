@@ -144,22 +144,12 @@ func (m *PostgresSchemaManager) SyncUserFields(ctx context.Context, tenantID str
 			}
 		}
 
-		// NOT NULL constraint
-		if field.Required {
-			// Check if any row has null for this column
-			var hasNulls bool
-			_ = m.pool.QueryRow(ctx, fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM app_user WHERE %s IS NULL)", pgIdentifier(fieldName))).Scan(&hasNulls)
-
-			if !hasNulls {
-				// Safe to set NOT NULL
-				_, _ = m.pool.Exec(ctx, fmt.Sprintf("ALTER TABLE app_user ALTER COLUMN %s SET NOT NULL", pgIdentifier(fieldName)))
-			} else {
-				log.Printf("Tenant %s: Cannot set NOT NULL on %s because it contains null values", tenantID, fieldName)
-			}
-		} else {
-			// Drop NOT NULL if exists
-			_, _ = m.pool.Exec(ctx, fmt.Sprintf("ALTER TABLE app_user ALTER COLUMN %s DROP NOT NULL", pgIdentifier(fieldName)))
-		}
+		// NOT NULL constraint - DISABLED to support social login flow
+		// Social login creates users without custom fields initially,
+		// then CompleteProfile prompts user for required fields.
+		// Required validation is now enforced at application level, not DB level.
+		// Drop any existing NOT NULL constraint to ensure social login works
+		_, _ = m.pool.Exec(ctx, fmt.Sprintf("ALTER TABLE app_user ALTER COLUMN %s DROP NOT NULL", pgIdentifier(fieldName)))
 
 		// UNIQUE constraint
 		uqName := fmt.Sprintf("uq_app_user_%s", fieldName)
@@ -205,7 +195,7 @@ func (m *PostgresSchemaManager) SyncUserFields(ctx context.Context, tenantID str
 
 func isSystemColumn(name string) bool {
 	switch name {
-	case "id", "email", "email_verified", "status", "profile", "metadata", "disabled_at", "disabled_reason", "created_at", "updated_at", "password_hash":
+	case "id", "email", "email_verified", "status", "profile", "metadata", "disabled_at", "disabled_reason", "disabled_until", "created_at", "updated_at", "password_hash":
 		return true
 	}
 	return false
@@ -213,10 +203,10 @@ func isSystemColumn(name string) bool {
 
 func mapFieldTypeToSQL(t string) string {
 	switch t {
-	case "text", "string":
+	case "text", "string", "phone", "country":
 		return "TEXT"
 	case "int", "integer", "number":
-		return "INTEGER"
+		return "BIGINT"
 	case "bool", "boolean":
 		return "BOOLEAN"
 	case "date", "datetime":

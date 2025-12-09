@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -27,9 +28,16 @@ func NewUserInfoHandler(c *app.Container) http.HandlerFunc {
 			return
 		}
 		raw := strings.TrimSpace(ah[len("Bearer "):])
-		// Validar firma per-tenant sin fijar issuer; luego chequeamos issuer esperado.
-		tk, err := jwtv5.Parse(raw, c.Issuer.KeyfuncFromTokenClaims(), jwtv5.WithValidMethods([]string{"EdDSA"}))
+		// Validar firma usando Keyfunc que busca por KID en active/retiring keys
+		tk, err := jwtv5.Parse(raw, c.Issuer.Keyfunc(), jwtv5.WithValidMethods([]string{"EdDSA"}))
 		if err != nil || !tk.Valid {
+			// DEBUG: Loguear razón del fallo
+			rawPrefix := raw
+			if len(rawPrefix) > 20 {
+				rawPrefix = rawPrefix[:20]
+			}
+			log.Printf("userinfo_invalid_token_debug: err=%v raw_prefix=%s", err, rawPrefix)
+
 			w.Header().Set("WWW-Authenticate", `Bearer realm="userinfo", error="invalid_token", error_description="token inválido o expirado"`)
 			httpx.WriteError(w, http.StatusUnauthorized, "invalid_token", "token inválido o expirado", 2302)
 			return
@@ -91,14 +99,82 @@ func NewUserInfoHandler(c *app.Container) http.HandlerFunc {
 			return false
 		}
 
-		if hasScope("email") {
-			u, err := c.Store.GetUserByID(r.Context(), sub)
-			if err == nil && u != nil {
+		// Always fetch user to get custom_fields for CompleteProfile flow
+		// Email fields are gated by scope, but custom_fields are always returned
+
+		// Resolver store correcto (Global vs Tenant) basado en 'tid'
+		userStore := c.Store // Default Global
+		tid, _ := claims["tid"].(string)
+		if tid != "" && c.TenantSQLManager != nil {
+			// tid podría ser UUID o slug. Intentamos resolver a slug.
+			tenantSlug := tid
+			if cpctx.Provider != nil {
+				// Si es UUID, buscar el slug correspondiente
+				if tenants, err := cpctx.Provider.ListTenants(r.Context()); err == nil {
+					for _, t := range tenants {
+						if t.ID == tid {
+							tenantSlug = t.Slug
+							break
+						}
+					}
+				}
+			}
+			if tStore, errS := c.TenantSQLManager.GetPG(r.Context(), tenantSlug); errS == nil && tStore != nil {
+				userStore = tStore
+			}
+		}
+
+		u, err := userStore.GetUserByID(r.Context(), sub)
+		if err == nil && u != nil {
+			// Standard OIDC Claims
+			if u.Name != "" {
+				resp["name"] = u.Name
+			}
+			if u.GivenName != "" {
+				resp["given_name"] = u.GivenName
+			}
+			if u.FamilyName != "" {
+				resp["family_name"] = u.FamilyName
+			}
+			if u.Picture != "" {
+				resp["picture"] = u.Picture
+			}
+			if u.Locale != "" {
+				resp["locale"] = u.Locale
+			}
+
+			// Email fields only if scope allows
+			if hasScope("email") {
 				resp["email"] = u.Email
 				resp["email_verified"] = u.EmailVerified
-			} else if err == core.ErrNotFound {
-			} else if err != nil {
 			}
+			// Always include custom_fields for CompleteProfile flow
+			// Merge Metadata["custom_fields"] and u.CustomFields
+			finalCF := make(map[string]any)
+
+			// 1. From Metadata (Legacy or non-column fields)
+			if u.Metadata != nil {
+				if cf, ok := u.Metadata["custom_fields"].(map[string]any); ok {
+					for k, v := range cf {
+						finalCF[k] = v
+					}
+				}
+			}
+
+			// 2. From Dynamic Columns (u.CustomFields) - These take precedence or add to the map
+			if u.CustomFields != nil {
+				for k, v := range u.CustomFields {
+					finalCF[k] = v
+				}
+			}
+
+			resp["custom_fields"] = finalCF
+		} else if err == core.ErrNotFound {
+			// User not found - return empty custom_fields
+			resp["custom_fields"] = map[string]any{}
+		} else if err != nil {
+			log.Printf("userinfo: GetUserByID error: %v", err)
+			resp["custom_fields"] = map[string]any{}
 		}
 
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")

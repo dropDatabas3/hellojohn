@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
@@ -24,6 +25,19 @@ func NewSessionLogoutHandler(c *app.Container, cookieName, cookieDomain, sameSit
 			del := BuildDeletionCookie(cookieName, cookieDomain, sameSite, secure)
 			http.SetCookie(w, del)
 		}
+
+		// Handle optional return_to redirect check
+		returnTo := r.URL.Query().Get("return_to")
+		if returnTo != "" {
+			if u, err := url.Parse(returnTo); err == nil && u.Scheme != "" && u.Host != "" {
+				host := strings.ToLower(u.Host)
+				if c.RedirectHostAllowlist != nil && c.RedirectHostAllowlist[host] {
+					http.Redirect(w, r, returnTo, http.StatusSeeOther)
+					return
+				}
+			}
+		}
+
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

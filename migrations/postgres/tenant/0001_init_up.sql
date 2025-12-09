@@ -1,14 +1,18 @@
--- Base Schema for Tenant Databases
--- This schema is applied to each tenant's isolated database/schema.
+-- Consolidated Tenant Schema (Replaces 0001..0005)
+-- Applied to each tenant's isolated database/schema.
 
 BEGIN;
 
 -- 1. Users & Profiles
--- 'profile' JSONB column stores dynamic fields (phone, address, etc.)
 CREATE TABLE IF NOT EXISTS app_user (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email TEXT NOT NULL,
   email_verified BOOLEAN NOT NULL DEFAULT false,
+  name TEXT, 
+  given_name TEXT,
+  family_name TEXT,
+  picture TEXT,
+  locale TEXT,
   status TEXT NOT NULL DEFAULT 'active',
   profile JSONB NOT NULL DEFAULT '{}',
   metadata JSONB NOT NULL DEFAULT '{}',
@@ -18,6 +22,9 @@ CREATE TABLE IF NOT EXISTS app_user (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (email)
 );
+
+-- Ensure disabled_until column exists (merged from 0003/0004)
+ALTER TABLE app_user ADD COLUMN IF NOT EXISTS disabled_until TIMESTAMPTZ;
 
 -- 2. Identities (Auth Providers)
 CREATE TABLE IF NOT EXISTS identity (
@@ -35,6 +42,9 @@ CREATE TABLE IF NOT EXISTS identity (
 
 CREATE INDEX IF NOT EXISTS idx_identity_user ON identity(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_identity_provider_uid ON identity(provider, provider_user_id);
+
+-- Fix SQLSTATE 42P10: Validation constraint for ON CONFLICT(user_id, provider) (merged from 0005)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_identity_user_provider ON identity(user_id, provider);
 
 -- 3. Sessions / Refresh Tokens
 CREATE TABLE IF NOT EXISTS refresh_token (

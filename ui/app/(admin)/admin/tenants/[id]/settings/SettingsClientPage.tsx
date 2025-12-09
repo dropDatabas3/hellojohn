@@ -243,6 +243,36 @@ export default function SettingsClientPage() {
             <h2 className="mb-4 text-xl font-semibold">{t("tenants.authSettings")}</h2>
             <div className="space-y-4">
               <div className="space-y-2">
+                <Label htmlFor="logo">Logo</Label>
+                <div className="flex items-center gap-4">
+                  <Input
+                    id="logo"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) {
+                        const reader = new FileReader()
+                        reader.onloadend = () => {
+                          setSettingsData({
+                            ...settingsData,
+                            logoUrl: reader.result as string
+                          })
+                        }
+                        reader.readAsDataURL(file)
+                      }
+                    }}
+                  />
+                  {settingsData.logoUrl && (
+                    <div className="h-10 w-10 relative border rounded overflow-hidden flex-shrink-0 bg-white">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={settingsData.logoUrl} alt="Preview" className="w-full h-full object-contain" />
+                    </div>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground">Sube una imagen para el logo del tenant.</p>
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="session_lifetime">{t("tenants.sessionLifetime")}</Label>
                 <Input
                   id="session_lifetime"

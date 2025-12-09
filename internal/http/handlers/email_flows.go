@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"log"
 	"math"
@@ -9,11 +10,13 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	texttpl "text/template"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/dropDatabas3/hellojohn/internal/controlplane"
 	"github.com/dropDatabas3/hellojohn/internal/email"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
@@ -56,6 +59,7 @@ type EmailFlowsHandler struct {
 	Auth           CurrentUserProvider
 	Limiter        RateLimiter
 	BlacklistPath  string
+	Provider       controlplane.ControlPlane
 
 	// Phase 4.1: per-tenant DB gating for email flows
 	TenantMgr *tenantsql.Manager
@@ -193,7 +197,17 @@ func (h *EmailFlowsHandler) verifyEmailStart(w http.ResponseWriter, r *http.Requ
 	if h.DebugEchoLinks {
 		log.Printf(`{"level":"debug","msg":"verify_start_link","request_id":"%s","link":"%s"}`, rid, link)
 	}
-	htmlBody, textBody, err := renderVerify(h.Tmpl, email.VerifyVars{
+
+	// Fetch tenant settings for templates
+	tenant, err := h.Provider.GetTenantBySlug(r.Context(), in.TenantID.String())
+	if err != nil {
+		// Try by ID using fallback logic or just ignore and use defaults
+		// We use SenderProvider usually, but here we need settings for templates.
+		// If fails, use nil settings -> default templates
+		// Fallback UUID lookup if implemented or just proceed with nil
+	}
+
+	htmlBody, textBody, err := renderVerify(h.Tmpl, tenant, email.VerifyVars{
 		UserEmail: emailStr, Tenant: in.TenantID.String(), Link: link, TTL: h.VerifyTTL.String(),
 	})
 	if err != nil {
@@ -364,7 +378,11 @@ func (h *EmailFlowsHandler) forgot(w http.ResponseWriter, r *http.Request) {
 			if h.DebugEchoLinks {
 				log.Printf(`{"level":"debug","msg":"forgot_link","request_id":"%s","link":"%s"}`, rid, link)
 			}
-			htmlBody, textBody, _ := renderReset(h.Tmpl, email.ResetVars{
+
+			// Fetch tenant for templates
+			tenant, _ := h.Provider.GetTenantBySlug(r.Context(), in.TenantID.String())
+
+			htmlBody, textBody, _ := renderReset(h.Tmpl, tenant, email.ResetVars{
 				UserEmail: in.Email, Tenant: in.TenantID.String(), Link: link, TTL: h.ResetTTL.String(),
 			})
 			// Resolve sender
@@ -502,7 +520,14 @@ func (h *EmailFlowsHandler) reset(w http.ResponseWriter, r *http.Request) {
 
 // templating shortcuts
 
-func renderVerify(t *email.Templates, v email.VerifyVars) (html, text string, err error) {
+func renderVerify(t *email.Templates, tenant *controlplane.Tenant, v email.VerifyVars) (html, text string, err error) {
+	// Check overrides
+	if tenant != nil && tenant.Settings.Mailing != nil && tenant.Settings.Mailing.Templates != nil {
+		if tpl, ok := tenant.Settings.Mailing.Templates[email.TemplateVerify]; ok {
+			return renderOverride(tpl, v)
+		}
+	}
+
 	var hb, tb strings.Builder
 	if err = t.VerifyHTML.Execute(&hb, v); err != nil {
 		return
@@ -513,7 +538,14 @@ func renderVerify(t *email.Templates, v email.VerifyVars) (html, text string, er
 	return hb.String(), tb.String(), nil
 }
 
-func renderReset(t *email.Templates, v email.ResetVars) (html, text string, err error) {
+func renderReset(t *email.Templates, tenant *controlplane.Tenant, v email.ResetVars) (html, text string, err error) {
+	// Check overrides
+	if tenant != nil && tenant.Settings.Mailing != nil && tenant.Settings.Mailing.Templates != nil {
+		if tpl, ok := tenant.Settings.Mailing.Templates[email.TemplateReset]; ok {
+			return renderOverride(tpl, v)
+		}
+	}
+
 	var hb, tb strings.Builder
 	if err = t.ResetHTML.Execute(&hb, v); err != nil {
 		return
@@ -522,6 +554,22 @@ func renderReset(t *email.Templates, v email.ResetVars) (html, text string, err 
 		return
 	}
 	return hb.String(), tb.String(), nil
+}
+
+func renderOverride(tpl controlplane.EmailTemplate, v any) (html, text string, err error) {
+	if tpl.Body == "" {
+		return "", "", nil
+	}
+	t, err := texttpl.New("override").Parse(tpl.Body)
+	if err != nil {
+		return "", "", err
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, v); err != nil {
+		return "", "", err
+	}
+	// For now return same content for HTML and Text
+	return buf.String(), buf.String(), nil
 }
 
 // sanitiza user-agent para no romper logs

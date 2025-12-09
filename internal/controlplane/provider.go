@@ -37,6 +37,9 @@ type ControlPlane interface {
 	ValidateClientID(id string) bool
 	ValidateRedirectURI(uri string) bool
 	IsScopeAllowed(c *OIDCClient, scope string) bool
+
+	// GetTenantByID looks up a tenant by its UUID
+	GetTenantByID(ctx context.Context, id string) (*Tenant, error)
 }
 
 // Helpers default (pueden ser usados por FS provider)
@@ -50,8 +53,7 @@ type FSProviderInterface interface {
 	GetTenantRaw(ctx context.Context, slug string) (*Tenant, []byte, error)
 	GetTenantSettingsRaw(ctx context.Context, slug string) (*TenantSettings, []byte, error)
 	UpdateTenantSettings(ctx context.Context, slug string, settings *TenantSettings) error
-	// GetTenantByID looks up a tenant by its UUID (O(N) scan)
-	GetTenantByID(ctx context.Context, id string) (*Tenant, error)
+	// FSRoot returns the root directory path used by the FS provider
 	// FSRoot returns the root directory path used by the FS provider
 	FSRoot() string
 }

@@ -54,7 +54,7 @@ func WithCORS(next http.Handler, allowed []string) http.Handler {
 			h.Set("Access-Control-Allow-Origin", allowedOrigin)
 			h.Set("Access-Control-Allow-Credentials", "true")
 			h.Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,HEAD,OPTIONS")
-			h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, If-Match")
+			h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-ID, If-Match, X-Tenant-ID, X-Tenant-Slug")
 			// Exponer headers útiles a fetch()
 			h.Set("Access-Control-Expose-Headers", "ETag, X-Request-ID, X-RateLimit-Remaining, X-RateLimit-Limit, X-RateLimit-Reset, Retry-After, WWW-Authenticate, Location")
 			h.Set("Access-Control-Max-Age", "600") // preflight 10m
@@ -254,6 +254,12 @@ func extractJSONField(r *http.Request, field string, max int64) string {
 func rateKey(r *http.Request) string {
 	ip := clientIP(r)
 	path := r.URL.Path
+
+	// Optimization: Skip body extraction for admin paths to avoid truncating large payloads (e.g. logos)
+	if strings.HasPrefix(path, "/v1/admin") || strings.HasPrefix(path, "/t/") {
+		return ip + "|" + path + "|-"
+	}
+
 	clientID := extractJSONField(r, "client_id", 4096)
 	if clientID == "" {
 		clientID = "-"
@@ -665,7 +671,7 @@ func RequireLeader(c *app.Container) Middleware {
 					low := strings.ToLower(ub)
 					if (strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "https://")) && !strings.Contains(ub, " ") {
 						// If allowlist is configured, require host match
-						if c.RedirectHostAllowlist != nil && len(c.RedirectHostAllowlist) > 0 {
+						if len(c.RedirectHostAllowlist) > 0 {
 							// Extract host:port
 							host := ub
 							// fast parse to host part

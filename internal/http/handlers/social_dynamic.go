@@ -126,8 +126,13 @@ func (h *DynamicSocialHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		if secretEnc != "" {
 			clientSecret, err = sec.Decrypt(secretEnc)
 			if err != nil {
-				httpx.WriteError(w, http.StatusInternalServerError, "decrypt_error", "error descifrando secreto", 1705)
-				return
+				// Fallback: if it doesn't look encrypted (no pipe separator), use as plain text (dev mode)
+				if !strings.Contains(secretEnc, "|") {
+					clientSecret = secretEnc
+				} else {
+					httpx.WriteError(w, http.StatusInternalServerError, "decrypt_error", "error descifrando secreto", 1705)
+					return
+				}
 			}
 		}
 	default:
@@ -160,16 +165,27 @@ func (h *DynamicSocialHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 
 		oidc := google.New(clientID, clientSecret, redirectURL, []string{"openid", "profile", "email"})
 
-		// Attempt to get pool from Store
-		type poolGetter interface {
-			Pool() *pgxpool.Pool
-		}
+		// Get tenant-specific store from TenantSQLManager
 		var pool *pgxpool.Pool
-		if pg, ok := h.c.Store.(poolGetter); ok {
-			pool = pg.Pool()
+		if h.c.TenantSQLManager != nil {
+			tenantStore, err := h.c.TenantSQLManager.GetPG(r.Context(), tenantSlug)
+			if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "tenant_db_error", "no se pudo obtener db del tenant: "+err.Error(), 1708)
+				return
+			}
+			// tenantStore is *pg.Store which has Pool() method
+			pool = tenantStore.Pool()
 		} else {
-			httpx.WriteError(w, http.StatusInternalServerError, "store_incompatible", "store no es compatible con social login (no pool)", 1704)
-			return
+			// Fallback to global store (legacy/dev mode)
+			type poolGetter interface {
+				Pool() *pgxpool.Pool
+			}
+			if pg, ok := h.c.Store.(poolGetter); ok {
+				pool = pg.Pool()
+			} else {
+				httpx.WriteError(w, http.StatusInternalServerError, "store_incompatible", "store no es compatible con social login (no pool)", 1704)
+				return
+			}
 		}
 
 		gh := &googleHandler{

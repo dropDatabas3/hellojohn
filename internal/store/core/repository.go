@@ -66,7 +66,7 @@ type Repository interface {
 	RevokeAllRefreshTokensByClient(ctx context.Context, clientID string) error
 
 	// ─── Admin Users: disable/enable ───
-	DisableUser(ctx context.Context, userID, by, reason string) error
+	DisableUser(ctx context.Context, userID, by, reason string, until *time.Time) error
 	EnableUser(ctx context.Context, userID, by string) error
 	// Revoke all refresh tokens for a user, returns number of affected rows
 	RevokeAllRefreshByUser(ctx context.Context, userID string) (int, error)

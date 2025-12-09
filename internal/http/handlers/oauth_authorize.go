@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -67,7 +69,7 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 		}
 
 		// Resolver store con precedencia: tenantDB > globalDB (para consent y magic link)
-		var activeScopesConsents core.ScopesConsentsRepository
+		// var activeScopesConsents core.ScopesConsentsRepository // Unused for now
 		var activeStore core.Repository
 
 		if c.TenantSQLManager != nil {
@@ -79,9 +81,9 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 			}
 		}
 		// Fallback a global consents
-		if c.ScopesConsents != nil {
+		/* if c.ScopesConsents != nil {
 			activeScopesConsents = c.ScopesConsents
-		}
+		} */
 		if activeStore == nil && c.Store != nil {
 			activeStore = c.Store
 		}
@@ -142,7 +144,7 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 			RedirectURIs: client.RedirectURIs,
 			Scopes:       client.Scopes,
 		}
-		reqScopes := strings.Fields(scope)
+		// reqScopes removed as it was unused
 
 		var (
 			sub             string
@@ -154,15 +156,27 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 		// 1) Sesión COOKIE
 		if ck, err := r.Cookie(cookieName); err == nil && ck != nil && strings.TrimSpace(ck.Value) != "" {
 			key := "sid:" + tokens.SHA256Base64URL(ck.Value)
+			log.Printf("DEBUG: authorize cookie found: %s", ck.Name)
 			if b, ok := c.Cache.Get(key); ok {
 				var sp SessionPayload
 				_ = json.Unmarshal(b, &sp)
-				if time.Now().Before(sp.Expires) && sp.TenantID == cl.TenantID {
+				log.Printf("DEBUG: authorize session payload: %+v | expected tenant: %s", sp, cl.TenantID)
+
+				// Compare carefully
+				if time.Now().Before(sp.Expires) && strings.EqualFold(sp.TenantID, cl.TenantID) {
 					sub = sp.UserID
 					tid = sp.TenantID
 					amr = []string{"pwd"}
+					log.Printf("DEBUG: authorize session valid! sub=%s tid=%s", sub, tid)
+				} else {
+					log.Printf("DEBUG: authorize session invalid (expired=%v, tenant_match=%v, sp_tenant='%s', cl_tenant='%s')",
+						!time.Now().Before(sp.Expires), strings.EqualFold(sp.TenantID, cl.TenantID), sp.TenantID, cl.TenantID)
 				}
+			} else {
+				log.Printf("DEBUG: authorize session cache miss for key: %s (truncated)", key[:10])
 			}
+		} else {
+			log.Printf("DEBUG: authorize NO cookie found (err=%v)", err)
 		}
 
 		// 2) Fallback Bearer
@@ -189,7 +203,35 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 		}
 
 		if sub == "" || tid == "" || !strings.EqualFold(tid, cl.TenantID) {
-			redirectError(w, r, redirectURI, state, "login_required", "requiere login")
+			// Si prompt=none, retornamos error (interacción no permitida)
+			if strings.Contains(r.URL.Query().Get("prompt"), "none") {
+				redirectError(w, r, redirectURI, state, "login_required", "requiere login")
+				return
+			}
+
+			// Redirigir al Login UI
+			uiBase := os.Getenv("UI_BASE_URL")
+			if uiBase == "" {
+				uiBase = "http://localhost:3000"
+			}
+
+			// Construir return_to con la URL actual de authorize
+			returnTo := r.URL.String() // path + query
+			// Asegurar que returnTo tenga el host si falta (r.URL.String() puede ser relativo)
+			if !r.URL.IsAbs() {
+				scheme := "http"
+				if r.TLS != nil {
+					scheme = "https"
+				}
+				host := r.Host
+				if host == "" {
+					host = "localhost:8080"
+				}
+				returnTo = fmt.Sprintf("%s://%s%s", scheme, host, r.URL.RequestURI())
+			}
+
+			loginURL := fmt.Sprintf("%s/login?return_to=%s", uiBase, url.QueryEscape(returnTo))
+			http.Redirect(w, r, loginURL, http.StatusFound)
 			return
 		}
 
@@ -219,161 +261,59 @@ func NewOAuthAuthorizeHandler(c *app.Container, cookieName string, allowBearer b
 							Scope:    strings.Fields(scope),
 						}
 						mid, _ := tokens.GenerateOpaqueToken(24)
-						key := "mfa:token:" + mid
-						buf, _ := json.Marshal(ch)
-						c.Cache.Set(key, buf, 5*time.Minute)
-						w.Header().Set("Content-Type", "application/json; charset=utf-8")
-						w.Header().Set("Cache-Control", "no-store")
-						w.Header().Set("Pragma", "no-cache")
-						// 200 con indicador para frontend/SPA
-						httpx.WriteJSON(w, http.StatusOK, map[string]any{
-							"mfa_required": true,
-							"mfa_token":    mid,
-							"amr":          []string{"pwd"},
-							"step_up":      true,
-						})
-						return
-					} else {
-						// trusted device => elevamos amr antes de continuar flujo normal
-						amr = append(amr, "mfa")
-					}
-				}
-			}
-		}
 
-		// ─────────────────────────────────────────────────────────────
-		// Gate de consentimiento: si faltan scopes ⇒ respuesta JSON consent_required
-		// Se ejecuta después de validar login y (posible) MFA, antes de generar authorization code.
-		// ─────────────────────────────────────────────────────────────
-		if activeScopesConsents != nil {
-			granted := []string{}
-			if uc, err := activeScopesConsents.GetConsent(ctx, sub, cl.ID); err == nil && uc.RevokedAt == nil {
-				granted = uc.GrantedScopes
-			}
-			set := map[string]struct{}{}
-			for _, g := range granted {
-				g = strings.ToLower(strings.TrimSpace(g))
-				if g != "" {
-					set[g] = struct{}{}
-				}
-			}
-			var missing []string
-			for _, rs := range reqScopes {
-				key := strings.ToLower(strings.TrimSpace(rs))
-				if key == "" {
-					continue
-				}
-				if _, ok := set[key]; !ok {
-					missing = append(missing, rs)
-				}
-			}
-			if len(missing) > 0 {
-				// ==== Autoconsent opcional (scopes básicos) controlado por env ====
-				auto := strings.TrimSpace(os.Getenv("CONSENT_AUTO"))
-				if auto == "" {
-					auto = "1"
-				} // por defecto habilitado
-				allowed := map[string]struct{}{"openid": {}, "email": {}, "profile": {}}
-				if raw := strings.TrimSpace(os.Getenv("CONSENT_AUTO_SCOPES")); raw != "" {
-					allowed = map[string]struct{}{}
-					for _, s := range strings.Fields(raw) {
-						s = strings.ToLower(strings.TrimSpace(s))
-						if s != "" {
-							allowed[s] = struct{}{}
+						// Store challenge in cache
+						b, _ := json.Marshal(ch)
+						key := "mfa_req:" + mid
+						c.Cache.Set(key, b, 5*time.Minute)
+
+						// Return json instructing UI to show MFA entry
+						resp := map[string]string{
+							"status":    "mfa_required",
+							"mfa_token": mid,
 						}
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(http.StatusOK) // 200 OK so UI handles it
+						json.NewEncoder(w).Encode(resp)
+						return
 					}
-				}
-				subset := true
-				for _, s := range reqScopes {
-					if _, ok := allowed[strings.ToLower(strings.TrimSpace(s))]; !ok {
-						subset = false
-						break
-					}
-				}
-				needConsentResponse := true
-				if auto != "0" && subset {
-					var upErr error
-					type upTC interface {
-						UpsertConsentTC(ctx context.Context, tenantID, clientID, userID string, scopes []string) error
-					}
-					type up1 interface {
-						UpsertConsent(ctx context.Context, tenantID, userID, clientID string, scopes []string) error
-					}
-					type up2 interface {
-						UpsertConsent(ctx context.Context, userID, clientID string, scopes []string) error
-					}
-
-					// Preferir TC si está disponible
-					if utc, ok := any(activeScopesConsents).(upTC); ok {
-						upErr = utc.UpsertConsentTC(ctx, tid, cl.ID, sub, reqScopes)
-					} else if u1, ok := any(activeScopesConsents).(up1); ok {
-						upErr = u1.UpsertConsent(ctx, tid, sub, cl.ID, reqScopes)
-					} else if u2, ok := any(activeScopesConsents).(up2); ok {
-						upErr = u2.UpsertConsent(ctx, sub, cl.ID, reqScopes)
-					}
-					if upErr == nil {
-						needConsentResponse = false // éxito: continuamos flujo normal
-					}
-				}
-				if needConsentResponse { // emitir consent_required
-					mid, _ := tokens.GenerateOpaqueToken(24)
-					payload := consentChallenge{
-						UserID:              sub,
-						TenantID:            tid,
-						ClientID:            cl.ID,
-						RedirectURI:         redirectURI,
-						State:               state,
-						Nonce:               nonce,
-						CodeChallenge:       codeChallenge,
-						CodeChallengeMethod: "S256",
-						RequestedScopes:     reqScopes,
-						AMR:                 amr,
-						ExpiresAt:           time.Now().Add(10 * time.Minute),
-					}
-					buf, _ := json.Marshal(payload)
-					c.Cache.Set("consent:token:"+mid, buf, 10*time.Minute)
-
-					w.Header().Set("Content-Type", "application/json; charset=utf-8")
-					w.Header().Set("Cache-Control", "no-store")
-					w.Header().Set("Pragma", "no-cache")
-					httpx.WriteJSON(w, http.StatusOK, map[string]any{
-						"consent_required": true,
-						"consent_token":    mid,
-						"requested_scopes": reqScopes,
-					})
-					return
+					// if trustedByCookie, we upgrade AMR implicitly
+					amr = append(amr, "mfa", "totp")
 				}
 			}
 		}
 
+		// Generar Authorization Code
 		code, err := tokens.GenerateOpaqueToken(32)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "server_error", "no se pudo generar code", 2106)
+			httpx.WriteError(w, http.StatusInternalServerError, "server_error", "code gen failed", 2107)
 			return
 		}
-		key := "oidc:code:" + tokens.SHA256Base64URL(code)
-		payload := authCode{
+
+		ac := authCode{
 			UserID:          sub,
 			TenantID:        tid,
-			ClientID:        cl.ID,
+			ClientID:        clientID,
 			RedirectURI:     redirectURI,
 			Scope:           scope,
 			Nonce:           nonce,
 			CodeChallenge:   codeChallenge,
-			ChallengeMethod: "S256",
+			ChallengeMethod: codeMethod,
 			AMR:             amr,
-			ExpiresAt:       time.Now().Add(5 * time.Minute),
+			ExpiresAt:       time.Now().Add(10 * time.Minute),
 		}
-		b, _ := json.Marshal(payload)
-		c.Cache.Set(key, b, 5*time.Minute)
+		b, _ := json.Marshal(ac)
+		// Guardar code en cache (usamos prefijo code:)
+		c.Cache.Set("code:"+code, b, 10*time.Minute)
 
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Pragma", "no-cache")
+		log.Printf("DEBUG: authorize success, redirecting to %s", redirectURI)
 
+		// Success Redirect
 		loc := addQS(redirectURI, "code", code)
 		if state != "" {
 			loc = addQS(loc, "state", state)
 		}
+
 		http.Redirect(w, r, loc, http.StatusFound)
 	}
 }

@@ -28,6 +28,16 @@ type TenantSettings struct {
 	SocialProviders             *SocialConfig         `json:"socialProviders,omitempty" yaml:"socialProviders,omitempty"`
 	Forms                       *FormsSettings        `json:"forms,omitempty" yaml:"forms,omitempty"`
 	UserFields                  []UserFieldDefinition `json:"user_fields,omitempty" yaml:"user_fields,omitempty"`
+	Mailing                     *MailingSettings      `json:"mailing,omitempty" yaml:"mailing,omitempty"`
+}
+
+type MailingSettings struct {
+	Templates map[string]EmailTemplate `json:"templates,omitempty" yaml:"templates,omitempty"`
+}
+
+type EmailTemplate struct {
+	Subject string `json:"subject,omitempty" yaml:"subject,omitempty"`
+	Body    string `json:"body,omitempty" yaml:"body,omitempty"` // HTML support allowed
 }
 
 type UserFieldDefinition struct {

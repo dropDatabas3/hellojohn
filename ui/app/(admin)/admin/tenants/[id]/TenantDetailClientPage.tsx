@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft, Settings, Users, Key, Shield, DatabaseZap, Globe2, KeyRound, LayoutTemplate } from "lucide-react"
+import { ArrowLeft, Settings, Users, Key, Shield, DatabaseZap, Globe2, KeyRound, LayoutTemplate, Mail } from "lucide-react"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { Button } from "@/components/ui/button"
@@ -242,6 +242,12 @@ export default function TenantDetailClientPage() {
               <Link href={`/admin/tenants/settings?id=${tenantId}`}>
                 <Settings className="mr-2 h-4 w-4" />
                 {t("tenants.settings")}
+              </Link>
+            </Button>
+            <Button variant="outline" className="w-full justify-start bg-transparent" asChild>
+              <Link href={`/admin/tenants/${tenantId}/mailing`}>
+                <Mail className="mr-2 h-4 w-4" />
+                Mailing
               </Link>
             </Button>
             <div className="pt-2" />

@@ -14,6 +14,7 @@ import (
 	rdb "github.com/redis/go-redis/v9"
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
+	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/config"
 	"github.com/dropDatabas3/hellojohn/internal/email"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
@@ -302,6 +303,7 @@ func BuildEmailFlowHandlers(
 		DebugEchoLinks: cfg.Email.DebugEchoLinks,
 		BlacklistPath:  cfg.Security.PasswordBlacklistPath,
 		TenantMgr:      c.TenantSQLManager,
+		Provider:       cpctx.Provider,
 	}
 	if strings.TrimSpace(cfg.Security.PasswordBlacklistPath) != "" {
 		log.Printf(`{"level":"info","msg":"email_wiring_blacklist","path":"%s"}`, cfg.Security.PasswordBlacklistPath)

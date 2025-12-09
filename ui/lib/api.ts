@@ -41,6 +41,7 @@ export class ApiClient {
       const response = await fetch(url, {
         ...options,
         headers,
+        credentials: "include", // Required for cross-site cookies (localhost:3000 -> localhost:8080)
       })
 
       // Handle 401 Unauthorized

@@ -411,7 +411,16 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		}
 
 		// Bloqueo por usuario deshabilitado
-		if u.DisabledAt != nil {
+		isBlocked := false
+		if u.DisabledUntil != nil {
+			if time.Now().Before(*u.DisabledUntil) {
+				isBlocked = true
+			}
+		} else if u.DisabledAt != nil {
+			isBlocked = true
+		}
+
+		if isBlocked {
 			// prefer 423 Locked for login when disabled
 			httpx.WriteError(w, http.StatusLocked, "user_disabled", "usuario deshabilitado", 1210)
 			return

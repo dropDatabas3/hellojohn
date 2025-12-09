@@ -128,8 +128,8 @@ func derefTime(t *time.Time) time.Time {
 
 func (s *Store) GetUserByEmail(ctx context.Context, tenantID, email string) (*core.User, *core.Identity, error) {
 	// 1. Obtener usuario con todas las columnas (incluyendo dinámicas)
-	const qUser = `SELECT * FROM app_user WHERE tenant_id = $1 AND LOWER(email) = LOWER($2) LIMIT 1`
-	rows, err := s.pool.Query(ctx, qUser, tenantID, email)
+	const qUser = `SELECT * FROM app_user WHERE LOWER(email) = LOWER($1) LIMIT 1`
+	rows, err := s.pool.Query(ctx, qUser, email)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -157,15 +157,22 @@ func (s *Store) GetUserByEmail(ctx context.Context, tenantID, email string) (*co
 		val := *(vals[i].(*any))
 		colName := string(col.Name)
 
+		// Helper to convert UUID bytes to string if needed
+		uuidToStr := func(v any) string {
+			if s, ok := v.(string); ok {
+				return s
+			}
+			if b, ok := v.([16]byte); ok {
+				return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+			}
+			return ""
+		}
+
 		switch colName {
 		case "id":
-			if v, ok := val.(string); ok {
-				u.ID = v
-			}
+			u.ID = uuidToStr(val)
 		case "tenant_id":
-			if v, ok := val.(string); ok {
-				u.TenantID = v
-			}
+			u.TenantID = uuidToStr(val)
 		case "email":
 			if v, ok := val.(string); ok {
 				u.Email = v
@@ -345,8 +352,8 @@ func (s *Store) CreateUser(ctx context.Context, u *core.User) error {
 	}
 
 	// Campos fijos
-	cols := []string{"id", "tenant_id", "email", "email_verified", "metadata"}
-	vals := []any{"gen_random_uuid()", u.TenantID, strings.ToLower(u.Email), u.EmailVerified, u.Metadata}
+	cols := []string{"id", "email", "email_verified", "metadata"}
+	vals := []any{"gen_random_uuid()", strings.ToLower(u.Email), u.EmailVerified, u.Metadata}
 
 	// Campos dinámicos
 	// Nota: pgx maneja la sanitización de valores, pero los nombres de columna deben ser seguros.
@@ -359,7 +366,9 @@ func (s *Store) CreateUser(ctx context.Context, u *core.User) error {
 	sort.Strings(keys) // Determinismo
 
 	for _, k := range keys {
-		cols = append(cols, pgIdentifier(k))
+		// Normalizamos la key para matchear con SchemaManager (ToLower + TrimSpace)
+		normKey := strings.ToLower(strings.TrimSpace(k))
+		cols = append(cols, pgIdentifier(normKey))
 		vals = append(vals, u.CustomFields[k])
 	}
 
@@ -390,7 +399,7 @@ func (s *Store) CreateUser(ctx context.Context, u *core.User) error {
 	q := fmt.Sprintf(`
 	INSERT INTO app_user (%s)
 	VALUES (%s)
-	ON CONFLICT (tenant_id, email)
+	ON CONFLICT (email)
 	DO UPDATE SET email = EXCLUDED.email
 	RETURNING id, created_at`, qCols, qVals)
 
@@ -489,11 +498,11 @@ func (s *Store) CreateUserWithPassword(ctx context.Context, tenantID, email, pas
 	var meta map[string]any
 
 	err = tx.QueryRow(ctx, `
-		INSERT INTO app_user (tenant_id, email, email_verified, metadata)
-		VALUES ($1, LOWER($2), false, '{}'::jsonb)
-		RETURNING id, tenant_id, email, email_verified, metadata, created_at
-	`, tenantID, email).
-		Scan(&u.ID, &u.TenantID, &u.Email, &u.EmailVerified, &meta, &u.CreatedAt)
+		INSERT INTO app_user (email, email_verified, metadata)
+		VALUES (LOWER($1), false, '{}'::jsonb)
+		RETURNING id, email, email_verified, metadata, created_at
+	`, email).
+		Scan(&u.ID, &u.Email, &u.EmailVerified, &meta, &u.CreatedAt)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			return nil, nil, core.ErrConflict
@@ -614,13 +623,9 @@ func (s *Store) GetUserByID(ctx context.Context, userID string) (*core.User, err
 
 		switch colName {
 		case "id":
-			if v, ok := val.(string); ok {
-				u.ID = v
-			}
+			u.ID = uuidToString(val)
 		case "tenant_id":
-			if v, ok := val.(string); ok {
-				u.TenantID = v
-			}
+			u.TenantID = uuidToString(val)
 		case "email":
 			if v, ok := val.(string); ok {
 				u.Email = v
@@ -645,6 +650,30 @@ func (s *Store) GetUserByID(ctx context.Context, userID string) (*core.User, err
 			if v, ok := val.(string); ok {
 				u.DisabledReason = &v
 			}
+		case "disabled_until":
+			if v, ok := val.(time.Time); ok {
+				u.DisabledUntil = &v
+			}
+		case "name":
+			if v, ok := val.(string); ok {
+				u.Name = v
+			}
+		case "given_name":
+			if v, ok := val.(string); ok {
+				u.GivenName = v
+			}
+		case "family_name":
+			if v, ok := val.(string); ok {
+				u.FamilyName = v
+			}
+		case "picture":
+			if v, ok := val.(string); ok {
+				u.Picture = v
+			}
+		case "locale":
+			if v, ok := val.(string); ok {
+				u.Locale = v
+			}
 		default:
 			// Campo dinámico
 			u.CustomFields[colName] = val
@@ -654,8 +683,8 @@ func (s *Store) GetUserByID(ctx context.Context, userID string) (*core.User, err
 }
 
 func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]core.User, error) {
-	const q = `SELECT * FROM app_user WHERE tenant_id = $1 ORDER BY created_at DESC`
-	rows, err := s.pool.Query(ctx, q, tenantID)
+	const q = `SELECT * FROM app_user ORDER BY created_at DESC`
+	rows, err := s.pool.Query(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -684,13 +713,9 @@ func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]core.User, er
 
 			switch colName {
 			case "id":
-				if v, ok := val.(string); ok {
-					u.ID = v
-				}
+				u.ID = uuidToString(val)
 			case "tenant_id":
-				if v, ok := val.(string); ok {
-					u.TenantID = v
-				}
+				u.TenantID = uuidToString(val)
 			case "email":
 				if v, ok := val.(string); ok {
 					u.Email = v
@@ -715,6 +740,30 @@ func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]core.User, er
 				if v, ok := val.(string); ok {
 					u.DisabledReason = &v
 				}
+			case "disabled_until":
+				if v, ok := val.(time.Time); ok {
+					u.DisabledUntil = &v
+				}
+			case "name":
+				if v, ok := val.(string); ok {
+					u.Name = v
+				}
+			case "given_name":
+				if v, ok := val.(string); ok {
+					u.GivenName = v
+				}
+			case "family_name":
+				if v, ok := val.(string); ok {
+					u.FamilyName = v
+				}
+			case "picture":
+				if v, ok := val.(string); ok {
+					u.Picture = v
+				}
+			case "locale":
+				if v, ok := val.(string); ok {
+					u.Locale = v
+				}
 			default:
 				u.CustomFields[colName] = val
 			}
@@ -722,6 +771,11 @@ func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]core.User, er
 		users = append(users, u)
 	}
 	return users, rows.Err()
+}
+
+func (s *Store) DeleteUser(ctx context.Context, userID string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM app_user WHERE id = $1`, userID)
+	return err
 }
 
 // RevokeAllRefreshTokens revoca todos los refresh de un usuario (opcionalmente filtrado por client_id_text).
@@ -852,16 +906,24 @@ func (s *Store) RevokeAllRefreshTokensByClient(ctx context.Context, clientID str
 // ====================== ADMIN USERS (disable/enable) ======================
 
 // DisableUser marca al usuario como 'disabled' y setea metadata auxiliar si las columnas existen.
-func (s *Store) DisableUser(ctx context.Context, userID, by, reason string) error {
+// DisableUser marca al usuario como 'disabled' y setea metadata auxiliar si las columnas existen.
+func (s *Store) DisableUser(ctx context.Context, userID, by, reason string, until *time.Time) error {
+	// DEBUG DIAGNOSTICS
+	var dbName, dbPort string
+	var colExists bool
+	_ = s.pool.QueryRow(ctx, "SELECT current_database(), current_setting('port')").Scan(&dbName, &dbPort)
+	_ = s.pool.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='app_user' AND column_name='disabled_until')").Scan(&colExists)
+	log.Printf(">>> DEBUG [DisableUser]: Connecting to DB=%s Port=%s. Column 'disabled_until' exists? %v", dbName, dbPort, colExists)
+
 	// status='disabled'. Columnas opcionales disabled_at/disabled_by/disabled_reason pueden no existir.
 	// Intentamos la actualización extendida; si falla por columna, caemos a mínima.
-	_, err := s.pool.Exec(ctx, `UPDATE app_user SET disabled_at=NOW(), disabled_reason=NULLIF($2,'') WHERE id=$1`, userID, reason)
+	_, err := s.pool.Exec(ctx, `UPDATE app_user SET disabled_at=NOW(), disabled_reason=NULLIF($2,''), disabled_until=$3 WHERE id=$1`, userID, reason, until)
 	return err
 }
 
 // EnableUser marca al usuario como 'active' y limpia metadata auxiliar conocida.
 func (s *Store) EnableUser(ctx context.Context, userID, by string) error {
-	_, err := s.pool.Exec(ctx, `UPDATE app_user SET disabled_at=NULL, disabled_reason=NULL WHERE id=$1`, userID)
+	_, err := s.pool.Exec(ctx, `UPDATE app_user SET disabled_at=NULL, disabled_reason=NULL, disabled_until=NULL WHERE id=$1`, userID)
 	return err
 }
 

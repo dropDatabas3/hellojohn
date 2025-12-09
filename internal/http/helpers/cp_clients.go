@@ -84,6 +84,50 @@ func ResolveClientFSBySlug(ctx context.Context, tenantSlug, clientID string) (FS
 	return out, nil
 }
 
+// ResolveClientFSByTenantID loads a client from the FS control-plane using tenant UUID instead of slug.
+// It iterates through tenants to find the matching UUID and then loads the client.
+func ResolveClientFSByTenantID(ctx context.Context, tenantID, clientID string) (FSClient, error) {
+	if cpctx.Provider == nil {
+		return FSClient{}, fmt.Errorf("control-plane provider not initialized")
+	}
+
+	// Find tenant by UUID
+	tenants, err := cpctx.Provider.ListTenants(ctx)
+	if err != nil {
+		return FSClient{}, err
+	}
+
+	var tenant *cp.Tenant
+	for _, t := range tenants {
+		if t.ID == tenantID {
+			tenant = &t
+			break
+		}
+	}
+
+	if tenant == nil {
+		return FSClient{}, fmt.Errorf("tenant not found for ID: %s", tenantID)
+	}
+
+	// Load client by slug
+	cl, err := cpctx.Provider.GetClient(ctx, tenant.Slug, clientID)
+	if err != nil {
+		return FSClient{}, ErrClientNotFound
+	}
+
+	return FSClient{
+		TenantSlug:     tenant.Slug,
+		TenantUUID:     tenant.ID,
+		ClientID:       cl.ClientID,
+		ClientType:     cl.Type,
+		RedirectURIs:   append([]string{}, cl.RedirectURIs...),
+		AllowedOrigins: append([]string{}, cl.AllowedOrigins...),
+		Providers:      append([]string{}, cl.Providers...),
+		Scopes:         append([]string{}, cl.Scopes...),
+		SecretEnc:      cl.SecretEnc,
+	}, nil
+}
+
 // ResolveClientFS is a convenience wrapper that infers the tenant slug from the request.
 func ResolveClientFS(ctx context.Context, r *http.Request, clientID string) (FSClient, error) {
 	slug := ResolveTenantSlug(r)
@@ -95,11 +139,26 @@ func LookupClient(ctx context.Context, r *http.Request, clientID string) (*cp.OI
 	if cpctx.Provider == nil {
 		return nil, "", fmt.Errorf("control-plane provider not initialized")
 	}
+	// Try the resolved tenant first
 	c, err := cpctx.Provider.GetClient(ctx, slug, clientID)
-	if err != nil {
+	if err == nil {
+		return c, slug, nil
+	}
+	// If not found and using default "local", search across all tenants
+	// This supports OAuth flows where tenant is not explicitly provided
+	tenants, terr := cpctx.Provider.ListTenants(ctx)
+	if terr != nil {
 		return nil, "", ErrClientNotFound
 	}
-	return c, slug, nil
+	for _, t := range tenants {
+		if t.Slug == slug {
+			continue // already tried
+		}
+		if c, err := cpctx.Provider.GetClient(ctx, t.Slug, clientID); err == nil {
+			return c, t.Slug, nil
+		}
+	}
+	return nil, "", ErrClientNotFound
 }
 
 func ValidateRedirectURI(c *cp.OIDCClient, redirect string) error {

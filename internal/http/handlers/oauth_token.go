@@ -85,6 +85,13 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				return
 			}
 
+			// Re-select activeStore based on resolved tenant (CRITICAL for Refresh Token FK)
+			if c.TenantSQLManager != nil {
+				if tStore, errS := c.TenantSQLManager.GetPG(ctx, tenantSlug); errS == nil && tStore != nil {
+					activeStore = tStore
+				}
+			}
+
 			// TODO: Implementar ValidateClientSecret cuando se agregue auth del cliente
 			// if err := helpers.ValidateClientSecret(ctx, r, tenantSlug, client, clientSecret); err != nil {
 			//     httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "bad credentials", 2205)
@@ -101,7 +108,9 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			_ = tenantSlug
 
 			// Cargar y consumir el code (1 uso)
-			key := "oidc:code:" + tokens.SHA256Base64URL(code)
+			// key := "oidc:code:" + tokens.SHA256Base64URL(code) // OLD mismatch
+			key := "code:" + code // MATCH authorize handler
+			log.Printf("DEBUG: oauth_token attempting to retrieve key: %s", key)
 			data, ok := c.Cache.Get(key)
 			if !ok {
 				httpx.WriteError(w, http.StatusBadRequest, "invalid_grant", "authorization code inválido", 2205)
@@ -192,9 +201,22 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
 			}
 			if tcs, ok := activeStore.(tc); ok {
+				// Resolver Tenant UUID real (ac.TenantID es slug)
+				var realTenantID string
+				if cpctx.Provider != nil {
+					if tObj, errT := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errT == nil && tObj != nil {
+						realTenantID = tObj.ID
+					}
+				}
+				if realTenantID == "" {
+					// Fallback: si no pudimos resolver (raro), asumimos que el store aceptará el slug o fallará
+					realTenantID = ac.TenantID
+				}
+
 				// preferir TC con client_id_text (sin FK)
-				tok, err := tcs.CreateRefreshTokenTC(ctx, ac.TenantID, cl.ClientID, ac.UserID, refreshTTL)
+				tok, err := tcs.CreateRefreshTokenTC(ctx, realTenantID, cl.ClientID, ac.UserID, refreshTTL)
 				if err != nil {
+					log.Printf("oauth token: create refresh TC err: %v", err)
 					httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 2212)
 					return
 				}
@@ -284,6 +306,12 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			if err != nil {
 				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client not found", 2221)
 				return
+			}
+			// Re-select activeStore based on resolved tenant
+			if c.TenantSQLManager != nil {
+				if tStore, errS := c.TenantSQLManager.GetPG(ctx, tenantSlug); errS == nil && tStore != nil {
+					activeStore = tStore
+				}
 			}
 
 			// Mapear client FS a estructura legacy para compatibilidad

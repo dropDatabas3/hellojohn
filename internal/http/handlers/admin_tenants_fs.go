@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -25,8 +26,10 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/security/password"
+	"github.com/dropDatabas3/hellojohn/internal/security/secretbox"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
@@ -64,6 +67,39 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 		}
 
 		switch {
+		// POST /v1/admin/tenants/test-connection
+		case path == base+"/test-connection" && r.Method == http.MethodPost:
+			var req struct {
+				DSN string `json:"dsn"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "JSON inválido", 5090)
+				return
+			}
+			if strings.TrimSpace(req.DSN) == "" {
+				httpx.WriteError(w, http.StatusBadRequest, "missing_dsn", "DSN requerido", 5091)
+				return
+			}
+
+			// Create transient connection with short timeout
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+
+			pool, err := pgxpool.New(ctx, req.DSN)
+			if err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "connect_error", fmt.Sprintf("Error parseando DSN o conectando: %v", err), 5092)
+				return
+			}
+			defer pool.Close()
+
+			if err := pool.Ping(ctx); err != nil {
+				httpx.WriteError(w, http.StatusBadRequest, "ping_error", fmt.Sprintf("No se pudo establecer conexión: %v", err), 5093)
+				return
+			}
+
+			httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+			return
+
 		case path == base:
 			switch r.Method {
 			case http.MethodGet:
@@ -84,6 +120,7 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 					Settings controlplane.TenantSettings `json:"settings"`
 				}
 				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					fmt.Printf("JSON Decode Error: %v\n", err)
 					httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "JSON inválido", 5003)
 					return
 				}
@@ -103,29 +140,96 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 					return
 				}
 
-				// Encrypt sensitive fields
-				masterKey := os.Getenv("SIGNING_MASTER_KEY")
-				if masterKey != "" {
-					// SMTP Password
-					if req.Settings.SMTP != nil && req.Settings.SMTP.Password != "" {
-						if enc, err := jwtx.EncryptPrivateKey([]byte(req.Settings.SMTP.Password), masterKey); err == nil {
-							req.Settings.SMTP.PasswordEnc = jwtx.EncodeBase64URL(enc)
-							req.Settings.SMTP.Password = "" // Clear plain
-						}
+				// Helper to save logo
+				saveLogo := func(slug string, logoData string) (string, error) {
+					if !strings.HasPrefix(logoData, "data:image/") {
+						return logoData, nil
 					}
-					// UserDB DSN
-					if req.Settings.UserDB != nil && req.Settings.UserDB.DSN != "" {
-						if enc, err := jwtx.EncryptPrivateKey([]byte(req.Settings.UserDB.DSN), masterKey); err == nil {
-							req.Settings.UserDB.DSNEnc = jwtx.EncodeBase64URL(enc)
-							req.Settings.UserDB.DSN = "" // Clear plain
-						}
+					parts := strings.Split(logoData, ",")
+					if len(parts) != 2 {
+						return "", fmt.Errorf("invalid data URI format")
 					}
-					// Cache Password
-					if req.Settings.Cache != nil && req.Settings.Cache.Password != "" {
-						if enc, err := jwtx.EncryptPrivateKey([]byte(req.Settings.Cache.Password), masterKey); err == nil {
-							req.Settings.Cache.PassEnc = jwtx.EncodeBase64URL(enc)
-							req.Settings.Cache.Password = "" // Clear plain
-						}
+					mimeType := strings.TrimSuffix(strings.TrimPrefix(parts[0], "data:"), ";base64")
+					ext := ""
+					switch mimeType {
+					case "image/png":
+						ext = ".png"
+					case "image/jpeg":
+						ext = ".jpg"
+					case "image/svg+xml":
+						ext = ".svg"
+					case "image/gif":
+						ext = ".gif"
+					case "image/webp":
+						ext = ".webp"
+					default:
+						return "", fmt.Errorf("unsupported image type: %s", mimeType)
+					}
+
+					data, err := base64.StdEncoding.DecodeString(parts[1])
+					if err != nil {
+						return "", fmt.Errorf("invalid base64: %w", err)
+					}
+
+					// Ensure directory exists
+					targetDir := filepath.Join(fsProvider.FSRoot(), "tenants", slug)
+					if err := os.MkdirAll(targetDir, 0755); err != nil {
+						return "", err
+					}
+
+					fileName := "logo" + ext
+					filePath := filepath.Join(targetDir, fileName)
+					if err := os.WriteFile(filePath, data, 0644); err != nil {
+						return "", err
+					}
+
+					// Return relative URL pattern (assumed to be served by some asset handler)
+					// If using standard static file serving, this path needs to match that router.
+					// For now, we return a predictable path.
+					return fmt.Sprintf("/v1/assets/tenants/%s/%s", slug, fileName), nil
+				}
+
+				// Encrypt sensitive fields using secretbox (matching manager.go expectations)
+				// SMTP Password
+				if req.Settings.SMTP != nil && req.Settings.SMTP.Password != "" {
+					if enc, err := secretbox.Encrypt(req.Settings.SMTP.Password); err == nil {
+						req.Settings.SMTP.PasswordEnc = enc
+						req.Settings.SMTP.Password = "" // Clear plain
+					} else {
+						httpx.WriteError(w, http.StatusInternalServerError, "encrypt_error", "failed to encrypt smtp password", 5008)
+						return
+					}
+				}
+				// UserDB DSN
+				if req.Settings.UserDB != nil && req.Settings.UserDB.DSN != "" {
+					if enc, err := secretbox.Encrypt(req.Settings.UserDB.DSN); err == nil {
+						req.Settings.UserDB.DSNEnc = enc
+						req.Settings.UserDB.DSN = "" // Clear plain
+					} else {
+						httpx.WriteError(w, http.StatusInternalServerError, "encrypt_error", "failed to encrypt dsn", 5008)
+						return
+					}
+				}
+				// Cache Password
+				if req.Settings.Cache != nil && req.Settings.Cache.Password != "" {
+					if enc, err := secretbox.Encrypt(req.Settings.Cache.Password); err == nil {
+						req.Settings.Cache.PassEnc = enc
+						req.Settings.Cache.Password = "" // Clear plain
+					} else {
+						httpx.WriteError(w, http.StatusInternalServerError, "encrypt_error", "failed to encrypt cache password", 5008)
+						return
+					}
+				}
+
+				// Process Logo
+				if req.Settings.LogoURL != "" {
+					if url, err := saveLogo(req.Slug, req.Settings.LogoURL); err == nil {
+						req.Settings.LogoURL = url
+					} else {
+						// Log error but continue with empty logo or original data?
+						// For now, let's fail to warn user
+						httpx.WriteError(w, http.StatusBadRequest, "invalid_logo", err.Error(), 5007)
+						return
 					}
 				}
 
@@ -148,6 +252,25 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 				if err := fsProvider.UpsertTenant(r.Context(), tenant); err != nil {
 					httpx.WriteError(w, http.StatusInternalServerError, "create_failed", err.Error(), 5006)
 					return
+				}
+
+				// Automatic Migration
+				if c.TenantSQLManager != nil && req.Settings.UserDB != nil {
+					// Only attempt if we have a DSN (encrypted or plain)
+					if req.Settings.UserDB.DSNEnc != "" || req.Settings.UserDB.DSN != "" {
+						_, err := c.TenantSQLManager.MigrateTenant(r.Context(), req.Slug)
+						if err != nil {
+							// Rollback: Delete tenant
+							_ = fsProvider.DeleteTenant(r.Context(), req.Slug)
+							// Return friendly error
+							msg := fmt.Sprintf("Migration failed: %v", err)
+							if tenantsql.IsNoDBForTenant(err) {
+								msg = "Database connection failed (check DSN)"
+							}
+							httpx.WriteError(w, http.StatusBadRequest, "migration_failed", msg, 5009)
+							return
+						}
+					}
 				}
 
 				// Generate initial keys for the new tenant
@@ -186,6 +309,17 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 				// If not found by ID, we continue assuming it might be a weird slug (unlikely but safe)
 				// or it will fail later with "tenant not found"
 			}
+
+			// Helper to save logo (SAME AS ABOVE - duplicated for now to avoid large refactor of handler struct)
+			// Ideally this should be a shared function, but for this edit we inline it in the closure or extract it.
+			// Given I just added it in the POST handle, I can't access it here easily without moving it up.
+			// I will move it up to the handler scope in the next edit or repeat it.
+			// To be clean, I will define `saveLogo` at the top of the handler function.
+			// Since I am already restricted in the `ReplaceFileContent` to a block, I will assume I can't move it easily without replacing the whole func.
+			// I will duplicate it for now in the PUT block or I should have defined it earlier.
+			// I made a mistake in the previous tool call by defining it inside the POST block.
+			// I will correct this in the instruction by replacing the whole function body or defining it twice.
+			// Defining it twice is safer for now to avoid context limit issues with large replaces, though it's dry-violation.
 
 			// POST /v1/admin/tenants/{slug}/keys/rotate
 			if len(parts) == 3 && parts[1] == "keys" && parts[2] == "rotate" {
@@ -300,6 +434,93 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 					httpx.WriteError(w, http.StatusBadRequest, "invalid_issuer_mode", err.Error(), 5033)
 					return
 				}
+
+				// Handle Logo Update
+				// We need the saveLogo func again.
+				saveLogo := func(slug string, logoData string) (string, error) {
+					if !strings.HasPrefix(logoData, "data:image/") {
+						return logoData, nil
+					}
+					parts := strings.Split(logoData, ",")
+					if len(parts) != 2 {
+						return "", fmt.Errorf("invalid data URI format")
+					}
+					mimeType := strings.TrimSuffix(strings.TrimPrefix(parts[0], "data:"), ";base64")
+					ext := ""
+					switch mimeType {
+					case "image/png":
+						ext = ".png"
+					case "image/jpeg":
+						ext = ".jpg"
+					case "image/svg+xml":
+						ext = ".svg"
+					case "image/gif":
+						ext = ".gif"
+					case "image/webp":
+						ext = ".webp"
+					default:
+						return "", fmt.Errorf("unsupported image type: %s", mimeType)
+					}
+
+					data, err := base64.StdEncoding.DecodeString(parts[1])
+					if err != nil {
+						return "", fmt.Errorf("invalid base64: %w", err)
+					}
+
+					targetDir := filepath.Join(fsProvider.FSRoot(), "tenants", slug)
+					if err := os.MkdirAll(targetDir, 0755); err != nil {
+						return "", err
+					}
+
+					fileName := "logo" + ext
+					filePath := filepath.Join(targetDir, fileName)
+					if err := os.WriteFile(filePath, data, 0644); err != nil {
+						return "", err
+					}
+					return fmt.Sprintf("/v1/assets/tenants/%s/%s", slug, fileName), nil
+				}
+
+				if in.Settings.LogoURL != "" {
+					if url, err := saveLogo(in.Slug, in.Settings.LogoURL); err == nil {
+						in.Settings.LogoURL = url
+					} else {
+						httpx.WriteError(w, http.StatusBadRequest, "invalid_logo", err.Error(), 5007)
+						return
+					}
+				}
+
+				// Encrypt sensitive fields using secretbox (Update flow)
+				// SMTP Password
+				if in.Settings.SMTP != nil && in.Settings.SMTP.Password != "" {
+					if enc, err := secretbox.Encrypt(in.Settings.SMTP.Password); err == nil {
+						in.Settings.SMTP.PasswordEnc = enc
+						in.Settings.SMTP.Password = "" // Clear plain
+					} else {
+						httpx.WriteError(w, http.StatusInternalServerError, "encrypt_error", "failed to encrypt smtp password", 5008)
+						return
+					}
+				}
+				// UserDB DSN
+				if in.Settings.UserDB != nil && in.Settings.UserDB.DSN != "" {
+					if enc, err := secretbox.Encrypt(in.Settings.UserDB.DSN); err == nil {
+						in.Settings.UserDB.DSNEnc = enc
+						in.Settings.UserDB.DSN = "" // Clear plain
+					} else {
+						httpx.WriteError(w, http.StatusInternalServerError, "encrypt_error", "failed to encrypt dsn", 5008)
+						return
+					}
+				}
+				// Cache Password
+				if in.Settings.Cache != nil && in.Settings.Cache.Password != "" {
+					if enc, err := secretbox.Encrypt(in.Settings.Cache.Password); err == nil {
+						in.Settings.Cache.PassEnc = enc
+						in.Settings.Cache.Password = "" // Clear plain
+					} else {
+						httpx.WriteError(w, http.StatusInternalServerError, "encrypt_error", "failed to encrypt cache password", 5008)
+						return
+					}
+				}
+
 				if c != nil && c.ClusterNode != nil {
 					payload, _ := json.Marshal(cluster.UpsertTenantDTO{ID: strings.TrimSpace(in.ID), Name: strings.TrimSpace(in.Name), Slug: in.Slug, Settings: in.Settings})
 					m := cluster.Mutation{Type: cluster.MutationUpsertTenant, TenantSlug: in.Slug, TsUnix: time.Now().Unix(), Payload: payload}
@@ -490,6 +711,43 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 				return
 			}
 
+			// DELETE /v1/admin/tenants/{slug}/users/{id}
+			// DELETE /v1/admin/tenants/{slug}/users/{id}
+			if len(parts) == 3 && parts[1] == "users" {
+				userID := parts[2]
+				if r.Method == http.MethodDelete {
+					if c.TenantSQLManager == nil {
+						httpx.WriteError(w, http.StatusNotImplemented, "sql_manager_required", "SQL Manager no inicializado", 5080)
+						return
+					}
+					// Obtener store del tenant (necesario inicializarlo aqui porque el bloque anterior era if len==2)
+					store, err := c.TenantSQLManager.GetPG(r.Context(), slug)
+					if err != nil {
+						if tenantsql.IsNoDBForTenant(err) {
+							httpx.WriteTenantDBMissing(w)
+							return
+						}
+						httpx.WriteTenantDBError(w, err.Error())
+						return
+					}
+
+					// Usar interface casting para DeleteUser
+					type userDeleter interface {
+						DeleteUser(ctx context.Context, userID string) error
+					}
+					if deleter, ok := any(store).(userDeleter); ok {
+						if err := deleter.DeleteUser(r.Context(), userID); err != nil {
+							httpx.WriteError(w, http.StatusInternalServerError, "delete_user_failed", err.Error(), 5089)
+							return
+						}
+						w.WriteHeader(http.StatusNoContent)
+						return
+					}
+					httpx.WriteError(w, http.StatusNotImplemented, "not_implemented", "store no soporta eliminar usuarios", 5083)
+					return
+				}
+			}
+
 			// ─── Admin: per-tenant user-store ───
 			// POST /v1/admin/tenants/{slug}/user-store/test-connection
 			// POST /v1/admin/tenants/{slug}/user-store/migrate
@@ -540,7 +798,7 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 						return
 					}
 					// Verify tenant exists (404 if not)
-					t, err := fsProvider.GetTenantBySlug(r.Context(), slug)
+					_, err := fsProvider.GetTenantBySlug(r.Context(), slug)
 					if err != nil {
 						if err == cpfs.ErrTenantNotFound {
 							httpx.WriteError(w, http.StatusNotFound, "tenant_not_found", "tenant no encontrado", 5011)
@@ -549,13 +807,7 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 						httpx.WriteError(w, http.StatusInternalServerError, "get_failed", err.Error(), 5012)
 						return
 					}
-					// Short-circuit: if no pending migrations, return 204 immediately
-					if c.TenantSQLManager != nil {
-						if has, herr := c.TenantSQLManager.HasPendingMigrations(r.Context(), t.ID); herr == nil && !has {
-							w.WriteHeader(http.StatusNoContent)
-							return
-						}
-					}
+
 					// Usar MigrateTenant del manager que ya tiene configurado el path correcto y maneja el lock
 					count, err := c.TenantSQLManager.MigrateTenant(r.Context(), slug)
 					if err != nil {
@@ -580,6 +832,23 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 				}
 
 				httpx.WriteError(w, http.StatusNotFound, "not_found", "", 5028)
+				return
+			}
+
+			// ─── Admin: per-tenant mailing ───
+			// POST /v1/admin/tenants/{slug}/mailing/test
+			if len(parts) == 3 && parts[1] == "mailing" && parts[2] == "test" {
+				// Verify tenant exists
+				t, err := fsProvider.GetTenantBySlug(r.Context(), slug)
+				if err != nil {
+					if err == cpfs.ErrTenantNotFound {
+						httpx.WriteError(w, http.StatusNotFound, "tenant_not_found", "tenant no encontrado", 5011)
+						return
+					}
+					httpx.WriteError(w, http.StatusInternalServerError, "get_failed", err.Error(), 5012)
+					return
+				}
+				SendTestEmail(w, r, t)
 				return
 			}
 
@@ -617,22 +886,17 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 							httpx.WriteError(w, http.StatusBadRequest, "no_cache_config", "no cache configured for tenant", 5072)
 							return
 						}
-						httpx.WriteError(w, http.StatusInternalServerError, "cache_error", err.Error(), 5073)
+						httpx.WriteError(w, http.StatusInternalServerError, "get_failed", err.Error(), 5073)
 						return
 					}
-
 					// Ping
 					if err := client.Ping(r.Context()); err != nil {
-						httpx.WriteError(w, http.StatusBadGateway, "cache_ping_failed", err.Error(), 5074)
+						httpx.WriteError(w, http.StatusBadGateway, "ping_failed", "no se pudo conectar a redis: "+err.Error(), 5074)
 						return
 					}
-
 					w.WriteHeader(http.StatusNoContent)
 					return
 				}
-
-				httpx.WriteError(w, http.StatusNotFound, "not_found", "", 5028)
-				return
 			}
 
 			// GET /v1/admin/tenants/{slug}/infra-stats
@@ -819,6 +1083,59 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 					if err := validateIssuerMode(newSettings.IssuerMode); err != nil {
 						httpx.WriteError(w, http.StatusBadRequest, "invalid_issuer_mode", err.Error(), 5033)
 						return
+					}
+
+					// Helper to save logo (local scope)
+					saveLogo := func(slug string, logoData string) (string, error) {
+						if !strings.HasPrefix(logoData, "data:image/") {
+							return logoData, nil
+						}
+						parts := strings.Split(logoData, ",")
+						if len(parts) != 2 {
+							return "", fmt.Errorf("invalid data URI format")
+						}
+						mimeType := strings.TrimSuffix(strings.TrimPrefix(parts[0], "data:"), ";base64")
+						ext := ""
+						switch mimeType {
+						case "image/png":
+							ext = ".png"
+						case "image/jpeg":
+							ext = ".jpg"
+						case "image/svg+xml":
+							ext = ".svg"
+						case "image/gif":
+							ext = ".gif"
+						case "image/webp":
+							ext = ".webp"
+						default:
+							return "", fmt.Errorf("unsupported image type: %s", mimeType)
+						}
+
+						data, err := base64.StdEncoding.DecodeString(parts[1])
+						if err != nil {
+							return "", fmt.Errorf("invalid base64: %w", err)
+						}
+
+						targetDir := filepath.Join(fsProvider.FSRoot(), "tenants", slug)
+						if err := os.MkdirAll(targetDir, 0755); err != nil {
+							return "", err
+						}
+
+						fileName := "logo" + ext
+						filePath := filepath.Join(targetDir, fileName)
+						if err := os.WriteFile(filePath, data, 0644); err != nil {
+							return "", err
+						}
+						return fmt.Sprintf("/v1/assets/tenants/%s/%s", slug, fileName), nil
+					}
+
+					if newSettings.LogoURL != "" {
+						if url, err := saveLogo(slug, newSettings.LogoURL); err == nil {
+							newSettings.LogoURL = url
+						} else {
+							httpx.WriteError(w, http.StatusBadRequest, "invalid_logo", err.Error(), 5007)
+							return
+						}
 					}
 
 					// Apply via Raft if cluster

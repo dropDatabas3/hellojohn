@@ -241,6 +241,11 @@ type IDClaims struct {
 	Iat           int64           `json:"iat"`
 	Email         string          `json:"email"`
 	EmailVerified bool            `json:"email_verified"`
+	Name          string          `json:"name"`
+	GivenName     string          `json:"given_name"`
+	FamilyName    string          `json:"family_name"`
+	Picture       string          `json:"picture"`
+	Locale        string          `json:"locale"`
 	Nonce         string          `json:"nonce"`
 	Hd            string          `json:"hd,omitempty"`
 	Azp           string          `json:"azp,omitempty"`
@@ -324,6 +329,11 @@ func (g *OIDC) VerifyIDToken(ctx context.Context, idToken string, expectedNonce 
 		Iss:           iss,
 		Email:         strClaim(claims, "email"),
 		EmailVerified: boolClaim(claims, "email_verified"),
+		Name:          strClaim(claims, "name"),
+		GivenName:     strClaim(claims, "given_name"),
+		FamilyName:    strClaim(claims, "family_name"),
+		Picture:       strClaim(claims, "picture"),
+		Locale:        strClaim(claims, "locale"),
 		Nonce:         strClaim(claims, "nonce"),
 	}
 	return out, nil

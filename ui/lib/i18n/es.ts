@@ -16,6 +16,7 @@ export const es = {
     back: "Volver",
     next: "Siguiente",
     previous: "Anterior",
+    logo: "Logo",
     close: "Cerrar",
     copy: "Copiar",
     copied: "Copiado",
@@ -23,27 +24,36 @@ export const es = {
     profile: "Perfil",
     settings: "Configuración",
     actions: "Acciones",
-    enabled: "Habilitado",
-    disabled: "Deshabilitado",
-    creating: "Creando...",
-    saving: "Guardando...",
-    deleting: "Eliminando...",
-    add: "Agregar",
-    warning: "Advertencia",
-    info: "Información",
-    details: "Detalles",
-  },
-  auth: {
-    login: "Iniciar sesión",
-    email: "Correo electrónico",
-    password: "Contraseña",
-    tenant: "Organización (opcional)",
-    client: "Cliente (opcional)",
-    loginButton: "Ingresar",
-    loginError: "Error al iniciar sesión",
-    invalidCredentials: "Credenciales inválidas",
     sessionExpired: "Sesión expirada",
     logoutAll: "Cerrar todas las sesiones",
+    wizard: {
+      steps: {
+        basic: "Información Básica",
+        database: "Datos",
+        smtp: "Mailing (SMTP)",
+        social: "Login Social",
+        verification: "Verificación"
+      },
+      next: "Siguiente",
+      back: "Atrás",
+      skip: "Omitir",
+      messages: {
+        db_required: "HelloJohn requiere una base de datos para almacenar los usuarios de esta organización. No utilizamos la DB global para datos de tenants."
+      },
+      actions: {
+        test_connection: "Probar Conexión",
+        connection_string: "String de Conexión",
+        manual_fields: "Campos Manuales"
+      }
+    },
+  },
+  auth: {
+    login: "Iniciar Sesión",
+    email: "Email",
+    password: "Contraseña",
+    loginButton: "Ingresar",
+    loginError: "Error de inicio de sesión",
+    invalidCredentials: "Credenciales inválidas, verifica tu email y contraseña",
   },
   dashboard: {
     title: "Panel de Control",

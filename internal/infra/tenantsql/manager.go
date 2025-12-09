@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	"github.com/dropDatabas3/hellojohn/internal/controlplane"
 	"github.com/dropDatabas3/hellojohn/internal/security/secretbox"
 	"github.com/dropDatabas3/hellojohn/internal/store/pg"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -120,14 +121,25 @@ func defaultResolver(ctx context.Context, slug string) (*TenantConnection, error
 
 	tenant, err := cpctx.Provider.GetTenantBySlug(ctx, slug)
 	if err != nil {
-		// Unknown tenant in control-plane
-		return nil, ErrTenantNotFound
+		// Fallback: Check if it's a UUID and try resolving by ID if provider supports it
+		if fsProv, ok := controlplane.AsFSProvider(cpctx.Provider); ok {
+			if t, errID := fsProv.GetTenantByID(ctx, slug); errID == nil {
+				tenant = t
+			} else {
+				return nil, ErrTenantNotFound
+			}
+		} else {
+			// Unknown tenant in control-plane
+			return nil, ErrTenantNotFound
+		}
 	}
 	if tenant == nil {
 		return nil, ErrNoDBForTenant
 	}
 	settings := tenant.Settings
 	if settings.UserDB == nil {
+		// For legacy or non-configured tenants, if they exist but no DB is explicit,
+		// we return ErrNoDBForTenant.
 		return nil, ErrNoDBForTenant
 	}
 
@@ -138,20 +150,27 @@ func defaultResolver(ctx context.Context, slug string) (*TenantConnection, error
 	if driver != "pg" && driver != "postgres" {
 		return nil, fmt.Errorf("unsupported tenant driver: %s", settings.UserDB.Driver)
 	}
-	if strings.TrimSpace(settings.UserDB.DSNEnc) == "" {
-		return nil, ErrNoDBForTenant
+	if settings.UserDB.DSNEnc != "" {
+		// Encrypted DSN Logic
+		dsn, err := secretbox.Decrypt(settings.UserDB.DSNEnc)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt dsn: %w", err)
+		}
+		return &TenantConnection{
+			Driver: driver,
+			DSN:    dsn,
+			Schema: settings.UserDB.Schema,
+		}, nil
+	} else if settings.UserDB.DSN != "" {
+		// Plain DSN Logic (should be avoided in prod but handled)
+		return &TenantConnection{
+			Driver: driver,
+			DSN:    settings.UserDB.DSN,
+			Schema: settings.UserDB.Schema,
+		}, nil
 	}
 
-	dsn, err := secretbox.Decrypt(settings.UserDB.DSNEnc)
-	if err != nil {
-		return nil, fmt.Errorf("decrypt dsn: %w", err)
-	}
-
-	return &TenantConnection{
-		Driver: driver,
-		DSN:    dsn,
-		Schema: settings.UserDB.Schema,
-	}, nil
+	return nil, ErrNoDBForTenant
 }
 
 // GetPG devuelve (o crea) el store PG asociado al tenant solicitado.

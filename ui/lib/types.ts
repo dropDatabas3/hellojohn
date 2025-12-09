@@ -37,11 +37,21 @@ export type TenantSettings = {
   issuerMode?: "global" | "path" | "domain"
   issuerOverride?: string
   user_fields?: UserFieldDefinition[]
+  mailing?: MailingSettings
+}
+
+export type MailingSettings = {
+  templates?: Record<string, EmailTemplate>
+}
+
+export type EmailTemplate = {
+  subject: string
+  body: string
 }
 
 export type UserFieldDefinition = {
   name: string
-  type: "string" | "number" | "boolean"
+  type: "string" | "number" | "boolean" | "phone" | "country" | "text" | "int" | "date"
   required?: boolean
 }
 
@@ -79,11 +89,15 @@ export type Consent = {
 
 export type User = {
   id: string
+  tenant_id: string
   email: string
-  emailVerified: boolean
-  disabled: boolean
-  createdAt: string
-  updatedAt: string
+  email_verified: boolean
+  metadata: Record<string, any>
+  created_at: string
+  updated_at?: string
+  disabled_at?: string
+  disabled_until?: string
+  disabled_reason?: string
   custom_fields?: Record<string, any>
 }
 
@@ -159,4 +173,14 @@ export type ApiError = {
   error: string
   error_description?: string
   status?: number
+}
+
+export type AuthConfigResponse = {
+  tenant_name: string
+  tenant_slug?: string
+  client_name?: string
+  logo_url?: string
+  primary_color?: string
+  social_providers?: string[]
+  password_enabled: boolean
 }

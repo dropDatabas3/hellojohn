@@ -32,9 +32,7 @@ export const en = {
     warning: "Warning",
     info: "Information",
     details: "Details",
-  },
-  auth: {
-    login: "Login",
+    logo: "Logo",
     email: "Email",
     password: "Password",
     tenant: "Tenant (optional)",
@@ -44,6 +42,34 @@ export const en = {
     invalidCredentials: "Invalid credentials",
     sessionExpired: "Session expired",
     logoutAll: "Logout all sessions",
+    wizard: {
+      steps: {
+        basic: "Basic Info",
+        database: "Data",
+        smtp: "Mailing (SMTP)",
+        social: "Social Login",
+        verification: "Verification"
+      },
+      next: "Next",
+      back: "Back",
+      skip: "Skip",
+      messages: {
+        db_required: "HelloJohn requires a database to store users for this organization. We do not use the global DB for tenant data."
+      },
+      actions: {
+        test_connection: "Test Connection",
+        connection_string: "Connection String",
+        manual_fields: "Manual Fields"
+      }
+    },
+  },
+  auth: {
+    login: "Sign In",
+    email: "Email",
+    password: "Password",
+    loginButton: "Sign In",
+    loginError: "Login error",
+    invalidCredentials: "Invalid credentials",
   },
   dashboard: {
     title: "Dashboard",
@@ -57,23 +83,6 @@ export const en = {
     title: "Tenants",
     description: "Manage your system tenants",
     create: "Create Tenant",
-    name: "Name",
-    slug: "Slug",
-    displayName: "Display Name",
-    issuerMode: "Issuer Mode",
-    settings: "Settings",
-    clients: "Clients",
-    scopes: "Scopes",
-    consents: "Consents",
-    database: "Database",
-    keys: "Keys",
-    oidc: "OIDC",
-    search: "Search tenants...",
-    status: "Status",
-    noTenants: "No tenants available",
-    createTitle: "Create new tenant",
-    createDescription: "Create a new tenant for your system",
-    deleteTitle: "Delete tenant",
     deleteDescription: "Are you sure you want to delete tenant {{name}}? This action cannot be undone.",
     created: "Tenant created",
     createdDesc: "The tenant has been created successfully",

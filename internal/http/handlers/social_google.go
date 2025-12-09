@@ -86,34 +86,36 @@ func (h *googleHandler) issueSocialTokens(w http.ResponseWriter, r *http.Request
 		return true
 	}
 
-	cl, _, e2 := h.c.Store.GetClientByClientID(r.Context(), cid)
-	if e2 != nil || cl == nil || !strings.EqualFold(cl.TenantID, tid.String()) {
+	// Use ONLY FS control plane for client lookup (no global DB)
+	fsCl, fsErr := helpers.ResolveClientFSByTenantID(r.Context(), tid.String(), cid)
+	if fsErr != nil || fsCl.ClientID == "" {
+		log.Printf(`{"level":"error","msg":"issueSocialTokens_client_not_found","client_id":"%s","tenant_id":"%s","err":"%v"}`, cid, tid, fsErr)
 		httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1623)
 		return true
 	}
+	// fsCl contains client info from FS control plane
 
-	rawRT, err := tokens.GenerateOpaqueToken(32)
+	// Create refresh token using tenant-specific pool (h.pool, NOT h.c.Store)
+	rawToken, err := tokens.GenerateOpaqueToken(32)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 1622)
 		return true
 	}
-	// Usar CreateRefreshTokenTC para social login
-	if tcStore, ok := h.c.Store.(interface {
-		CreateRefreshTokenTC(context.Context, string, string, string, time.Time, *string) (string, error)
-	}); ok {
-		hash := tokens.SHA256Hex(rawRT)
-		if _, err := tcStore.CreateRefreshTokenTC(r.Context(), tid.String(), cl.ClientID, hash, time.Now().Add(h.issuerTok.refreshTTL), nil); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh TC", 1624)
-			return true
-		}
-	} else {
-		// Fallback legacy
-		hash := tokens.SHA256Base64URL(rawRT)
-		if _, err := h.c.Store.CreateRefreshToken(r.Context(), uid.String(), cl.ID, hash, time.Now().Add(h.issuerTok.refreshTTL), nil); err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1624)
-			return true
-		}
+	tokenHash := tokens.SHA256Base64URL(rawToken)
+
+	// INSERT directly into tenant DB using h.pool
+	const qInsert = `
+		INSERT INTO refresh_token (client_id, user_id, token_hash, issued_at, expires_at, metadata)
+		VALUES ($1, $2, $3, NOW(), NOW() + $4::interval, '{}')
+		RETURNING id`
+	var tokenID string
+	err = h.pool.QueryRow(r.Context(), qInsert, cid, uid.String(), tokenHash, h.issuerTok.refreshTTL.String()).Scan(&tokenID)
+	if err != nil {
+		log.Printf(`{"level":"error","msg":"issueSocialTokens_refresh_create_err","pool":"tenant","err":"%v"}`, err)
+		httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1624)
+		return true
 	}
+	rawRT := rawToken
 
 	respAuth := AuthLoginResponse{AccessToken: access, TokenType: "Bearer", ExpiresIn: int64(time.Until(exp).Seconds()), RefreshToken: rawRT}
 
@@ -633,52 +635,60 @@ func (h *googleHandler) callback(w http.ResponseWriter, r *http.Request) {
 }
 
 // ensureUserAndIdentity: upsert app_user + identity(provider='google')
+// Uses ONLY tenant-specific DB (no tenant_id column in queries)
 func (h *googleHandler) ensureUserAndIdentity(ctx context.Context, tid uuid.UUID, idc *google.IDClaims) (uuid.UUID, error) {
-	// 1) buscar app_user por (tenant_id,email)
 	var userID uuid.UUID
 	var emailVerified bool
-	q1 := `
-SELECT id, email_verified
-FROM app_user
-WHERE tenant_id=$1 AND email=$2
-LIMIT 1`
-	err := h.pool.QueryRow(ctx, q1, tid, idc.Email).Scan(&userID, &emailVerified)
+
+	// 1) Try to find existing user by email (tenant DB - no tenant_id column)
+	qSelect := `SELECT id, email_verified FROM app_user WHERE email=$1 LIMIT 1`
+	err := h.pool.QueryRow(ctx, qSelect, idc.Email).Scan(&userID, &emailVerified)
+	log.Printf(`{"level":"debug","msg":"ensureUser_select","email":"%s","err":"%v"}`, idc.Email, err)
+
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
+			log.Printf(`{"level":"error","msg":"ensureUser_select_err","err":"%v"}`, err)
 			return uuid.Nil, err
 		}
-		// crear
-		qIns := `
-INSERT INTO app_user (tenant_id, email, email_verified, status, metadata)
-VALUES ($1,$2,$3,'active','{}'::jsonb)
-RETURNING id`
+		// User doesn't exist - create them (tenant DB - no tenant_id/status columns)
+		qInsert := `INSERT INTO app_user (email, email_verified, name, given_name, family_name, picture, locale, metadata)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,'{}'::jsonb) RETURNING id`
+
 		ev := idc.EmailVerified
-		if err := h.pool.QueryRow(ctx, qIns, tid, idc.Email, ev).Scan(&userID); err != nil {
+		err = h.pool.QueryRow(ctx, qInsert, idc.Email, ev, idc.Name, idc.GivenName, idc.FamilyName, idc.Picture, idc.Locale).Scan(&userID)
+		log.Printf(`{"level":"debug","msg":"ensureUser_insert","email":"%s","err":"%v"}`, idc.Email, err)
+		if err != nil {
+			log.Printf(`{"level":"error","msg":"ensureUser_insert_err","err":"%v"}`, err)
 			return uuid.Nil, err
 		}
 	} else {
-		// actualizar verificación si ahora viene true
+		// User exists - update verification if needed
 		if idc.EmailVerified && !emailVerified {
 			_, _ = h.pool.Exec(ctx, `UPDATE app_user SET email_verified=true WHERE id=$1`, userID)
 		}
 	}
 
-	// 2) identity(provider='google', provider_user_id=sub)
+	log.Printf(`{"level":"debug","msg":"ensureUser_user_ready","user_id":"%s"}`, userID)
+
+	// 2) Ensure identity(provider='google', provider_user_id=sub) exists
 	var idExists bool
 	err = h.pool.QueryRow(ctx, `
-SELECT EXISTS(SELECT 1 FROM identity WHERE provider='google' AND provider_user_id=$1 AND user_id=$2)
-`, idc.Sub, userID).Scan(&idExists)
+		SELECT EXISTS(SELECT 1 FROM identity WHERE provider='google' AND provider_user_id=$1 AND user_id=$2)
+	`, idc.Sub, userID).Scan(&idExists)
+	log.Printf(`{"level":"debug","msg":"ensureUser_identity_check","sub":"%s","exists":%v,"err":"%v"}`, idc.Sub, idExists, err)
+
 	if err != nil {
+		log.Printf(`{"level":"error","msg":"ensureUser_identity_check_err","err":"%v"}`, err)
 		return uuid.Nil, err
 	}
 	if !idExists {
 		_, err = h.pool.Exec(ctx, `
-INSERT INTO identity (user_id, provider, provider_user_id, email, email_verified)
-VALUES ($1,'google',$2,$3,$4)
-`, userID, idc.Sub, idc.Email, idc.EmailVerified)
+			INSERT INTO identity (user_id, provider, provider_user_id, email, email_verified)
+			VALUES ($1,'google',$2,$3,$4)
+		`, userID, idc.Sub, idc.Email, idc.EmailVerified)
+		log.Printf(`{"level":"debug","msg":"ensureUser_identity_insert","err":"%v"}`, err)
 		if err != nil {
-			// caso raro: ya existe ligada a otro user ⇒ no tomamos control.
-			// (Se puede resolver con "link account" autenticado en el futuro).
+			log.Printf(`{"level":"error","msg":"ensureUser_identity_insert_err","err":"%v"}`, err)
 			return uuid.Nil, err
 		}
 	}
