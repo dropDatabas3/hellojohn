@@ -40,6 +40,10 @@ interface ClientFormState {
 	allowedOrigins: string[]
 	scopes: string[]
 	providers: string[]
+	// Email verification & password reset
+	requireEmailVerification: boolean
+	resetPasswordUrl: string
+	verifyEmailUrl: string
 }
 
 // ============================================================================
@@ -158,6 +162,9 @@ export default function ClientsClientPage() {
 		allowedOrigins: [],
 		scopes: ["openid", "profile", "email"],
 		providers: ["password"],
+		requireEmailVerification: false,
+		resetPasswordUrl: "",
+		verifyEmailUrl: "",
 	})
 	const [redirectUriInput, setRedirectUriInput] = useState("")
 	const [originInput, setOriginInput] = useState("")
@@ -220,6 +227,9 @@ export default function ClientsClientPage() {
 				allowedOrigins: data.allowedOrigins || [],
 				providers: data.providers || [],
 				scopes: data.scopes || [],
+				requireEmailVerification: data.requireEmailVerification || false,
+				resetPasswordUrl: data.resetPasswordUrl || "",
+				verifyEmailUrl: data.verifyEmailUrl || "",
 			}, {
 				headers: { "X-Tenant-ID": tenantId }
 			}),
@@ -258,7 +268,9 @@ export default function ClientsClientPage() {
 	})
 
 	const deleteMutation = useMutation({
-		mutationFn: (clientUUID: string) => api.delete(`/v1/admin/clients/${clientUUID}`),
+		mutationFn: (clientUUID: string) => api.delete(`/v1/admin/clients/${clientUUID}`, {
+			headers: { "X-Tenant-ID": tenantId }
+		}),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: ["clients", tenantId] })
 			setDeleteDialogOpen(false)
@@ -278,7 +290,9 @@ export default function ClientsClientPage() {
 	})
 
 	const revokeMutation = useMutation({
-		mutationFn: (clientUUID: string) => api.post(`/v1/admin/clients/${clientUUID}/revoke`, {}),
+		mutationFn: (clientUUID: string) => api.post(`/v1/admin/clients/${clientUUID}/revoke`, {}, {
+			headers: { "X-Tenant-ID": tenantId }
+		}),
 		onSuccess: () => {
 			toast({
 				title: t("clients.revoked"),
@@ -310,6 +324,9 @@ export default function ClientsClientPage() {
 			allowedOrigins: [],
 			scopes: ["openid", "profile", "email"],
 			providers: ["password"],
+			requireEmailVerification: false,
+			resetPasswordUrl: "",
+			verifyEmailUrl: "",
 		})
 		setRedirectUriInput("")
 		setOriginInput("")
@@ -341,6 +358,9 @@ export default function ClientsClientPage() {
 			allowedOrigins: form.allowedOrigins,
 			scopes: form.scopes,
 			providers: form.providers,
+			requireEmailVerification: form.requireEmailVerification,
+			resetPasswordUrl: form.resetPasswordUrl,
+			verifyEmailUrl: form.verifyEmailUrl,
 		})
 	}
 
@@ -784,6 +804,56 @@ export default function ClientsClientPage() {
 									{form.providers.length === 0 && (
 										<p className="text-xs text-amber-600">⚠️ Selecciona al menos un proveedor</p>
 									)}
+								</div>
+							)}
+
+							{/* Email Verification & Password Reset */}
+							{form.type === "public" && (
+								<div className="space-y-4 pt-4 border-t">
+									<h4 className="font-medium flex items-center gap-2">
+										📧 Configuración de Email
+										<Tooltip text="Opciones para verificación de email y reset de contraseña." />
+									</h4>
+
+									{/* Require Email Verification */}
+									<div className="flex items-center justify-between rounded-lg border p-3">
+										<div className="space-y-0.5">
+											<div className="text-sm font-medium">Requerir verificación de email</div>
+											<div className="text-xs text-muted-foreground">
+												Los usuarios deben verificar su email antes de poder iniciar sesión
+											</div>
+										</div>
+										<Switch
+											checked={form.requireEmailVerification}
+											onCheckedChange={(checked) => setForm({ ...form, requireEmailVerification: checked })}
+										/>
+									</div>
+
+									{/* Reset Password URL */}
+									<div className="space-y-2">
+										<Label className="flex items-center">
+											URL de reset de contraseña
+											<Tooltip text="URL a la que redirigir cuando el usuario hace clic en 'Olvidé mi contraseña'. Ej: https://app.com/reset-password" />
+										</Label>
+										<Input
+											placeholder="https://tu-app.com/reset-password"
+											value={form.resetPasswordUrl}
+											onChange={(e) => setForm({ ...form, resetPasswordUrl: e.target.value })}
+										/>
+									</div>
+
+									{/* Verify Email URL */}
+									<div className="space-y-2">
+										<Label className="flex items-center">
+											URL de verificación de email
+											<Tooltip text="URL a la que redirigir cuando el usuario hace clic en el link de verificación. Ej: https://app.com/verify-email" />
+										</Label>
+										<Input
+											placeholder="https://tu-app.com/verify-email"
+											value={form.verifyEmailUrl}
+											onChange={(e) => setForm({ ...form, verifyEmailUrl: e.target.value })}
+										/>
+									</div>
 								</div>
 							)}
 						</div>

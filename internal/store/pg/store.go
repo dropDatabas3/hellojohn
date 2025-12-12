@@ -352,8 +352,8 @@ func (s *Store) CreateUser(ctx context.Context, u *core.User) error {
 	}
 
 	// Campos fijos
-	cols := []string{"id", "email", "email_verified", "metadata"}
-	vals := []any{"gen_random_uuid()", strings.ToLower(u.Email), u.EmailVerified, u.Metadata}
+	cols := []string{"id", "email", "email_verified", "metadata", "source_client_id"}
+	vals := []any{"gen_random_uuid()", strings.ToLower(u.Email), u.EmailVerified, u.Metadata, u.SourceClientID}
 
 	// Campos dinámicos
 	// Nota: pgx maneja la sanitización de valores, pero los nombres de columna deben ser seguros.
@@ -404,6 +404,52 @@ func (s *Store) CreateUser(ctx context.Context, u *core.User) error {
 	RETURNING id, created_at`, qCols, qVals)
 
 	return s.pool.QueryRow(ctx, q, args...).Scan(&u.ID, &u.CreatedAt)
+}
+
+func (s *Store) UpdateUser(ctx context.Context, userID string, updates map[string]any) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	setParts := make([]string, 0, len(updates))
+	args := []any{userID}
+	argIdx := 2
+
+	// We separate validation/logic for known columns vs custom fields
+	// But efficiently we can build the dynamic query.
+	// Known columns: source_client_id, email_verified, disabled_at, etc.
+	// We'll focus on what's needed now (source_client_id) but keep it generic-ish.
+
+	// For custom fields, we need to merge or replace?
+	// Usually PATCH merges. But here 'custom_fields' is a JSONB column or separate items?
+	// The store implementation maps individual columns to custom fields.
+	// So we assume 'updates' keys match DB columns.
+
+	keys := make([]string, 0, len(updates))
+	for k := range updates {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		val := updates[k]
+		col := pgIdentifier(strings.ToLower(strings.TrimSpace(k)))
+
+		// Handle special nil logic if needed, but pgx handles nil as NULL usually.
+		setParts = append(setParts, fmt.Sprintf("%s = $%d", col, argIdx))
+		args = append(args, val)
+		argIdx++
+	}
+
+	q := fmt.Sprintf("UPDATE app_user SET %s WHERE id = $1", strings.Join(setParts, ", "))
+	tag, err := s.pool.Exec(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return core.ErrNotFound
+	}
+	return nil
 }
 
 // pgIdentifier sanitiza un identificador simple (solo letras, números, guiones bajos)
@@ -674,6 +720,10 @@ func (s *Store) GetUserByID(ctx context.Context, userID string) (*core.User, err
 			if v, ok := val.(string); ok {
 				u.Locale = v
 			}
+		case "source_client_id":
+			if v, ok := val.(string); ok {
+				u.SourceClientID = &v
+			}
 		default:
 			// Campo dinámico
 			u.CustomFields[colName] = val
@@ -763,6 +813,10 @@ func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]core.User, er
 			case "locale":
 				if v, ok := val.(string); ok {
 					u.Locale = v
+				}
+			case "source_client_id":
+				if v, ok := val.(string); ok {
+					u.SourceClientID = &v
 				}
 			default:
 				u.CustomFields[colName] = val

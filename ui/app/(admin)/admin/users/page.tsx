@@ -42,7 +42,9 @@ import {
     Ban,
     Unlock,
     LayoutList,
-    Sliders
+    Sliders,
+    Save,
+    X
 } from "lucide-react"
 import {
     Dialog,
@@ -80,6 +82,12 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { User } from "@/lib/types" // Import User type if available, otherwise define local
 
 // ----- Types -----
@@ -203,6 +211,24 @@ function UsersList({ tenantId }: { tenantId: string }) {
             if (!res.ok) return []
             const tenant = await res.json()
             return tenant.settings?.user_fields || []
+        },
+        enabled: !!tenantId && !!token,
+    })
+
+    // 3. Fetch Clients (for source_client_id selector)
+    const { data: clients } = useQuery<Array<{ clientId: string, name: string, type: string }>>({
+        queryKey: ["tenant-clients", tenantId],
+        queryFn: async () => {
+            const res = await fetch(`/v1/admin/clients?tenant=${tenantId}`, {
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "X-Tenant-ID": tenantId
+                }
+            })
+            if (!res.ok) return []
+            const list = await res.json()
+            // Filter to public clients only and ensure valid clientId
+            return (list || []).filter((c: any) => c.type !== "confidential" && c.clientId)
         },
         enabled: !!tenantId && !!token,
     })
@@ -338,6 +364,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
                         </DialogHeader>
                         <CreateUserForm
                             fieldDefs={fieldDefs || []}
+                            clients={clients || []}
                             onSubmit={(data) => createMutation.mutate(data)}
                             isPending={createMutation.isPending}
                         />
@@ -394,7 +421,18 @@ function UsersList({ tenantId }: { tenantId: string }) {
                         <DialogTitle>Detalles del Usuario</DialogTitle>
                         <DialogDescription>Información completa registrada.</DialogDescription>
                     </DialogHeader>
-                    {selectedUser && <UserDetails user={selectedUser} />}
+                    {selectedUser && (
+                        <UserDetails
+                            user={selectedUser}
+                            tenantId={tenantId}
+                            token={token}
+                            clients={clients || []}
+                            onUpdate={() => {
+                                queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
+                                setIsDetailsOpen(false)
+                            }}
+                        />
+                    )}
                 </DialogContent>
             </Dialog>
 
@@ -510,18 +548,26 @@ function UserRow({ user, onDelete, onDetails, onBlock, onUnlock }: { user: UserT
     )
 }
 
-function CreateUserForm({ fieldDefs, onSubmit, isPending }: {
+function CreateUserForm({ fieldDefs, clients, onSubmit, isPending }: {
     fieldDefs: UserFieldDefinition[],
+    clients: Array<{ clientId: string, name: string, type: string }>,
     onSubmit: (data: any) => void,
     isPending: boolean
 }) {
     const [email, setEmail] = useState("")
     const [password, setPassword] = useState("")
+    const [sourceClientId, setSourceClientId] = useState<string>("_none")
     const [customFields, setCustomFields] = useState<Record<string, any>>({})
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
-        onSubmit({ email, password, email_verified: true, custom_fields: customFields })
+        onSubmit({
+            email,
+            password,
+            email_verified: true,
+            custom_fields: customFields,
+            source_client_id: (!sourceClientId || sourceClientId === "_none") ? null : sourceClientId
+        })
     }
 
     return (
@@ -548,6 +594,25 @@ function CreateUserForm({ fieldDefs, onSubmit, isPending }: {
                         onChange={e => setPassword(e.target.value)}
                         required
                     />
+                </div>
+                <div className="grid gap-2">
+                    <Label htmlFor="sourceClient">Cliente Origen (opcional)</Label>
+                    <Select value={sourceClientId} onValueChange={setSourceClientId}>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Seleccionar cliente..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="_none">Sin cliente asociado</SelectItem>
+                            {clients.map((c) => (
+                                <SelectItem key={c.clientId} value={c.clientId}>
+                                    {c.name || c.clientId}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                        Asociar a un cliente permite enviar emails de verificación con el redirect correcto.
+                    </p>
                 </div>
             </div>
 
@@ -934,8 +999,40 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
     )
 }
 
-function UserDetails({ user }: { user: UserType }) {
+function UserDetails({ user, tenantId, token, clients, onUpdate }: {
+    user: UserType,
+    tenantId: string,
+    token: string | null,
+    clients: Array<{ clientId: string, name: string, type: string }>,
+    onUpdate: () => void
+}) {
     const { toast } = useToast()
+    const [isResending, setIsResending] = useState(false)
+    const [isEditingClient, setIsEditingClient] = useState(false)
+    const [selectedClientId, setSelectedClientId] = useState<string>((user as any).source_client_id || "_none")
+
+    const handleSaveClient = async () => {
+        if (!token) return
+        try {
+            const res = await fetch(`/v1/admin/tenants/${tenantId}/users/${user.id}`, {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
+                body: JSON.stringify({ source_client_id: selectedClientId })
+            })
+            if (!res.ok) {
+                throw new Error("Error actualizando cliente")
+            }
+            toast({ title: "Cliente actualizado", description: "El cliente origen ha sido actualizado." })
+            setIsEditingClient(false)
+            onUpdate()
+        } catch (err) {
+            toast({ title: "Error", description: "No se pudo actualizar el cliente", variant: "destructive" })
+        }
+    }
+
 
     const formatDate = (dateStr?: string) => {
         if (!dateStr) return "-"
@@ -956,11 +1053,31 @@ function UserDetails({ user }: { user: UserType }) {
     const updatedAt = formatDate(user.updated_at || user.custom_fields?.updated_at)
     const initial = user.email ? user.email.slice(0, 2).toUpperCase() : "??"
 
-    const handleResendVerification = () => {
-        toast({
-            title: "Funcionalidad en desarrollo",
-            description: "El reenvío de códigos de verificación estará disponible pronto.",
-        })
+    const handleResendVerification = async () => {
+        if (!user.id || !tenantId) {
+            toast({ title: "Error", description: "Faltan datos del usuario o tenant", variant: "destructive" })
+            return
+        }
+        setIsResending(true)
+        try {
+            const res = await fetch(`/v1/admin/users/resend-verification`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
+                body: JSON.stringify({ user_id: user.id, tenant_id: tenantId })
+            })
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}))
+                throw new Error(err.error_description || err.error || "Error enviando email")
+            }
+            toast({ title: "Email enviado", description: "Se ha enviado un nuevo correo de verificación al usuario." })
+        } catch (err: any) {
+            toast({ title: "Error", description: err.message, variant: "destructive" })
+        } finally {
+            setIsResending(false)
+        }
     }
 
     return (
@@ -996,11 +1113,80 @@ function UserDetails({ user }: { user: UserType }) {
                         <div className="flex items-center gap-2">
                             <span className="font-medium">{user.email_verified ? "Verificado" : "Pendiente"}</span>
                             {!user.email_verified && (
-                                <Button variant="link" className="h-auto p-0 text-xs text-blue-600" onClick={handleResendVerification}>
-                                    Reenviar código
+                                <TooltipProvider>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <span>
+                                                <Button
+                                                    variant="link"
+                                                    className="h-auto p-0 text-xs text-blue-600 disabled:opacity-50"
+                                                    onClick={handleResendVerification}
+                                                    disabled={isResending || !((user as any).source_client_id && (user as any).source_client_id !== "_none")}
+                                                >
+                                                    {isResending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
+                                                    Reenviar código
+                                                </Button>
+                                            </span>
+                                        </TooltipTrigger>
+                                        {!((user as any).source_client_id && (user as any).source_client_id !== "_none") && (
+                                            <TooltipContent>
+                                                <p>Asocie un cliente origen para habilitar el reenvío.</p>
+                                            </TooltipContent>
+                                        )}
+                                    </Tooltip>
+                                </TooltipProvider>
+                            )}
+                        </div>
+                    </div>
+                    <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                            <span className="block text-xs text-muted-foreground">Cliente Origen</span>
+                            {!isEditingClient && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-auto p-0 text-xs text-blue-600 hover:text-blue-700"
+                                    onClick={() => setIsEditingClient(true)}
+                                >
+                                    Editar
                                 </Button>
                             )}
                         </div>
+                        {isEditingClient ? (
+                            <div className="space-y-2 pt-1">
+                                <Select
+                                    value={selectedClientId || "_none"}
+                                    onValueChange={setSelectedClientId}
+                                >
+                                    <SelectTrigger className="w-full">
+                                        <SelectValue placeholder="Seleccionar cliente..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="_none">Sin cliente asociado</SelectItem>
+                                        {clients.map((c) => (
+                                            <SelectItem key={c.clientId} value={c.clientId}>
+                                                {c.name || c.clientId}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <div className="flex items-center justify-end gap-2">
+                                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => {
+                                        setIsEditingClient(false)
+                                        setSelectedClientId((user as any).source_client_id || "_none")
+                                    }}>
+                                        Cancelar
+                                    </Button>
+                                    <Button size="sm" className="h-7 text-xs" onClick={handleSaveClient}>
+                                        Guardar
+                                    </Button>
+                                </div>
+                            </div>
+                        ) : (
+                            <span className="font-medium font-mono text-xs block break-all">
+                                {clients.find(c => c.clientId === (user as any).source_client_id)?.name || (user as any).source_client_id || <span className="text-muted-foreground italic">No asociado</span>}
+                            </span>
+                        )}
                     </div>
                     <div className="space-y-1">
                         <span className="block text-xs text-muted-foreground">Fecha de Creación</span>

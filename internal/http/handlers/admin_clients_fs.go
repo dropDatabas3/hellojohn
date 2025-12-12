@@ -91,14 +91,17 @@ func (h *adminClientsFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			if h.container != nil && h.container.ClusterNode != nil {
 				dto := cluster.UpsertClientDTO{
-					Name:           in.Name,
-					ClientID:       in.ClientID,
-					Type:           in.Type,
-					RedirectURIs:   in.RedirectURIs,
-					AllowedOrigins: in.AllowedOrigins,
-					Providers:      in.Providers,
-					Scopes:         in.Scopes,
-					Secret:         in.Secret,
+					Name:                     in.Name,
+					ClientID:                 in.ClientID,
+					Type:                     in.Type,
+					RedirectURIs:             in.RedirectURIs,
+					AllowedOrigins:           in.AllowedOrigins,
+					Providers:                in.Providers,
+					Scopes:                   in.Scopes,
+					Secret:                   in.Secret,
+					RequireEmailVerification: in.RequireEmailVerification,
+					ResetPasswordURL:         in.ResetPasswordURL,
+					VerifyEmailURL:           in.VerifyEmailURL,
 				}
 				payload, _ := json.Marshal(dto)
 				m := cluster.Mutation{
@@ -152,14 +155,17 @@ func (h *adminClientsFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			in.ClientID = clientID
 			if h.container != nil && h.container.ClusterNode != nil {
 				dto := cluster.UpsertClientDTO{
-					Name:           in.Name,
-					ClientID:       in.ClientID,
-					Type:           in.Type,
-					RedirectURIs:   in.RedirectURIs,
-					AllowedOrigins: in.AllowedOrigins,
-					Providers:      in.Providers,
-					Scopes:         in.Scopes,
-					Secret:         in.Secret,
+					Name:                     in.Name,
+					ClientID:                 in.ClientID,
+					Type:                     in.Type,
+					RedirectURIs:             in.RedirectURIs,
+					AllowedOrigins:           in.AllowedOrigins,
+					Providers:                in.Providers,
+					Scopes:                   in.Scopes,
+					Secret:                   in.Secret,
+					RequireEmailVerification: in.RequireEmailVerification,
+					ResetPasswordURL:         in.ResetPasswordURL,
+					VerifyEmailURL:           in.VerifyEmailURL,
 				}
 				payload, _ := json.Marshal(dto)
 				m := cluster.Mutation{

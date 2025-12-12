@@ -64,6 +64,10 @@ export type ClientInput = {
   providers?: string[]
   scopes?: string[]
   secret?: string
+  // Email verification & password reset
+  requireEmailVerification?: boolean
+  resetPasswordUrl?: string
+  verifyEmailUrl?: string
 }
 
 export type Client = ClientInput & {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/app"
 	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	"github.com/dropDatabas3/hellojohn/internal/controlplane"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
 )
@@ -31,6 +32,11 @@ type AuthConfigResponse struct {
 	PasswordEnabled bool                `json:"password_enabled"`
 	Features        map[string]bool     `json:"features,omitempty"`
 	CustomFields    []CustomFieldSchema `json:"custom_fields,omitempty"`
+
+	// Email verification & password reset
+	RequireEmailVerification bool   `json:"require_email_verification,omitempty"`
+	ResetPasswordURL         string `json:"reset_password_url,omitempty"`
+	VerifyEmailURL           string `json:"verify_email_url,omitempty"`
 }
 
 func NewAuthConfigHandler(c *app.Container) http.HandlerFunc {
@@ -51,6 +57,7 @@ func NewAuthConfigHandler(c *app.Container) http.HandlerFunc {
 		cl, _, err := c.Store.GetClientByClientID(ctx, clientID)
 
 		// Fallback to FS if not found in SQL (e.g. YAML-only client)
+		var clientFS *controlplane.OIDCClient // Keep reference to FS client for extra fields
 		if (err != nil || cl == nil) && cpctx.Provider != nil {
 			log.Printf("DEBUG: auth_config client SQL lookup failed for %s, trying FS scan...", clientID)
 			tenants, errList := cpctx.Provider.ListTenants(ctx)
@@ -58,6 +65,7 @@ func NewAuthConfigHandler(c *app.Container) http.HandlerFunc {
 				for _, t := range tenants {
 					if cFS, errGet := cpctx.Provider.GetClient(ctx, t.Slug, clientID); errGet == nil && cFS != nil {
 						// Found in FS! Make a fake Store Client struct from it
+						clientFS = cFS // Save reference for extra fields
 						cl = &core.Client{
 							ID:        cFS.ClientID, // Use ClientID as ID for now or UUID if available
 							ClientID:  cFS.ClientID,
@@ -114,12 +122,18 @@ func NewAuthConfigHandler(c *app.Container) http.HandlerFunc {
 
 		// 3. Construct Response
 		resp := AuthConfigResponse{
-			TenantName: t.Name,
-			TenantSlug: t.Slug,
-			ClientName: cl.Name,
-			// LogoURL: t.Settings.Branding.LogoURL,
+			TenantName:      t.Name,
+			TenantSlug:      t.Slug,
+			ClientName:      cl.Name,
 			SocialProviders: cl.Providers,
 			PasswordEnabled: true, // Simplified check
+		}
+
+		// Populate email verification config from FS client if available
+		if clientFS != nil {
+			resp.RequireEmailVerification = clientFS.RequireEmailVerification
+			resp.ResetPasswordURL = clientFS.ResetPasswordURL
+			resp.VerifyEmailURL = clientFS.VerifyEmailURL
 		}
 
 		if t.Settings.LogoURL != "" {
@@ -155,9 +169,10 @@ func NewAuthConfigHandler(c *app.Container) http.HandlerFunc {
 		}
 
 		resp.Features = map[string]bool{
-			"smtp_enabled":         t.Settings.SMTP != nil,
-			"social_login_enabled": t.Settings.SocialLoginEnabled,
-			"mfa_enabled":          t.Settings.MFAEnabled,
+			"smtp_enabled":               t.Settings.SMTP != nil,
+			"social_login_enabled":       t.Settings.SocialLoginEnabled,
+			"mfa_enabled":                t.Settings.MFAEnabled,
+			"require_email_verification": resp.RequireEmailVerification,
 		}
 
 		// Extract Custom Fields from UserFields definition

@@ -658,10 +658,11 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 				// POST: Crear usuario
 				if r.Method == http.MethodPost {
 					var req struct {
-						Email         string         `json:"email"`
-						Password      string         `json:"password"`
-						EmailVerified bool           `json:"email_verified"`
-						CustomFields  map[string]any `json:"custom_fields"`
+						Email          string         `json:"email"`
+						Password       string         `json:"password"`
+						EmailVerified  bool           `json:"email_verified"`
+						CustomFields   map[string]any `json:"custom_fields"`
+						SourceClientID *string        `json:"source_client_id"`
 					}
 					if !httpx.ReadJSON(w, r, &req) {
 						return
@@ -685,11 +686,12 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 					}
 
 					u := &core.User{
-						TenantID:      t.ID,
-						Email:         req.Email,
-						EmailVerified: req.EmailVerified,
-						Metadata:      map[string]any{},
-						CustomFields:  req.CustomFields,
+						TenantID:       t.ID,
+						Email:          req.Email,
+						EmailVerified:  req.EmailVerified,
+						Metadata:       map[string]any{},
+						CustomFields:   req.CustomFields,
+						SourceClientID: req.SourceClientID,
 					}
 
 					if err := store.CreateUser(r.Context(), u); err != nil {
@@ -712,9 +714,77 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 			}
 
 			// DELETE /v1/admin/tenants/{slug}/users/{id}
-			// DELETE /v1/admin/tenants/{slug}/users/{id}
+			// PATCH  /v1/admin/tenants/{slug}/users/{id}
 			if len(parts) == 3 && parts[1] == "users" {
 				userID := parts[2]
+
+				// PATCH: Update user
+				if r.Method == http.MethodPatch {
+					if c.TenantSQLManager == nil {
+						httpx.WriteError(w, http.StatusNotImplemented, "sql_manager_required", "SQL Manager no inicializado", 5080)
+						return
+					}
+					store, err := c.TenantSQLManager.GetPG(r.Context(), slug)
+					if err != nil {
+						if tenantsql.IsNoDBForTenant(err) {
+							httpx.WriteTenantDBMissing(w)
+							return
+						}
+						httpx.WriteTenantDBError(w, err.Error())
+						return
+					}
+
+					var req map[string]any
+					if !httpx.ReadJSON(w, r, &req) {
+						return
+					}
+
+					// Validate allowed fields for update
+					updates := make(map[string]any)
+					// Helper to treat null/empty
+					if v, ok := req["source_client_id"]; ok {
+						if s, ok := v.(string); ok && (s == "" || s == "_none") {
+							updates["source_client_id"] = nil // Set to NULL in DB
+						} else {
+							updates["source_client_id"] = v
+						}
+					}
+
+					if len(updates) == 0 {
+						httpx.WriteError(w, http.StatusBadRequest, "no_updates", "no se enviaron campos válidos para actualizar", 5090)
+						return
+					}
+
+					type userUpdater interface {
+						UpdateUser(ctx context.Context, userID string, updates map[string]any) error
+					}
+
+					if updater, ok := any(store).(userUpdater); ok {
+						if err := updater.UpdateUser(r.Context(), userID, updates); err != nil {
+							httpx.WriteError(w, http.StatusInternalServerError, "update_user_failed", err.Error(), 5091)
+							return
+						}
+
+						// Return updated user?? Or just NoContent. Let's return the user for UI convenience if possible,
+						// but simpler to return NoContent or minimal confirmation.
+						// Fetching user again to return it is polite.
+						if lister, ok := any(store).(interface {
+							GetUserByID(ctx context.Context, id string) (*core.User, error)
+						}); ok {
+							u, _ := lister.GetUserByID(r.Context(), userID)
+							if u != nil {
+								httpx.WriteJSON(w, http.StatusOK, u)
+								return
+							}
+						}
+
+						w.WriteHeader(http.StatusOK)
+						return
+					}
+					httpx.WriteError(w, http.StatusNotImplemented, "not_implemented", "store no soporta actualizar usuarios", 5083)
+					return
+				}
+
 				if r.Method == http.MethodDelete {
 					if c.TenantSQLManager == nil {
 						httpx.WriteError(w, http.StatusNotImplemented, "sql_manager_required", "SQL Manager no inicializado", 5080)

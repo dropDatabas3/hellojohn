@@ -50,16 +50,40 @@ func (v redirectValidatorAdapter) ValidateRedirectURI(tenantID uuid.UUID, client
 	if clientID == "" || redirectURI == "" {
 		return false
 	}
+
+	var redirectURIs []string
+	var clientTenantID string
+
+	// 1. Try SQL Repo
 	cl, _, err := v.repo.GetClientByClientID(context.Background(), clientID)
-	if err != nil || cl == nil {
-		log.Printf(`{"level":"warn","msg":"redirect_validate_no_client","client_id":"%s","err":"%v"}`, clientID, err)
+	if err == nil && cl != nil {
+		redirectURIs = cl.RedirectURIs
+		clientTenantID = cl.TenantID
+	} else {
+		// 2. Fallback FS Provider
+		// Resolve tenant to get slug
+		if t, tErr := cpctx.Provider.GetTenantByID(context.Background(), tenantID.String()); tErr == nil && t != nil {
+			if fsCl, fsErr := cpctx.Provider.GetClient(context.Background(), t.Slug, clientID); fsErr == nil && fsCl != nil {
+				redirectURIs = fsCl.RedirectURIs
+				// Since we found it via the tenant looked up by ID, the tenant matches.
+				clientTenantID = tenantID.String()
+			}
+		}
+	}
+
+	if len(redirectURIs) == 0 {
+		log.Printf(`{"level":"warn","msg":"redirect_validate_no_client","client_id":"%s","err":"not found in db or fs"}`, clientID)
 		return false
 	}
-	if !strings.EqualFold(cl.TenantID, tenantID.String()) {
-		log.Printf(`{"level":"warn","msg":"redirect_validate_bad_tenant","client_id":"%s","expected_tid":"%s","client_tid":"%s"}`, clientID, tenantID, cl.TenantID)
+
+	if !strings.EqualFold(clientTenantID, tenantID.String()) {
+		log.Printf(`{"level":"warn","msg":"redirect_validate_bad_tenant","client_id":"%s","expected_tid":"%s","client_tid":"%s"}`, clientID, tenantID, clientTenantID)
 		return false
 	}
-	for _, ru := range cl.RedirectURIs {
+
+	for _, ru := range redirectURIs {
+		// Validar exact match o reglas más laxas si es necesario (ej: trailing slash)
+		// Por ahora exact match como estaba.
 		if ru == redirectURI {
 			return true
 		}
@@ -76,13 +100,28 @@ type tokenIssuerAdapter struct {
 func (ti tokenIssuerAdapter) IssueTokens(w http.ResponseWriter, r *http.Request, tenantID uuid.UUID, clientID string, userID uuid.UUID) error {
 	rid := w.Header().Get("X-Request-ID")
 
+	// Try SQL store first
 	cl, _, err := ti.c.Store.GetClientByClientID(r.Context(), clientID)
-	if err != nil || cl == nil || !strings.EqualFold(cl.TenantID, tenantID.String()) {
+	if err != nil || cl == nil {
+		// Fallback to FS provider: first get tenant by UUID, then lookup client
+		if tenant, tErr := cpctx.Provider.GetTenantByID(r.Context(), tenantID.String()); tErr == nil && tenant != nil {
+			if fsCl, fsErr := cpctx.Provider.GetClient(r.Context(), tenant.Slug, clientID); fsErr == nil && fsCl != nil {
+				// Client found in FS, proceed with token issuance
+				log.Printf(`{"level":"debug","msg":"issuer_client_from_fs","request_id":"%s","client_id":"%s","tenant":"%s"}`, rid, clientID, tenant.Slug)
+				goto proceed
+			}
+		}
 		log.Printf(`{"level":"warn","msg":"issuer_invalid_client","request_id":"%s","client_id":"%s","tenant_id":"%s","err":"%v"}`, rid, clientID, tenantID, err)
 		httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1203)
 		return nil
 	}
+	if !strings.EqualFold(cl.TenantID, tenantID.String()) {
+		log.Printf(`{"level":"warn","msg":"issuer_invalid_client","request_id":"%s","client_id":"%s","tenant_id":"%s","err":"tenant mismatch"}`, rid, clientID, tenantID)
+		httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1203)
+		return nil
+	}
 
+proceed:
 	std := map[string]any{"tid": tenantID.String(), "amr": []string{"reset"}}
 	custom := map[string]any{}
 	// Hook + SYS namespace (Fase 2)
@@ -111,11 +150,34 @@ func (ti tokenIssuerAdapter) IssueTokens(w http.ResponseWriter, r *http.Request,
 	var rawRT string
 	// IMPORTANTE: usamos CreateRefreshTokenTC (tenant + client_id_text) que hashea con SHA256+hex.
 	// No volver a CreateRefreshToken (legacy, Base64URL) salvo en fallback cuando el store no implemente TC.
-	if tcs, ok := ti.c.Store.(interface {
+
+	// Try to get per-tenant store first
+	var tenantStore interface {
 		CreateRefreshTokenTC(ctx context.Context, tenantID, clientIDText, userID string, ttl time.Duration) (string, error)
-	}); ok {
+	}
+
+	if ti.c.TenantSQLManager != nil {
+		// Get tenant by UUID to get slug, then get store
+		if tenant, tErr := cpctx.Provider.GetTenantByID(r.Context(), tenantID.String()); tErr == nil && tenant != nil {
+			if pgStore, sErr := ti.c.TenantSQLManager.GetPG(r.Context(), tenant.Slug); sErr == nil {
+				tenantStore = pgStore
+				log.Printf(`{"level":"debug","msg":"issuer_using_tenant_store","request_id":"%s","tenant":"%s"}`, rid, tenant.Slug)
+			}
+		}
+	}
+
+	// Fallback to global store
+	if tenantStore == nil {
+		if tcs, ok := ti.c.Store.(interface {
+			CreateRefreshTokenTC(ctx context.Context, tenantID, clientIDText, userID string, ttl time.Duration) (string, error)
+		}); ok {
+			tenantStore = tcs
+		}
+	}
+
+	if tenantStore != nil {
 		// Preferir TC: (tenant + client_id_text) y hash SHA256+hex interno
-		rawRT, err = tcs.CreateRefreshTokenTC(r.Context(), tenantID.String(), clientID, userID.String(), ti.refreshTTL)
+		rawRT, err = tenantStore.CreateRefreshTokenTC(r.Context(), tenantID.String(), clientID, userID.String(), ti.refreshTTL)
 		if err != nil {
 			log.Printf(`{"level":"error","msg":"issuer_persist_refresh_tc_err","request_id":"%s","err":"%v"}`, rid, err)
 			httpx.WriteError(w, http.StatusInternalServerError, "persist_failed", "no se pudo persistir refresh", 1206)
@@ -213,7 +275,7 @@ func BuildEmailFlowHandlers(
 	cfg *config.Config,
 	c *app.Container,
 	refreshTTL time.Duration,
-) (verifyStart http.Handler, verifyConfirm http.Handler, forgot http.Handler, reset http.Handler, cleanup func(), err error) {
+) (verifyStart http.Handler, verifyConfirm http.Handler, forgot http.Handler, reset http.Handler, efHandler *EmailFlowsHandler, cleanup func(), err error) {
 
 	// Mailer initialization removed in favor of SenderProvider
 	// mailer := email.NewSMTPSender(cfg.SMTP.Host, cfg.SMTP.Port, cfg.SMTP.From, cfg.SMTP.Username, cfg.SMTP.Password)
@@ -225,7 +287,7 @@ func BuildEmailFlowHandlers(
 	tmpls, err := email.LoadTemplates(cfg.Email.TemplatesDir)
 	if err != nil {
 		log.Printf(`{"level":"error","msg":"email_wiring_templates_err","dir":"%s","err":"%v"}`, cfg.Email.TemplatesDir, err)
-		return nil, nil, nil, nil, func() {}, err
+		return nil, nil, nil, nil, nil, func() {}, err
 	}
 	log.Printf(`{"level":"info","msg":"email_wiring_templates_ok","dir":"%s"}`, cfg.Email.TemplatesDir)
 
@@ -270,7 +332,7 @@ func BuildEmailFlowHandlers(
 		pgxConn, err := pgx.Connect(ctx, cfg.Storage.DSN)
 		if err != nil {
 			log.Printf(`{"level":"error","msg":"email_wiring_pgx_connect_err","err":"%v"}`, err)
-			return nil, nil, nil, nil, func() {}, err
+			return nil, nil, nil, nil, nil, func() {}, err
 		}
 		dbOps = pgxConn
 		cleanup = func() { _ = pgxConn.Close(ctx) }
@@ -284,8 +346,6 @@ func BuildEmailFlowHandlers(
 	rvalidator := redirectValidatorAdapter{repo: c.Store}
 	tissuer := tokenIssuerAdapter{c: c, refreshTTL: refreshTTL}
 	authProv := currentUserProviderAdapter{issuer: c.Issuer}
-
-	// Handler principal
 	ef := &EmailFlowsHandler{
 		Tokens:         ts,
 		Users:          us,
@@ -318,5 +378,5 @@ func BuildEmailFlowHandlers(
 	forgot = http.HandlerFunc(ef.forgot)
 	reset = http.HandlerFunc(ef.reset)
 
-	return verifyStart, verifyConfirm, forgot, reset, cleanup, nil
+	return verifyStart, verifyConfirm, forgot, reset, ef, cleanup, nil
 }

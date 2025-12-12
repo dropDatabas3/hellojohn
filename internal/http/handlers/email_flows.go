@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log"
 	"math"
@@ -112,9 +113,10 @@ func (h *EmailFlowsHandler) rlOr429(w http.ResponseWriter, key string) bool {
 // --- Verify Email ---
 
 type verifyStartIn struct {
-	TenantID uuid.UUID `json:"tenant_id"`
-	ClientID string    `json:"client_id"`
-	Redirect string    `json:"redirect_uri,omitempty"`
+	TenantID string `json:"tenant_id"`
+	ClientID string `json:"client_id"`
+	Email    string `json:"email"`
+	Redirect string `json:"redirect_uri,omitempty"`
 }
 
 func (h *EmailFlowsHandler) verifyEmailStart(w http.ResponseWriter, r *http.Request) {
@@ -126,9 +128,22 @@ func (h *EmailFlowsHandler) verifyEmailStart(w http.ResponseWriter, r *http.Requ
 		writeErr(w, "invalid_json", "Malformed body", http.StatusBadRequest)
 		return
 	}
-	log.Printf(`{"level":"info","msg":"verify_start_begin","request_id":"%s","tenant_id":"%s","client_id":"%s","redirect":"%s"}`, rid, in.TenantID, in.ClientID, in.Redirect)
 
-	if in.TenantID == uuid.Nil || in.ClientID == "" {
+	// Resolve tenant ID by UUID or slug
+	var tenantID uuid.UUID
+	if parsed, err := uuid.Parse(in.TenantID); err == nil {
+		tenantID = parsed
+	} else if h.Provider != nil {
+		if tenant, err := h.Provider.GetTenantBySlug(r.Context(), in.TenantID); err == nil && tenant != nil {
+			if parsed, err := uuid.Parse(tenant.ID); err == nil {
+				tenantID = parsed
+			}
+		}
+	}
+
+	log.Printf(`{"level":"info","msg":"verify_start_begin","request_id":"%s","tenant_id":"%s","client_id":"%s","redirect":"%s"}`, rid, tenantID, in.ClientID, in.Redirect)
+
+	if tenantID == uuid.Nil || in.ClientID == "" {
 		log.Printf(`{"level":"warn","msg":"verify_start_missing_fields","request_id":"%s"}`, rid)
 		writeErr(w, "missing_fields", "tenant_id and client_id required", http.StatusBadRequest)
 		return
@@ -136,7 +151,7 @@ func (h *EmailFlowsHandler) verifyEmailStart(w http.ResponseWriter, r *http.Requ
 
 	// Gate by tenant DB availability (Phase 4.1). If TenantMgr is present, try opening repo.
 	if h.TenantMgr != nil {
-		if _, err := helpers.OpenTenantRepo(r.Context(), h.TenantMgr, in.TenantID.String()); err != nil {
+		if _, err := helpers.OpenTenantRepo(r.Context(), h.TenantMgr, tenantID.String()); err != nil {
 			// Mirror 501/500 semantics
 			if helpers.IsNoDBForTenant(err) {
 				httpx.WriteTenantDBMissing(w)
@@ -153,77 +168,134 @@ func (h *EmailFlowsHandler) verifyEmailStart(w http.ResponseWriter, r *http.Requ
 	}
 
 	userID, err := h.Auth.CurrentUserID(r)
-	if err != nil {
-		writeErr(w, "login_required", "Bearer required", http.StatusUnauthorized)
-		return
-	}
-	emailStr, _ := h.Auth.CurrentUserEmail(r)
-	if emailStr == "" {
-		// Fallback a DB si el token no trae claim 'email'
-		if e, err := h.Users.GetEmailByID(r.Context(), userID); err == nil && e != "" {
-			emailStr = e
+	var emailStr string
+
+	// Resolve TokenStore (prefer Tenant DB) explicitly for this request
+	var userStore = h.Users // fallback default
+
+	if h.TenantMgr != nil {
+		if tenantDB, err := h.TenantMgr.GetPG(r.Context(), tenantID.String()); err == nil {
+			userStore = &store.UserStore{DB: tenantDB.Pool()}
+		} else {
+			log.Printf(`{"level":"warn","msg":"verify_start_tenant_db_err","err":"%v"}`, err)
 		}
 	}
+
+	if err == nil {
+		// Authenticated request
+		emailStr, _ = h.Auth.CurrentUserEmail(r)
+		if emailStr == "" {
+			if e, err := h.Users.GetEmailByID(r.Context(), userID); err == nil && e != "" {
+				emailStr = e
+			}
+		}
+	} else {
+		// Unauthenticated request (resend flow)
+		if in.Email == "" {
+			writeErr(w, "login_required", "Bearer or email required", http.StatusUnauthorized)
+			return
+		}
+
+		// Rate limit by IP for public endpoint
+		if h.rlOr429(w, "verify_resend:"+clientIPOrEmpty(r)) {
+			return
+		}
+
+		uid, ok, err := userStore.LookupUserIDByEmail(r.Context(), tenantID, in.Email)
+		if err != nil {
+			log.Printf(`{"level":"error","msg":"verify_lookup_error","request_id":"%s","err":"%v"}`, rid, err)
+			writeErr(w, "server_error", "lookup failed", http.StatusInternalServerError)
+			return
+		}
+		if !ok {
+			// User not found. Return 204 to avoid enumeration.
+			log.Printf(`{"level":"info","msg":"verify_user_not_found","request_id":"%s","email":"%s"}`, rid, in.Email)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		userID = uid
+		emailStr = in.Email
+	}
+
 	if emailStr == "" {
-		// No podemos enviar sin destinatario: log explícito y 500
 		writeErr(w, "server_error", "user email not found", http.StatusInternalServerError)
 		return
 	}
 
-	if in.Redirect != "" && !h.Redirect.ValidateRedirectURI(in.TenantID, in.ClientID, in.Redirect) {
+	if in.Redirect != "" && !h.Redirect.ValidateRedirectURI(tenantID, in.ClientID, in.Redirect) {
 		log.Printf(`{"level":"warn","msg":"verify_start_invalid_redirect","request_id":"%s","redirect":"%s"}`, rid, in.Redirect)
 		writeErr(w, "invalid_redirect_uri", "redirect_uri not allowed", http.StatusBadRequest)
 		return
 	}
 
-	// IP/UA -> NULL si están vacíos (evita "" en INET)
-	ipStr := clientIPOrEmpty(r)
-	uaStr := r.UserAgent()
-	ipPtr := strPtrOrNil(ipStr)
-	uaPtr := strPtrOrNil(uaStr)
-
-	log.Printf(`{"level":"info","msg":"verify_start_create_token_try","request_id":"%s","tenant_id":"%s","user_id":"%s","email":"%s","ttl_sec":%d,"ip":"%s","ua":"%s"}`,
-		rid, in.TenantID, userID, emailStr, int(h.VerifyTTL.Seconds()), ipStr, sanitizeUA(uaStr))
-
-	pt, err := h.Tokens.CreateEmailVerification(r.Context(), in.TenantID, userID, emailStr, h.VerifyTTL, ipPtr, uaPtr)
-	if err != nil {
-		log.Printf(`{"level":"error","msg":"verify_start_create_token_err","request_id":"%s","err":"%v"}`, rid, err)
-		writeErr(w, "server_error", "could not create token", http.StatusInternalServerError)
+	// Delegate to shared method
+	if err := h.SendVerificationEmail(r.Context(), rid, tenantID, userID, emailStr, in.Redirect, in.ClientID); err != nil {
+		// SendVerificationEmail logs errors. We just map to HTTP status if needed or return 500.
+		// Since validation errors (like redirect) happen inside, we might want to move validation OUT.
+		// For now, assume global error is 500.
+		writeErr(w, "server_error", "could not send verification email", http.StatusInternalServerError)
 		return
 	}
-	log.Printf(`{"level":"info","msg":"verify_start_token_ok","request_id":"%s"}`, rid)
 
-	link := h.buildLink("/v1/auth/verify-email", pt, in.Redirect, in.ClientID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// SendVerificationEmail sends the validation email. Exposed for Register handler.
+func (h *EmailFlowsHandler) SendVerificationEmail(ctx context.Context, rid string, tenantID, userID uuid.UUID, emailStr, redirect, clientID string) error {
+	// IP/UA handling
+	var ipPtr, uaPtr *string
+	// extracting from context is hard without request, so we pass defaults or nil if internal
+
+	// Resolve TokenStore (prefer Tenant DB) explicitly
+	var tokenStore = h.Tokens // fallback default
+	if h.TenantMgr != nil {
+		if tenantDB, err := h.TenantMgr.GetPG(ctx, tenantID.String()); err == nil {
+			tokenStore = store.NewTokenStore(tenantDB.Pool())
+		} else {
+			log.Printf(`{"level":"warn","msg":"verify_send_tenant_db_err","err":"%v"}`, err)
+		}
+	}
+
+	log.Printf(`{"level":"info","msg":"verify_send_create_token_try","request_id":"%s","tenant_id":"%s","user_id":"%s","email":"%s","ttl_sec":%d}`,
+		rid, tenantID, userID, emailStr, int(h.VerifyTTL.Seconds()))
+
+	// Use local tokenStore
+	pt, err := tokenStore.CreateEmailVerification(ctx, tenantID, userID, emailStr, h.VerifyTTL, ipPtr, uaPtr)
+	if err != nil {
+		log.Printf(`{"level":"error","msg":"verify_send_create_token_err","request_id":"%s","err":"%v"}`, rid, err)
+		return err
+	}
+	log.Printf(`{"level":"info","msg":"verify_send_token_ok","request_id":"%s"}`, rid)
+
+	link := h.buildLink("/v1/auth/verify-email", pt, redirect, clientID, tenantID.String())
 	if h.DebugEchoLinks {
-		log.Printf(`{"level":"debug","msg":"verify_start_link","request_id":"%s","link":"%s"}`, rid, link)
+		log.Printf(`{"level":"debug","msg":"verify_send_link","request_id":"%s","link":"%s"}`, rid, link)
 	}
 
 	// Fetch tenant settings for templates
-	tenant, err := h.Provider.GetTenantBySlug(r.Context(), in.TenantID.String())
+	tenant, err := h.Provider.GetTenantByID(ctx, tenantID.String())
 	if err != nil {
-		// Try by ID using fallback logic or just ignore and use defaults
-		// We use SenderProvider usually, but here we need settings for templates.
-		// If fails, use nil settings -> default templates
-		// Fallback UUID lookup if implemented or just proceed with nil
+		log.Printf(`{"level":"warn","msg":"verify_send_tenant_fetch_err","err":"%v"}`, err)
+	}
+
+	tenantName := tenantID.String()
+	if tenant != nil {
+		tenantName = tenant.Name
 	}
 
 	htmlBody, textBody, err := renderVerify(h.Tmpl, tenant, email.VerifyVars{
-		UserEmail: emailStr, Tenant: in.TenantID.String(), Link: link, TTL: h.VerifyTTL.String(),
+		UserEmail: emailStr, Tenant: tenantName, Link: link, TTL: h.VerifyTTL.String(),
 	})
 	if err != nil {
-		log.Printf(`{"level":"error","msg":"verify_start_template_err","request_id":"%s","err":"%v"}`, rid, err)
-		writeErr(w, "server_error", "template error", http.StatusInternalServerError)
-		return
+		log.Printf(`{"level":"error","msg":"verify_send_template_err","request_id":"%s","err":"%v"}`, rid, err)
+		return err
 	}
 
 	// Resolve sender
-	sender, err := h.SenderProvider.GetSender(r.Context(), in.TenantID)
+	sender, err := h.SenderProvider.GetSender(ctx, tenantID)
 	if err != nil {
-		log.Printf(`{"level":"error","msg":"verify_start_sender_err","request_id":"%s","err":"%v"}`, rid, err)
-		// Don't fail the request to avoid leaking info? Or maybe 500 is appropriate here as it's config error.
-		// Let's log and return 500 for now as it's a server misconfiguration.
-		writeErr(w, "server_error", "email configuration error", http.StatusInternalServerError)
-		return
+		log.Printf(`{"level":"error","msg":"verify_send_sender_err","request_id":"%s","err":"%v"}`, rid, err)
+		return err
 	}
 
 	if err := sender.Send(emailStr, "Verificá tu email", htmlBody, textBody); err != nil {
@@ -232,17 +304,17 @@ func (h *EmailFlowsHandler) verifyEmailStart(w http.ResponseWriter, r *http.Requ
 		if diag.Temporary {
 			lvl = "warn"
 		}
-		log.Printf(`{"level":"%s","msg":"verify_start_mail_send_err","request_id":"%s","to":"%s","code":"%s","temporary":%t,"retry_after_sec":%d,"err":"%v"}`,
+		log.Printf(`{"level":"%s","msg":"verify_send_mail_err","request_id":"%s","to":"%s","code":"%s","temporary":%t,"retry_after_sec":%d,"err":"%v"}`,
 			lvl, rid, emailStr, diag.Code, diag.Temporary, int(diag.RetryAfter.Seconds()), err)
-		// Respuesta sigue siendo 204 para no filtrar info al usuario.
-	} else {
-		log.Printf(`{"level":"info","msg":"verify_start_mail_send_ok","request_id":"%s","to":"%s"}`, rid, emailStr)
+		// Return error? VerifyStart consumed it without error.
+		// Register might want to know? Unlikely to rollback register.
+		// Just log and return nil (soft failure) or error?
+		// Register: "registro exitoso... debe ejecutar flujo". If mail fails, user created but not verified.
+		// We return nil to avoid breaking flow?
+		return nil
 	}
-
-	if h.DebugEchoLinks {
-		w.Header().Set("X-Debug-Verify-Link", link)
-	}
-	w.WriteHeader(http.StatusNoContent)
+	log.Printf(`{"level":"info","msg":"verify_send_mail_ok","request_id":"%s","to":"%s"}`, rid, emailStr)
+	return nil
 }
 
 func (h *EmailFlowsHandler) verifyEmailConfirm(w http.ResponseWriter, r *http.Request) {
@@ -252,7 +324,8 @@ func (h *EmailFlowsHandler) verifyEmailConfirm(w http.ResponseWriter, r *http.Re
 	token := q.Get("token")
 	redirect := q.Get("redirect_uri")
 	clientID := q.Get("client_id")
-	log.Printf(`{"level":"info","msg":"verify_confirm_begin","request_id":"%s","redirect":"%s","client_id":"%s"}`, rid, redirect, clientID)
+	tenantIDParam := q.Get("tenant_id")
+	log.Printf(`{"level":"info","msg":"verify_confirm_begin","request_id":"%s","redirect":"%s","client_id":"%s","tenant_id":"%s"}`, rid, redirect, clientID, tenantIDParam)
 
 	if token == "" {
 		log.Printf(`{"level":"warn","msg":"verify_confirm_missing_token","request_id":"%s"}`, rid)
@@ -260,7 +333,29 @@ func (h *EmailFlowsHandler) verifyEmailConfirm(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	tenantID, userID, err := h.Tokens.UseEmailVerification(r.Context(), token)
+	// Determine which TokenStore and UserStore to use based on tenant_id
+	var tokenStore *store.TokenStore = h.Tokens
+	var userStore *store.UserStore = h.Users
+	var tenantID uuid.UUID
+	if tenantIDParam != "" {
+		if parsed, err := uuid.Parse(tenantIDParam); err == nil {
+			tenantID = parsed
+		}
+	}
+
+	if tenantIDParam != "" && h.TenantMgr != nil {
+		// Use tenant-specific stores
+		tenantDB, err := h.TenantMgr.GetPG(r.Context(), tenantIDParam)
+		if err == nil {
+			tokenStore = store.NewTokenStore(tenantDB.Pool())
+			userStore = &store.UserStore{DB: tenantDB.Pool()}
+			log.Printf(`{"level":"debug","msg":"verify_using_tenant_db","request_id":"%s","tenant_id":"%s"}`, rid, tenantIDParam)
+		} else {
+			log.Printf(`{"level":"warn","msg":"verify_tenant_db_err","request_id":"%s","err":"%v"}`, rid, err)
+		}
+	}
+
+	_, userID, err := tokenStore.UseEmailVerification(r.Context(), token)
 	if err != nil {
 		log.Printf(`{"level":"warn","msg":"verify_confirm_token_bad","request_id":"%s","err":"%v"}`, rid, err)
 		writeErr(w, "invalid_token", "token invalid/expired/used", http.StatusBadRequest)
@@ -268,12 +363,35 @@ func (h *EmailFlowsHandler) verifyEmailConfirm(w http.ResponseWriter, r *http.Re
 	}
 	log.Printf(`{"level":"info","msg":"verify_confirm_token_ok","request_id":"%s","tenant_id":"%s","user_id":"%s"}`, rid, tenantID, userID)
 
+	// If redirect is empty, try to resolve a default from client config
+	if redirect == "" && clientID != "" && h.Provider != nil {
+		// We need tenant slug for GetClient. We only have tenantID (UUID).
+		// Try to resolve slug from ID or assume we can look it up.
+		// Since we already might have fetched tenant for store, reuse or fetch.
+		var tenantSlug string
+		if t, err := h.Provider.GetTenantByID(r.Context(), tenantID.String()); err == nil && t != nil {
+			tenantSlug = t.Slug
+		}
+
+		if tenantSlug != "" {
+			if c, err := h.Provider.GetClient(r.Context(), tenantSlug, clientID); err == nil && c != nil {
+				// Priority: User defined RedirectURIs > VerifyEmailURL
+				if len(c.RedirectURIs) > 0 {
+					redirect = c.RedirectURIs[0]
+				} else if c.VerifyEmailURL != "" {
+					redirect = c.VerifyEmailURL
+				}
+				log.Printf(`{"level":"info","msg":"verify_confirm_resolved_default_redirect","request_id":"%s","redirect":"%s"}`, rid, redirect)
+			}
+		}
+	}
+
 	if redirect != "" && !h.Redirect.ValidateRedirectURI(tenantID, clientID, redirect) {
 		log.Printf(`{"level":"warn","msg":"verify_confirm_invalid_redirect","request_id":"%s","redirect":"%s"}`, rid, redirect)
 		writeErr(w, "invalid_redirect_uri", "redirect_uri not allowed", http.StatusBadRequest)
 		return
 	}
-	if err := h.Users.SetEmailVerified(r.Context(), userID); err != nil {
+	if err := userStore.SetEmailVerified(r.Context(), userID); err != nil {
 		log.Printf(`{"level":"error","msg":"verify_confirm_mark_verified_err","request_id":"%s","err":"%v"}`, rid, err)
 		writeErr(w, "server_error", "could not mark verified", http.StatusInternalServerError)
 		return
@@ -284,6 +402,7 @@ func (h *EmailFlowsHandler) verifyEmailConfirm(w http.ResponseWriter, r *http.Re
 		u, _ := url.Parse(redirect)
 		qs := u.Query()
 		qs.Set("status", "verified")
+		// Also add token/email hints if needed? No, just status usually enough.
 		u.RawQuery = qs.Encode()
 		http.Redirect(w, r, u.String(), http.StatusFound)
 		return
@@ -292,7 +411,7 @@ func (h *EmailFlowsHandler) verifyEmailConfirm(w http.ResponseWriter, r *http.Re
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "verified"})
 }
 
-func (h *EmailFlowsHandler) buildLink(path, token, redirect, clientID string) string {
+func (h *EmailFlowsHandler) buildLink(path, token, redirect, clientID, tenantID string) string {
 	u, _ := url.Parse(h.BaseURL)
 	u.Path = path
 	q := u.Query()
@@ -303,6 +422,9 @@ func (h *EmailFlowsHandler) buildLink(path, token, redirect, clientID string) st
 	if clientID != "" {
 		q.Set("client_id", clientID)
 	}
+	if tenantID != "" {
+		q.Set("tenant_id", tenantID)
+	}
 	u.RawQuery = q.Encode()
 	return u.String()
 }
@@ -310,10 +432,10 @@ func (h *EmailFlowsHandler) buildLink(path, token, redirect, clientID string) st
 // --- Forgot / Reset ---
 
 type forgotIn struct {
-	TenantID uuid.UUID `json:"tenant_id"`
-	ClientID string    `json:"client_id"`
-	Email    string    `json:"email"`
-	Redirect string    `json:"redirect_uri,omitempty"`
+	TenantID string `json:"tenant_id"` // Can be UUID or slug
+	ClientID string `json:"client_id"`
+	Email    string `json:"email"`
+	Redirect string `json:"redirect_uri,omitempty"`
 }
 
 func (h *EmailFlowsHandler) forgot(w http.ResponseWriter, r *http.Request) {
@@ -325,8 +447,22 @@ func (h *EmailFlowsHandler) forgot(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "invalid_json", "Malformed body", http.StatusBadRequest)
 		return
 	}
-	if h.TenantMgr != nil {
-		if _, err := helpers.OpenTenantRepo(r.Context(), h.TenantMgr, in.TenantID.String()); err != nil {
+
+	// Resolve tenant ID (can be UUID or slug)
+	var tenantID uuid.UUID
+	if parsed, err := uuid.Parse(in.TenantID); err == nil {
+		tenantID = parsed
+	} else if h.Provider != nil {
+		// Try to lookup by slug
+		if tenant, err := h.Provider.GetTenantBySlug(r.Context(), in.TenantID); err == nil && tenant != nil {
+			if parsed, err := uuid.Parse(tenant.ID); err == nil {
+				tenantID = parsed
+			}
+		}
+	}
+
+	if h.TenantMgr != nil && tenantID != uuid.Nil {
+		if _, err := helpers.OpenTenantRepo(r.Context(), h.TenantMgr, tenantID.String()); err != nil {
 			if helpers.IsNoDBForTenant(err) {
 				httpx.WriteTenantDBMissing(w)
 				return
@@ -335,16 +471,20 @@ func (h *EmailFlowsHandler) forgot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	log.Printf(`{"level":"info","msg":"forgot_begin","request_id":"%s","tenant_id":"%s","client_id":"%s","email":"%s","redirect":"%s"}`, rid, in.TenantID, in.ClientID, in.Email, in.Redirect)
+	log.Printf(`{"level":"info","msg":"forgot_begin","request_id":"%s","tenant_id":"%s","client_id":"%s","email":"%s","redirect":"%s"}`, rid, tenantID, in.ClientID, in.Email, in.Redirect)
 
-	if in.TenantID == uuid.Nil || in.ClientID == "" || in.Email == "" {
+	if tenantID == uuid.Nil || in.ClientID == "" || in.Email == "" {
 		log.Printf(`{"level":"warn","msg":"forgot_missing_fields","request_id":"%s"}`, rid)
 		writeErr(w, "missing_fields", "tenant_id, client_id, email required", http.StatusBadRequest)
 		return
 	}
 
+	// Get tenant DB for user lookup AND token creation
+	var userStore *store.UserStore
+	var tokenStore = h.Tokens // fallback
 	if h.TenantMgr != nil {
-		if _, err := h.TenantMgr.GetPG(r.Context(), in.TenantID.String()); err != nil {
+		tenantDB, err := h.TenantMgr.GetPG(r.Context(), in.TenantID) // Use slug for lookup
+		if err != nil {
 			if helpers.IsNoDBForTenant(err) {
 				httpx.WriteTenantDBMissing(w)
 				return
@@ -352,15 +492,19 @@ func (h *EmailFlowsHandler) forgot(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteTenantDBError(w, err.Error())
 			return
 		}
+		userStore = &store.UserStore{DB: tenantDB.Pool()}
+		tokenStore = store.NewTokenStore(tenantDB.Pool())
+	} else {
+		userStore = h.Users
 	}
 
-	if h.rlOr429(w, "forgot:"+in.TenantID.String()+":"+strings.ToLower(in.Email)) {
+	if h.rlOr429(w, "forgot:"+tenantID.String()+":"+strings.ToLower(in.Email)) {
 		log.Printf(`{"level":"warn","msg":"forgot_rate_limited","request_id":"%s"}`, rid)
 		return
 	}
 
-	if uid, ok, err := h.Users.LookupUserIDByEmail(r.Context(), in.TenantID, in.Email); err == nil && ok {
-		if in.Redirect != "" && !h.Redirect.ValidateRedirectURI(in.TenantID, in.ClientID, in.Redirect) {
+	if uid, ok, err := userStore.LookupUserIDByEmail(r.Context(), tenantID, in.Email); err == nil && ok {
+		if in.Redirect != "" && !h.Redirect.ValidateRedirectURI(tenantID, in.ClientID, in.Redirect) {
 			log.Printf(`{"level":"warn","msg":"forgot_invalid_redirect","request_id":"%s","redirect":"%s"}`, rid, in.Redirect)
 			in.Redirect = ""
 		}
@@ -371,28 +515,54 @@ func (h *EmailFlowsHandler) forgot(w http.ResponseWriter, r *http.Request) {
 		uaPtr := strPtrOrNil(uaStr)
 
 		log.Printf(`{"level":"info","msg":"forgot_create_token_try","request_id":"%s","tenant_id":"%s","user_id":"%s","email":"%s","ttl_sec":%d,"ip":"%s","ua":"%s"}`,
-			rid, in.TenantID, uid, in.Email, int(h.ResetTTL.Seconds()), ipStr, sanitizeUA(uaStr))
+			rid, tenantID, uid, in.Email, int(h.ResetTTL.Seconds()), ipStr, sanitizeUA(uaStr))
 
-		if pt, err := h.Tokens.CreatePasswordReset(r.Context(), in.TenantID, uid, in.Email, h.ResetTTL, ipPtr, uaPtr); err == nil {
-			link := h.buildLink("/v1/auth/reset", pt, in.Redirect, in.ClientID)
+		if pt, err := tokenStore.CreatePasswordReset(r.Context(), tenantID, uid, in.Email, h.ResetTTL, ipPtr, uaPtr); err == nil {
+			// Fetch tenant for templates and client config
+			tenant, _ := h.Provider.GetTenantBySlug(r.Context(), in.TenantID)
+
+			// Lookup client to check for custom reset URL
+			var link string
+			if h.Provider != nil {
+				if client, err := h.Provider.GetClient(r.Context(), tenant.Slug, in.ClientID); err == nil && client != nil && client.ResetPasswordURL != "" {
+					// Use custom reset URL from client config
+					u, _ := url.Parse(client.ResetPasswordURL)
+					q := u.Query()
+					q.Set("token", pt)
+					u.RawQuery = q.Encode()
+					link = u.String()
+					log.Printf(`{"level":"info","msg":"forgot_using_custom_reset_url","request_id":"%s","url":"%s"}`, rid, client.ResetPasswordURL)
+				}
+			}
+			if link == "" {
+				// Fallback to backend reset endpoint
+				link = h.buildLink("/v1/auth/reset", pt, in.Redirect, in.ClientID, tenantID.String())
+			}
+
 			if h.DebugEchoLinks {
 				log.Printf(`{"level":"debug","msg":"forgot_link","request_id":"%s","link":"%s"}`, rid, link)
 			}
 
-			// Fetch tenant for templates
-			tenant, _ := h.Provider.GetTenantBySlug(r.Context(), in.TenantID.String())
+			// Get tenant display name for email template
+			tenantDisplayName := in.TenantID
+			if tenant != nil && tenant.DisplayName != "" {
+				tenantDisplayName = tenant.DisplayName
+			} else if tenant != nil && tenant.Name != "" {
+				tenantDisplayName = tenant.Name
+			}
 
 			htmlBody, textBody, _ := renderReset(h.Tmpl, tenant, email.ResetVars{
-				UserEmail: in.Email, Tenant: in.TenantID.String(), Link: link, TTL: h.ResetTTL.String(),
+				UserEmail: in.Email, Tenant: tenantDisplayName, Link: link, TTL: h.ResetTTL.String(),
 			})
 			// Resolve sender
-			sender, err := h.SenderProvider.GetSender(r.Context(), in.TenantID)
+			sender, err := h.SenderProvider.GetSender(r.Context(), tenantID)
 			if err != nil {
 				log.Printf(`{"level":"error","msg":"forgot_sender_err","request_id":"%s","err":"%v"}`, rid, err)
-				// Log only, try with nil sender? No, it will panic.
-				// We should probably fail or use a fallback if we had one.
-				// For now, fail.
-			} else if err := sender.Send(in.Email, "Restablecé tu contraseña", htmlBody, textBody); err != nil {
+				writeErr(w, "email_config_error", "Error de configuración de email", http.StatusInternalServerError)
+				return
+			}
+
+			if err := sender.Send(in.Email, "Restablecé tu contraseña", htmlBody, textBody); err != nil {
 				diag := email.DiagnoseSMTP(err)
 				lvl := "error"
 				if diag.Temporary {
@@ -400,27 +570,33 @@ func (h *EmailFlowsHandler) forgot(w http.ResponseWriter, r *http.Request) {
 				}
 				log.Printf(`{"level":"%s","msg":"forgot_mail_send_err","request_id":"%s","to":"%s","code":"%s","temporary":%t,"retry_after_sec":%d,"err":"%v"}`,
 					lvl, rid, in.Email, diag.Code, diag.Temporary, int(diag.RetryAfter.Seconds()), err)
-			} else {
-				log.Printf(`{"level":"info","msg":"forgot_mail_send_ok","request_id":"%s","to":"%s"}`, rid, in.Email)
+				writeErr(w, "email_send_failed", "Error al enviar el email de recuperación", http.StatusServiceUnavailable)
+				return
 			}
+			log.Printf(`{"level":"info","msg":"forgot_mail_send_ok","request_id":"%s","to":"%s"}`, rid, in.Email)
+
 			if h.DebugEchoLinks {
 				w.Header().Set("X-Debug-Reset-Link", link)
 			}
 		} else {
 			log.Printf(`{"level":"error","msg":"forgot_create_token_err","request_id":"%s","err":"%v"}`, rid, err)
+			writeErr(w, "token_error", "Error interno al procesar la solicitud", http.StatusInternalServerError)
+			return
 		}
 	} else if err != nil {
 		log.Printf(`{"level":"error","msg":"forgot_lookup_user_err","request_id":"%s","err":"%v"}`, rid, err)
+		// For security, still return OK to not reveal if email exists
 	}
+	// Note: We return OK even if user not found (security: don't reveal if email exists)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 type resetIn struct {
-	TenantID    uuid.UUID `json:"tenant_id"`
-	ClientID    string    `json:"client_id"`
-	Token       string    `json:"token"`
-	NewPassword string    `json:"new_password"`
+	TenantID    string `json:"tenant_id"` // Can be UUID or slug
+	ClientID    string `json:"client_id"`
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
 }
 
 func (h *EmailFlowsHandler) reset(w http.ResponseWriter, r *http.Request) {
@@ -432,27 +608,34 @@ func (h *EmailFlowsHandler) reset(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "invalid_json", "Malformed body", http.StatusBadRequest)
 		return
 	}
-	// Phase 4.1: per-tenant gating for reset as well
-	if h.TenantMgr != nil {
-		if _, err := helpers.OpenTenantRepo(r.Context(), h.TenantMgr, in.TenantID.String()); err != nil {
-			if helpers.IsNoDBForTenant(err) {
-				httpx.WriteTenantDBMissing(w)
-				return
+
+	// Resolve tenant ID (can be UUID or slug)
+	var tenantID uuid.UUID
+	if parsed, err := uuid.Parse(in.TenantID); err == nil {
+		tenantID = parsed
+	} else if h.Provider != nil {
+		// Try to lookup by slug
+		if tenant, err := h.Provider.GetTenantBySlug(r.Context(), in.TenantID); err == nil && tenant != nil {
+			if parsed, err := uuid.Parse(tenant.ID); err == nil {
+				tenantID = parsed
 			}
-			httpx.WriteTenantDBError(w, err.Error())
-			return
 		}
 	}
-	log.Printf(`{"level":"info","msg":"reset_begin","request_id":"%s","tenant_id":"%s","client_id":"%s"}`, rid, in.TenantID, in.ClientID)
 
-	if in.TenantID == uuid.Nil || in.ClientID == "" || in.Token == "" || in.NewPassword == "" {
+	log.Printf(`{"level":"info","msg":"reset_begin","request_id":"%s","tenant_id":"%s","client_id":"%s"}`, rid, tenantID, in.ClientID)
+
+	if tenantID == uuid.Nil || in.ClientID == "" || in.Token == "" || in.NewPassword == "" {
 		log.Printf(`{"level":"warn","msg":"reset_missing_fields","request_id":"%s"}`, rid)
 		writeErr(w, "missing_fields", "tenant_id, client_id, token, new_password required", http.StatusBadRequest)
 		return
 	}
 
+	// Get tenant DB and create per-tenant UserStore AND TokenStore
+	var userStore *store.UserStore
+	var tokenStore = h.Tokens // fallback
 	if h.TenantMgr != nil {
-		if _, err := h.TenantMgr.GetPG(r.Context(), in.TenantID.String()); err != nil {
+		tenantDB, err := h.TenantMgr.GetPG(r.Context(), in.TenantID)
+		if err != nil {
 			if helpers.IsNoDBForTenant(err) {
 				httpx.WriteTenantDBMissing(w)
 				return
@@ -460,6 +643,10 @@ func (h *EmailFlowsHandler) reset(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteTenantDBError(w, err.Error())
 			return
 		}
+		userStore = &store.UserStore{DB: tenantDB.Pool()}
+		tokenStore = store.NewTokenStore(tenantDB.Pool())
+	} else {
+		userStore = h.Users
 	}
 
 	if h.rlOr429(w, "reset:"+clientIPOrEmpty(r)) {
@@ -474,8 +661,9 @@ func (h *EmailFlowsHandler) reset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenantID, userID, err := h.Tokens.UsePasswordReset(r.Context(), in.Token)
-	if err != nil || tenantID != in.TenantID {
+	// Use tenant-specific token store. tenantID returned is nil/ignored as check is implicit by using Tenant DB
+	_, userID, err := tokenStore.UsePasswordReset(r.Context(), in.Token)
+	if err != nil {
 		log.Printf(`{"level":"warn","msg":"reset_token_bad","request_id":"%s","err":"%v"}`, rid, err)
 		writeErr(w, "invalid_token", "token invalid/expired/used", http.StatusBadRequest)
 		return
@@ -496,18 +684,18 @@ func (h *EmailFlowsHandler) reset(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, "server_error", "hash error", http.StatusInternalServerError)
 		return
 	}
-	if err := h.Users.UpdatePasswordHash(r.Context(), userID, phash); err != nil {
+	if err := userStore.UpdatePasswordHash(r.Context(), userID, phash); err != nil {
 		log.Printf(`{"level":"error","msg":"reset_update_pwd_err","request_id":"%s","err":"%v"}`, rid, err)
 		writeErr(w, "server_error", "update password error", http.StatusInternalServerError)
 		return
 	}
-	_ = h.Users.RevokeAllRefreshTokens(r.Context(), userID)
+	_ = userStore.RevokeAllRefreshTokens(r.Context(), userID)
 	log.Printf(`{"level":"info","msg":"reset_password_updated","request_id":"%s"}`, rid)
 
 	if h.AutoLoginReset && h.Issuer != nil {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Pragma", "no-cache")
-		if err := h.Issuer.IssueTokens(w, r, in.TenantID, in.ClientID, userID); err != nil {
+		if err := h.Issuer.IssueTokens(w, r, tenantID, in.ClientID, userID); err != nil {
 			log.Printf(`{"level":"error","msg":"reset_issue_tokens_err","request_id":"%s","err":"%v"}`, rid, err)
 			writeErr(w, "server_error", "issue tokens error", http.StatusInternalServerError)
 		} else {

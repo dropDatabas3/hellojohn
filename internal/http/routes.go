@@ -168,9 +168,10 @@ func NewMux(
 	// GET/POST /v1/admin/rbac/roles/{role}/perms
 	mux.Handle("/v1/admin/rbac/roles/", adminRBACRoles)
 
-	// ─── Admin Users (disable/enable) ───
-	mux.Handle("/v1/admin/users/disable", adminUsers) // POST
-	mux.Handle("/v1/admin/users/enable", adminUsers)  // POST
+	// ─── Admin Users (disable/enable/resend-verification) ───
+	mux.Handle("/v1/admin/users/disable", adminUsers)             // POST
+	mux.Handle("/v1/admin/users/enable", adminUsers)              // POST
+	mux.Handle("/v1/admin/users/resend-verification", adminUsers) // POST
 
 	// ─── Admin Tenants (CRUD + Settings) ───
 	mux.Handle("/v1/admin/tenants", adminTenants)  // GET/POST

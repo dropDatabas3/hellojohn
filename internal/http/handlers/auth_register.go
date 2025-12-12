@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/dropDatabas3/hellojohn/internal/app"
 	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/controlplane"
@@ -45,7 +47,7 @@ func contains(ss []string, v string) bool {
 	return false
 }
 
-func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Duration, blacklistPath string) http.HandlerFunc {
+func NewAuthRegisterHandler(c *app.Container, emailHandler *EmailFlowsHandler, autoLogin bool, refreshTTL time.Duration, blacklistPath string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			httpx.WriteError(w, http.StatusMethodNotAllowed, "method_not_allowed", "solo POST", 1000)
@@ -280,11 +282,12 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 		}
 
 		u := &core.User{
-			TenantID:      tenantUUID,
-			Email:         req.Email,
-			EmailVerified: false,
-			Metadata:      map[string]any{},
-			CustomFields:  req.CustomFields,
+			TenantID:       tenantUUID,
+			Email:          req.Email,
+			EmailVerified:  false,
+			Metadata:       map[string]any{},
+			CustomFields:   req.CustomFields,
+			SourceClientID: &req.ClientID,
 		}
 		if err := repo.CreateUser(ctx, u); err != nil {
 			log.Printf("register: create user err: %v", err)
@@ -397,6 +400,30 @@ func NewAuthRegisterHandler(c *app.Container, autoLogin bool, refreshTTL time.Du
 		// evitar cache en respuestas que incluyen tokens
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Pragma", "no-cache")
+
+		// Check for email verification requirement (FS Client)
+		var verificationRequired bool
+		if cpctx.Provider != nil {
+			if ten, tErr := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); tErr == nil && ten != nil {
+				if fsc, cErr := cpctx.Provider.GetClient(ctx, tenantSlug, req.ClientID); cErr == nil && fsc != nil {
+					verificationRequired = fsc.RequireEmailVerification
+				}
+			}
+		}
+
+		// Trigger verification email if required
+		if verificationRequired && emailHandler != nil {
+			// We use a background context or the request context? Request context is fine, but we should not fail register if mail fails (soft fail).
+			rid := w.Header().Get("X-Request-ID")
+			// Create uuid from string for tenantID/userID
+			tidUUID, _ := uuid.Parse(tenantUUID) // should be valid
+			uidUUID, _ := uuid.Parse(u.ID)
+
+			// We pass empty redirect (will use default) or we can try to guess/construct it.
+			// The email link will point to /v1/auth/verify-email?token=... which redirects to Valid Redirect URI.
+			// Since we don't have a specific redirect URI in Register Request, we pass empty string.
+			_ = emailHandler.SendVerificationEmail(ctx, rid, tidUUID, uidUUID, req.Email, "", req.ClientID)
+		}
 
 		httpx.WriteJSON(w, http.StatusOK, AuthRegisterResponse{
 			UserID:       u.ID,

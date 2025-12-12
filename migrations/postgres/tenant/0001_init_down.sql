@@ -1,3 +1,4 @@
+-- Down migration: drops all tenant tables
 BEGIN;
 DROP TABLE IF EXISTS schema_migrations;
 DROP TABLE IF EXISTS mfa_recovery_code;

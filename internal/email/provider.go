@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/dropDatabas3/hellojohn/internal/controlplane"
 	"github.com/dropDatabas3/hellojohn/internal/jwt"
@@ -52,16 +53,33 @@ func (p *TenantSenderProvider) GetSender(ctx context.Context, tenantID uuid.UUID
 
 	// 3. Decrypt password if present
 	smtpPass := settings.SMTP.Password
-	if settings.SMTP.PasswordEnc != "" && p.MasterKey != "" {
-		encryptedBytes, err := base64.RawURLEncoding.DecodeString(settings.SMTP.PasswordEnc)
-		if err != nil {
-			log.Printf("failed to decode smtp password for tenant %s: %v", tenant.Slug, err)
-		} else {
-			decrypted, err := jwt.DecryptPrivateKey(encryptedBytes, p.MasterKey)
+	if settings.SMTP.PasswordEnc != "" && smtpPass == "" {
+		// Try configured MasterKey first, then fallback to SIGNING_MASTER_KEY env var
+		masterKeyToTry := p.MasterKey
+		if masterKeyToTry == "" {
+			masterKeyToTry = os.Getenv("SIGNING_MASTER_KEY")
+		}
+
+		if masterKeyToTry != "" {
+			encryptedBytes, err := base64.RawURLEncoding.DecodeString(settings.SMTP.PasswordEnc)
 			if err != nil {
-				log.Printf("failed to decrypt smtp password for tenant %s: %v", tenant.Slug, err)
+				log.Printf("failed to decode smtp password for tenant %s: %v", tenant.Slug, err)
 			} else {
-				smtpPass = string(decrypted)
+				decrypted, err := jwt.DecryptPrivateKey(encryptedBytes, masterKeyToTry)
+				if err != nil {
+					// Try the env var as fallback if different
+					if envKey := os.Getenv("SIGNING_MASTER_KEY"); envKey != "" && envKey != masterKeyToTry {
+						if dec2, err2 := jwt.DecryptPrivateKey(encryptedBytes, envKey); err2 == nil {
+							smtpPass = string(dec2)
+						} else {
+							log.Printf("failed to decrypt smtp password for tenant %s: %v", tenant.Slug, err)
+						}
+					} else {
+						log.Printf("failed to decrypt smtp password for tenant %s: %v", tenant.Slug, err)
+					}
+				} else {
+					smtpPass = string(decrypted)
+				}
 			}
 		}
 	}

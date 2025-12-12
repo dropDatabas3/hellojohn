@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/audit"
 	"github.com/dropDatabas3/hellojohn/internal/email"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
+	storelib "github.com/dropDatabas3/hellojohn/internal/store"
 	"github.com/dropDatabas3/hellojohn/internal/store/core"
 )
 
@@ -200,6 +203,123 @@ func (h *AdminUsersHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+
+		w.WriteHeader(http.StatusNoContent)
+		return
+
+	case "/v1/admin/users/resend-verification":
+		// Resend verification email for a user
+		if body.TenantID == "" {
+			httpx.WriteError(w, http.StatusBadRequest, "missing_fields", "tenant_id requerido", 3806)
+			return
+		}
+
+		// Get user to obtain email
+		u, err := store.GetUserByID(r.Context(), body.UserID)
+		if err != nil || u == nil {
+			httpx.WriteError(w, http.StatusNotFound, "user_not_found", "usuario no encontrado", 3807)
+			return
+		}
+		if u.EmailVerified {
+			httpx.WriteError(w, http.StatusBadRequest, "already_verified", "el email ya está verificado", 3808)
+			return
+		}
+
+		// Resolve tenant UUID
+		var tenantUUID uuid.UUID
+		if parsed, err := uuid.Parse(body.TenantID); err == nil {
+			tenantUUID = parsed
+		} else if cpctx.Provider != nil {
+			if t, err := cpctx.Provider.GetTenantBySlug(r.Context(), body.TenantID); err == nil && t != nil {
+				if parsed, err := uuid.Parse(t.ID); err == nil {
+					tenantUUID = parsed
+				}
+			}
+		}
+		if tenantUUID == uuid.Nil {
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_tenant", "tenant_id inválido", 3809)
+			return
+		}
+
+		// Create verification token using TokenStore from tenant DB
+		var tokenStore *storelib.TokenStore
+		if h.c.TenantSQLManager != nil {
+			tenantDB, err := h.c.TenantSQLManager.GetPG(r.Context(), body.TenantID)
+			if err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "tenant_db_error", err.Error(), 3810)
+				return
+			}
+			tokenStore = storelib.NewTokenStore(tenantDB.Pool())
+		} else {
+			httpx.WriteError(w, http.StatusInternalServerError, "not_configured", "tenant SQL manager no configurado", 3810)
+			return
+		}
+
+		verifyTTL := 48 * time.Hour // 48 hours for verification
+		pt, err := tokenStore.CreateEmailVerification(r.Context(), tenantUUID, uuid.MustParse(body.UserID), u.Email, verifyTTL, nil, nil)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "token_error", "error creando token de verificación", 3811)
+			return
+		}
+
+		// Build verification link with tenant_id so verify endpoint knows which DB to use
+		baseURL := os.Getenv("BASE_URL")
+		if baseURL == "" {
+			baseURL = "http://localhost:8080"
+		}
+		link := baseURL + "/v1/auth/verify-email?token=" + pt + "&tenant_id=" + body.TenantID
+
+		// Append client_id if available (matching SDK flow)
+		if u.SourceClientID != nil && *u.SourceClientID != "" {
+			link += "&client_id=" + url.QueryEscape(*u.SourceClientID)
+		}
+		// Note: We intentionally do NOT append redirect_uri to match SDK behavior and avoid validation errors
+		// if the VerifyEmailURL is not whitelisted.
+
+		// Render and send email using tenant templates
+		t, _ := cpctx.Provider.GetTenantByID(r.Context(), tenantUUID.String())
+		tenantName := body.TenantID
+		if t != nil {
+			tenantName = t.Name
+		}
+		vars := map[string]any{
+			"UserEmail": u.Email,
+			"Tenant":    tenantName,
+			"Link":      link,
+			"TTL":       "48 horas",
+		}
+
+		subj := "Verificá tu correo electrónico"
+		htmlBody := ""
+		textBody := ""
+
+		if t != nil && t.Settings.Mailing != nil && t.Settings.Mailing.Templates != nil {
+			if tpl, ok := t.Settings.Mailing.Templates[email.TemplateVerify]; ok {
+				subj = tpl.Subject
+				htmlBody, textBody, _ = renderOverride(tpl, vars)
+			}
+		}
+
+		// Fallback simple email if no template
+		if htmlBody == "" {
+			htmlBody = "<p>Hola " + u.Email + ",</p><p>Hacé clic en el siguiente enlace para verificar tu email:</p><p><a href=\"" + link + "\">Verificar Email</a></p>"
+			textBody = "Verificá tu email visitando: " + link
+		}
+
+		// Send email
+		if sender, err := h.c.SenderProvider.GetSender(r.Context(), tenantUUID); err == nil {
+			if err := sender.Send(u.Email, subj, htmlBody, textBody); err != nil {
+				httpx.WriteError(w, http.StatusInternalServerError, "email_error", "error enviando email", 3812)
+				return
+			}
+		} else {
+			httpx.WriteError(w, http.StatusInternalServerError, "sender_error", "no se pudo obtener el sender de email", 3813)
+			return
+		}
+
+		audit.Log(r.Context(), "admin_resend_verification", map[string]any{
+			"by": by, "user_id": body.UserID, "tenant_id": body.TenantID, "email": u.Email,
+		})
 
 		w.WriteHeader(http.StatusNoContent)
 		return

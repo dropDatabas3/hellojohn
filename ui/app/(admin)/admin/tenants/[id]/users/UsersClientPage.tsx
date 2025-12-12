@@ -313,7 +313,7 @@ export default function UsersClientPage() {
             <DialogTitle>Detalles del Usuario</DialogTitle>
             <DialogDescription>Información completa registrada.</DialogDescription>
           </DialogHeader>
-          {selectedUser && <UserDetails user={selectedUser} />}
+          {selectedUser && <UserDetails user={selectedUser} tenantId={tenantId} token={token} />}
         </DialogContent>
       </Dialog>
 
@@ -429,8 +429,9 @@ function UserRow({ user, onDelete, onDetails, onBlock, onUnlock }: { user: User,
   )
 }
 
-function UserDetails({ user }: { user: User }) {
+function UserDetails({ user, tenantId, token }: { user: User, tenantId: string, token: string | null }) {
   const { toast } = useToast()
+  const [isResending, setIsResending] = useState(false)
 
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return "-"
@@ -451,11 +452,31 @@ function UserDetails({ user }: { user: User }) {
   const updatedAt = formatDate(user.updated_at || user.custom_fields?.updated_at)
   const initial = user.email ? user.email.slice(0, 2).toUpperCase() : "??"
 
-  const handleResendVerification = () => {
-    toast({
-      title: "Funcionalidad en desarrollo",
-      description: "El reenvío de códigos de verificación estará disponible pronto.",
-    })
+  const handleResendVerification = async () => {
+    if (!user.id || !tenantId) {
+      toast({ title: "Error", description: "Faltan datos del usuario o tenant", variant: "destructive" })
+      return
+    }
+    setIsResending(true)
+    try {
+      const res = await fetch(`/v1/admin/users/resend-verification`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ user_id: user.id, tenant_id: tenantId })
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error_description || err.error || "Error enviando email")
+      }
+      toast({ title: "Email enviado", description: "Se ha enviado un nuevo correo de verificación al usuario." })
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" })
+    } finally {
+      setIsResending(false)
+    }
   }
 
   return (
@@ -491,7 +512,13 @@ function UserDetails({ user }: { user: User }) {
             <div className="flex items-center gap-2">
               <span className="font-medium">{user.email_verified ? "Verificado" : "Pendiente"}</span>
               {!user.email_verified && (
-                <Button variant="link" className="h-auto p-0 text-xs text-blue-600" onClick={handleResendVerification}>
+                <Button
+                  variant="link"
+                  className="h-auto p-0 text-xs text-blue-600"
+                  onClick={handleResendVerification}
+                  disabled={isResending}
+                >
+                  {isResending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
                   Reenviar código
                 </Button>
               )}

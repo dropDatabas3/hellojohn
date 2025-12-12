@@ -46,6 +46,10 @@ type UpsertClientDTO struct {
 	Providers      []string      `json:"providers,omitempty"`
 	Scopes         []string      `json:"scopes,omitempty"`
 	Secret         string        `json:"secret,omitempty"`
+	// Email verification & password reset
+	RequireEmailVerification bool   `json:"requireEmailVerification,omitempty"`
+	ResetPasswordURL         string `json:"resetPasswordUrl,omitempty"`
+	VerifyEmailURL           string `json:"verifyEmailUrl,omitempty"`
 }
 
 // DeleteClientDTO payload para eliminar un cliente

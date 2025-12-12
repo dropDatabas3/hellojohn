@@ -196,7 +196,13 @@ type OIDCClient struct {
 	Scopes          []string      `json:"scopes,omitempty" yaml:"scopes,omitempty"`                 // p.ej. ["openid","email","profile","admin"]
 	SecretEnc       string        `json:"secretEnc,omitempty" yaml:"secretEnc,omitempty"`           // Encrypt(...), solo para confidential
 	SocialProviders *SocialConfig `json:"socialProviders,omitempty" yaml:"socialProviders,omitempty"`
-	// MVP: guardamos “versión activa” inline; más adelante se puede expandir a array Versiones.
+
+	// Email verification & password reset configuration
+	RequireEmailVerification bool   `json:"requireEmailVerification,omitempty" yaml:"requireEmailVerification,omitempty"`
+	ResetPasswordURL         string `json:"resetPasswordUrl,omitempty" yaml:"resetPasswordUrl,omitempty"`
+	VerifyEmailURL           string `json:"verifyEmailUrl,omitempty" yaml:"verifyEmailUrl,omitempty"`
+
+	// MVP: guardamos "versión activa" inline; más adelante se puede expandir a array Versiones. “versión activa” inline; más adelante se puede expandir a array Versiones.
 	ClaimSchema  map[string]any `json:"claimSchema,omitempty" yaml:"claimSchema,omitempty"`
 	ClaimMapping map[string]any `json:"claimMapping,omitempty" yaml:"claimMapping,omitempty"`
 }
@@ -231,6 +237,12 @@ type ClientInput struct {
 	Providers      []string   `json:"providers,omitempty" yaml:"providers,omitempty"`
 	Scopes         []string   `json:"scopes,omitempty" yaml:"scopes,omitempty"`
 	Secret         string     `json:"secret,omitempty" yaml:"secret,omitempty"` // plain entrante; se cifra al persistir
+
+	// Email verification & password reset
+	RequireEmailVerification bool   `json:"requireEmailVerification,omitempty" yaml:"requireEmailVerification,omitempty"`
+	ResetPasswordURL         string `json:"resetPasswordUrl,omitempty" yaml:"resetPasswordUrl,omitempty"`
+	VerifyEmailURL           string `json:"verifyEmailUrl,omitempty" yaml:"verifyEmailUrl,omitempty"`
+
 	// Opcionales: configuración de claims por versión simple en FS (MVP)
 	ClaimSchema  map[string]any `json:"claimSchema,omitempty" yaml:"claimSchema,omitempty"`
 	ClaimMapping map[string]any `json:"claimMapping,omitempty" yaml:"claimMapping,omitempty"`

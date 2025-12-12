@@ -342,6 +342,11 @@ func (p *FSProvider) UpsertClient(ctx context.Context, slug string, in cp.Client
 	found.Providers = uniqueStrings(in.Providers)
 	found.Scopes = uniqueStrings(in.Scopes)
 
+	// Email verification & password reset config
+	found.RequireEmailVerification = in.RequireEmailVerification
+	found.ResetPasswordURL = in.ResetPasswordURL
+	found.VerifyEmailURL = in.VerifyEmailURL
+
 	// claims opcionales (MVP): persistir tal cual (validación mínima UI-side)
 	if in.ClaimSchema != nil {
 		found.ClaimSchema = in.ClaimSchema

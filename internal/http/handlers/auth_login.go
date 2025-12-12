@@ -432,6 +432,17 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		}
 		// Client already validated by FS; nothing else to load from DB here
 
+		// Email verification check: if client requires verification and user isn't verified, block login
+		if cpctx.Provider != nil {
+			if clientCfg, err := cpctx.Provider.GetClient(ctx, tenantSlug, req.ClientID); err == nil && clientCfg != nil {
+				if clientCfg.RequireEmailVerification && !u.EmailVerified {
+					log.Printf(`{"level":"info","msg":"login_email_not_verified","tenant":"%s","email":"%s"}`, req.TenantID, util.MaskEmail(req.Email))
+					httpx.WriteError(w, http.StatusForbidden, "email_not_verified", "Debes verificar tu email para iniciar sesión", 1211)
+					return
+				}
+			}
+		}
+
 		// MFA (pre-issue) hook: si el usuario tiene MFA TOTP confirmada y no se detecta trusted device => bifurca flujo.
 		// Requiere métodos stub en Store: GetMFATOTP, IsTrustedDevice. Si no existen aún, este bloque no compilará hasta implementarlos.
 		type mfaGetter interface {

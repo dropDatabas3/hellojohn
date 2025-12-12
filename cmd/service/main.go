@@ -841,12 +841,34 @@ func main() {
 	}
 
 	// Wire FS degraded hooks so FS provider can degrade readyz
-	cpctx.MarkFSDegraded = func(reason string) { container.SetFSDegraded(true) }
 	cpctx.ClearFSDegraded = func() { container.SetFSDegraded(false) }
+
+	// Email Flows (solo si tenemos DB) - MOVED HERE to inject into Register
+	var verifyEmailStartHandler, verifyEmailConfirmHandler, forgotHandler, resetHandler http.Handler
+	var efHandler *handlers.EmailFlowsHandler
+	var emailCleanup func() = func() {} // default no-op cleanup
+	if hasGlobalDB {
+		var err error
+		verifyEmailStartHandler, verifyEmailConfirmHandler, forgotHandler, resetHandler, efHandler, emailCleanup, err =
+			handlers.BuildEmailFlowHandlers(ctx, cfg, &container, refreshTTL)
+		if err != nil {
+			log.Fatalf("email flows: %v", err)
+		}
+		defer emailCleanup()
+	} else {
+		// Handlers dummy para modo FS-only
+		notImplemented := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "Feature requires database connection", http.StatusNotImplemented)
+		})
+		verifyEmailStartHandler = notImplemented
+		verifyEmailConfirmHandler = notImplemented
+		forgotHandler = notImplemented
+		resetHandler = notImplemented
+	}
 
 	jwksHandler := handlers.NewJWKSHandler(container.JWKSCache)
 	authLoginHandler := handlers.NewAuthLoginHandler(&container, cfg, refreshTTL)
-	authRegisterHandler := handlers.NewAuthRegisterHandler(&container, cfg.Register.AutoLogin, refreshTTL, cfg.Security.PasswordBlacklistPath)
+	authRegisterHandler := handlers.NewAuthRegisterHandler(&container, efHandler, cfg.Register.AutoLogin, refreshTTL, cfg.Security.PasswordBlacklistPath)
 	authRefreshHandler := handlers.NewAuthRefreshHandler(&container, refreshTTL)
 	authLogoutHandler := handlers.NewAuthLogoutHandler(&container)
 	meHandler := handlers.NewMeHandler(&container)
@@ -968,28 +990,6 @@ func main() {
 		cfg.Auth.Session.SameSite,
 		cfg.Auth.Session.Secure,
 	)
-
-	// Email Flows (solo si tenemos DB)
-	var verifyEmailStartHandler, verifyEmailConfirmHandler, forgotHandler, resetHandler http.Handler
-	var emailCleanup func() = func() {} // default no-op cleanup
-	if hasGlobalDB {
-		var err error
-		verifyEmailStartHandler, verifyEmailConfirmHandler, forgotHandler, resetHandler, emailCleanup, err =
-			handlers.BuildEmailFlowHandlers(ctx, cfg, &container, refreshTTL)
-		if err != nil {
-			log.Fatalf("email flows: %v", err)
-		}
-		defer emailCleanup()
-	} else {
-		// Handlers dummy para modo FS-only
-		notImplemented := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, "Feature requires database connection", http.StatusNotImplemented)
-		})
-		verifyEmailStartHandler = notImplemented
-		verifyEmailConfirmHandler = notImplemented
-		forgotHandler = notImplemented
-		resetHandler = notImplemented
-	}
 
 	// ───────── Social: Google (solo si tenemos DB) ─────────
 	// DEPRECATED: Replaced by DynamicSocialHandler

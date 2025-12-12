@@ -41,14 +41,17 @@ func (f *FSM) Apply(l *raft.Log) interface{} {
 		}
 		// mapear a ClientInput
 		in := cp.ClientInput{
-			Name:           dto.Name,
-			ClientID:       dto.ClientID,
-			Type:           dto.Type,
-			RedirectURIs:   dto.RedirectURIs,
-			AllowedOrigins: dto.AllowedOrigins,
-			Providers:      dto.Providers,
-			Scopes:         dto.Scopes,
-			Secret:         dto.Secret,
+			Name:                     dto.Name,
+			ClientID:                 dto.ClientID,
+			Type:                     dto.Type,
+			RedirectURIs:             dto.RedirectURIs,
+			AllowedOrigins:           dto.AllowedOrigins,
+			Providers:                dto.Providers,
+			Scopes:                   dto.Scopes,
+			Secret:                   dto.Secret,
+			RequireEmailVerification: dto.RequireEmailVerification,
+			ResetPasswordURL:         dto.ResetPasswordURL,
+			VerifyEmailURL:           dto.VerifyEmailURL,
 		}
 		// Ejecutar contra el provider actual (FS en MVP)
 		if cpctx.Provider == nil {

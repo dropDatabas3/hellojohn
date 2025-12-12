@@ -9,7 +9,6 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/app"
 	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http"
-	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -210,14 +209,3 @@ func NewCompleteProfileHandler(c *app.Container) http.HandlerFunc {
 	}
 }
 
-// resolveIssuer is a helper to get the expected issuer for token validation
-func resolveIssuer(c *app.Container, tenantSlug string) string {
-	if cpctx.Provider == nil {
-		return c.Issuer.Iss
-	}
-	ten, err := cpctx.Provider.GetTenantBySlug(nil, tenantSlug)
-	if err != nil || ten == nil {
-		return c.Issuer.Iss
-	}
-	return jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
-}

@@ -13,12 +13,11 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d login"]
+      test: [ "CMD-SHELL", "pg_isready -U user -d login" ]
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # ───────────────────── Redis for Caching ─────────────────────
+    # ───────────────────── Redis for Caching ─────────────────────
   redis-dev:
     image: redis:7-alpine
     container_name: hellojohn-redis-dev
@@ -26,9 +25,7 @@ services:
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 3s
       retries: 5
-
-

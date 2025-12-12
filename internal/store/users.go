@@ -15,8 +15,10 @@ func (s *UserStore) SetEmailVerified(ctx context.Context, userID uuid.UUID) erro
 }
 
 func (s *UserStore) LookupUserIDByEmail(ctx context.Context, tenantID uuid.UUID, email string) (uuid.UUID, bool, error) {
+	// Note: tenantID is kept in signature for future multi-tenant-per-db support,
+	// but in tenant-per-database model, the DB connection is already tenant-isolated.
 	var id uuid.UUID
-	err := s.DB.QueryRow(ctx, `SELECT id FROM app_user WHERE tenant_id=$1 AND email=$2`, tenantID, email).Scan(&id)
+	err := s.DB.QueryRow(ctx, `SELECT id FROM app_user WHERE LOWER(email)=LOWER($1)`, email).Scan(&id)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return uuid.Nil, false, nil

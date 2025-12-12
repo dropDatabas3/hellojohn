@@ -1,5 +1,6 @@
--- Consolidated Tenant Schema (Replaces 0001..0005)
+-- Consolidated Tenant Schema v2
 -- Applied to each tenant's isolated database/schema.
+-- This is the complete schema for tenant databases.
 
 BEGIN;
 
@@ -8,7 +9,7 @@ CREATE TABLE IF NOT EXISTS app_user (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email TEXT NOT NULL,
   email_verified BOOLEAN NOT NULL DEFAULT false,
-  name TEXT, 
+  name TEXT,
   given_name TEXT,
   family_name TEXT,
   picture TEXT,
@@ -16,15 +17,22 @@ CREATE TABLE IF NOT EXISTS app_user (
   status TEXT NOT NULL DEFAULT 'active',
   profile JSONB NOT NULL DEFAULT '{}',
   metadata JSONB NOT NULL DEFAULT '{}',
-  disabled_at TIMESTAMPTZ, 
+  disabled_at TIMESTAMPTZ,
   disabled_reason TEXT,
+  disabled_until TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (email)
 );
 
--- Ensure disabled_until column exists (merged from 0003/0004)
+-- Ensure all profile columns exist for legacy databases
+ALTER TABLE app_user ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE app_user ADD COLUMN IF NOT EXISTS given_name TEXT;
+ALTER TABLE app_user ADD COLUMN IF NOT EXISTS family_name TEXT;
+ALTER TABLE app_user ADD COLUMN IF NOT EXISTS picture TEXT;
+ALTER TABLE app_user ADD COLUMN IF NOT EXISTS locale TEXT;
 ALTER TABLE app_user ADD COLUMN IF NOT EXISTS disabled_until TIMESTAMPTZ;
+ALTER TABLE app_user ADD COLUMN IF NOT EXISTS source_client_id TEXT;
 
 -- 2. Identities (Auth Providers)
 CREATE TABLE IF NOT EXISTS identity (
@@ -32,7 +40,7 @@ CREATE TABLE IF NOT EXISTS identity (
   user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
   provider TEXT NOT NULL, -- 'password', 'google', 'github', etc.
   provider_user_id TEXT,
-  email TEXT, 
+  email TEXT,
   email_verified BOOLEAN,
   password_hash TEXT,
   data JSONB DEFAULT '{}', -- Extra provider data
@@ -42,22 +50,24 @@ CREATE TABLE IF NOT EXISTS identity (
 
 CREATE INDEX IF NOT EXISTS idx_identity_user ON identity(user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_identity_provider_uid ON identity(provider, provider_user_id);
-
--- Fix SQLSTATE 42P10: Validation constraint for ON CONFLICT(user_id, provider) (merged from 0005)
 CREATE UNIQUE INDEX IF NOT EXISTS ux_identity_user_provider ON identity(user_id, provider);
 
 -- 3. Sessions / Refresh Tokens
 CREATE TABLE IF NOT EXISTS refresh_token (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
-  client_id TEXT NOT NULL,
+  client_id TEXT,
   token_hash TEXT NOT NULL UNIQUE,
   issued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at TIMESTAMPTZ NOT NULL,
   rotated_from UUID NULL REFERENCES refresh_token(id) ON DELETE SET NULL,
   revoked_at TIMESTAMPTZ NULL,
-  metadata JSONB DEFAULT '{}' -- IP, UserAgent, etc.
+  metadata JSONB DEFAULT '{}'
 );
+
+-- Ensure client_id column exists for legacy databases
+ALTER TABLE refresh_token ADD COLUMN IF NOT EXISTS client_id TEXT;
+UPDATE refresh_token SET client_id = '' WHERE client_id IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_refresh_token_user ON refresh_token(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_token_expires ON refresh_token(expires_at) WHERE revoked_at IS NULL;
@@ -82,11 +92,11 @@ CREATE TABLE IF NOT EXISTS email_verification_token (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
   token_hash BYTEA NOT NULL UNIQUE,
-  sent_to TEXT NOT NULL, 
-  ip INET, 
+  sent_to TEXT NOT NULL,
+  ip INET,
   user_agent TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  expires_at TIMESTAMPTZ NOT NULL, 
+  expires_at TIMESTAMPTZ NOT NULL,
   used_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_email_verif_token_expires_at ON email_verification_token (expires_at);
@@ -96,11 +106,11 @@ CREATE TABLE IF NOT EXISTS password_reset_token (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
   token_hash BYTEA NOT NULL UNIQUE,
-  sent_to TEXT NOT NULL, 
-  ip INET, 
+  sent_to TEXT NOT NULL,
+  ip INET,
   user_agent TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  expires_at TIMESTAMPTZ NOT NULL, 
+  expires_at TIMESTAMPTZ NOT NULL,
   used_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_pwd_reset_token_expires_at ON password_reset_token (expires_at);
@@ -134,7 +144,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_trusted_device_user_hash ON trusted_device(
 CREATE TABLE IF NOT EXISTS user_mfa_totp (
   user_id UUID PRIMARY KEY REFERENCES app_user(id) ON DELETE CASCADE,
   secret_encrypted TEXT NOT NULL,
-  confirmed_at TIMESTAMPTZ, 
+  confirmed_at TIMESTAMPTZ,
   last_used_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -144,12 +154,12 @@ CREATE TABLE IF NOT EXISTS mfa_recovery_code (
   id BIGSERIAL PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
   code_hash TEXT NOT NULL,
-  used_at TIMESTAMPTZ, 
+  used_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (user_id, code_hash)
 );
 
--- 8. Schema Migrations (Explicit creation if not handled by runner)
+-- 8. Schema Migrations
 CREATE TABLE IF NOT EXISTS schema_migrations (
     version TEXT PRIMARY KEY,
     applied_at TIMESTAMPTZ NOT NULL DEFAULT now()

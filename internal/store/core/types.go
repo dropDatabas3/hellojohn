@@ -52,6 +52,9 @@ type User struct {
 	FamilyName string `json:"family_name,omitempty"`
 	Picture    string `json:"picture,omitempty"`
 	Locale     string `json:"locale,omitempty"`
+
+	// Client origin tracking
+	SourceClientID *string `json:"source_client_id,omitempty"`
 }
 
 type Identity struct {
