@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/controlplane"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"

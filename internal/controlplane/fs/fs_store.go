@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
 	cp "github.com/dropDatabas3/hellojohn/internal/controlplane"
 	sec "github.com/dropDatabas3/hellojohn/internal/security/secretbox"
 	"github.com/google/uuid"

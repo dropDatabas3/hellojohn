@@ -8,7 +8,7 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/controlplane/fs"
-	httpmetrics "github.com/dropDatabas3/hellojohn/internal/http"
+	httpmetrics "github.com/dropDatabas3/hellojohn/internal/http/v1"
 	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
 )
 
@@ -24,7 +24,7 @@ func main() {
 			ConnMaxLifetime: 30 * time.Minute,
 		},
 		MigrationsDir: "../migrations/postgres",
-		MetricsFunc: httpmetrics.RecordTenantMigration,
+		MetricsFunc:   httpmetrics.RecordTenantMigration,
 	})
 	if err != nil {
 		log.Fatalf("tenant sql manager: %v", err)

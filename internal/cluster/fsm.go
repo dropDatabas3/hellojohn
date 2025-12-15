@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
 	cp "github.com/dropDatabas3/hellojohn/internal/controlplane"
 	cpfsi "github.com/dropDatabas3/hellojohn/internal/controlplane"
 	"github.com/hashicorp/raft"

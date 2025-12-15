@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/security/secretbox"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/singleflight"

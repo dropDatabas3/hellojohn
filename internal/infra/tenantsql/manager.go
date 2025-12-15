@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
-	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
+	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/controlplane"
 	"github.com/dropDatabas3/hellojohn/internal/security/secretbox"
 	"github.com/dropDatabas3/hellojohn/internal/store/pg"
