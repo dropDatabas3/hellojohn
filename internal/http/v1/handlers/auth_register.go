@@ -1,27 +1,27 @@
-/*
-auth_register.go — Registro de usuario (tenant/client) + opción FS-admin + (opcional) auto-login + (opcional) email de verificación
+﻿/*
+auth_register.go â€” Registro de usuario (tenant/client) + opciÃ³n FS-admin + (opcional) auto-login + (opcional) email de verificaciÃ³n
 
-Este handler implementa el endpoint de registro “password-based” y, dependiendo de flags/config, también:
-  - Permite registrar “FS admins” globales (sin tenant/client) cuando FS_ADMIN_ENABLE=1
+Este handler implementa el endpoint de registro â€œpassword-basedâ€ y, dependiendo de flags/config, tambiÃ©n:
+  - Permite registrar â€œFS adminsâ€ globales (sin tenant/client) cuando FS_ADMIN_ENABLE=1
   - Puede hacer auto-login (emitir access + refresh) tras registrar (autoLogin=true)
-  - Puede disparar email de verificación si el client lo requiere y hay emailHandler
+  - Puede disparar email de verificaciÃ³n si el client lo requiere y hay emailHandler
 
 ================================================================================
-Qué hace (objetivo funcional)
+QuÃ© hace (objetivo funcional)
 ================================================================================
 1) Valida request y normaliza email/ids.
 2) Determina si es un registro normal (tenant/client) o un registro FS-admin global.
 3) En registro normal:
    - Resuelve tenantSlug + tenantUUID
-   - Resuelve client (prefer FS control-plane; fallback a DB si no está en FS)
-   - Aplica “provider gating”: si el client declara providers y NO incluye "password", bloquea.
-   - Aplica política de password blacklist (opcional).
+   - Resuelve client (prefer FS control-plane; fallback a DB si no estÃ¡ en FS)
+   - Aplica â€œprovider gatingâ€: si el client declara providers y NO incluye "password", bloquea.
+   - Aplica polÃ­tica de password blacklist (opcional).
    - Hashea password.
    - Crea usuario en el repo del tenant + crea identidad password (username/password).
    - Si autoLogin:
-        - Emite access JWT (issuer efectivo según tenant)
-        - Crea refresh token (prefer método TC si existe; fallback legacy)
-        - (opcional) envía email de verificación si el client lo exige
+        - Emite access JWT (issuer efectivo segÃºn tenant)
+        - Crea refresh token (prefer mÃ©todo TC si existe; fallback legacy)
+        - (opcional) envÃ­a email de verificaciÃ³n si el client lo exige
         - Responde con tokens + user_id
      Si NO autoLogin:
         - Responde solo user_id
@@ -38,16 +38,16 @@ Request JSON:
     "custom_fields": { ... }  // opcional
   }
 
-Response JSON (según modo):
+Response JSON (segÃºn modo):
 - FS-admin register: { user_id, access_token, token_type, expires_in }   (sin refresh)
 - Normal sin autoLogin: { user_id }
 - Normal con autoLogin: { user_id, access_token, token_type, expires_in, refresh_token }
 
-Errores típicos:
-- 400 missing_fields si falta email/password; o falta tenant/client cuando no está FS-admin enabled
-- 401 invalid_client si tenant/client inválido, o password provider deshabilitado para ese client
+Errores tÃ­picos:
+- 400 missing_fields si falta email/password; o falta tenant/client cuando no estÃ¡ FS-admin enabled
+- 401 invalid_client si tenant/client invÃ¡lido, o password provider deshabilitado para ese client
 - 409 email_taken si CreatePasswordIdentity devuelve core.ErrConflict
-- 400 policy_violation si password está en blacklist
+- 400 policy_violation si password estÃ¡ en blacklist
 - 500/4xx tenant db missing/error via httpx helpers
 
 ================================================================================
@@ -62,15 +62,15 @@ A) Validaciones HTTP + parseo
     tenant_id/client_id => trim
 - Requiere email + password siempre.
 
-B) Rama “sin tenant_id/client_id”: modo FS-admin (si está habilitado)
+B) Rama â€œsin tenant_id/client_idâ€: modo FS-admin (si estÃ¡ habilitado)
 - Si tenant_id=="" || client_id=="":
     - Si helpers.FSAdminEnabled():
         - helpers.FSAdminRegister(email, password)
         - Emite ACCESS token JWT (aud="admin", tid="global", amr=["pwd"], scopes fijos openid/profile/email)
         - Responde 200 con user_id + access_token (sin refresh)
     - Si NO FSAdminEnabled => 400 (tenant_id y client_id obligatorios)
-📌 Patrón: Strategy/Branching por “tipo de sujeto” (tenant user vs global admin)
-⚠️ Observación: esta rama repite bastante lógica de emisión JWT que aparece en login/refresh.
+ðŸ“Œ PatrÃ³n: Strategy/Branching por â€œtipo de sujetoâ€ (tenant user vs global admin)
+âš ï¸ ObservaciÃ³n: esta rama repite bastante lÃ³gica de emisiÃ³n JWT que aparece en login/refresh.
 
 C) Registro normal: resolver tenant + abrir repo
 - ctx := r.Context()
@@ -79,28 +79,28 @@ C) Registro normal: resolver tenant + abrir repo
 - Resolver client:
     - Primero intenta FS: helpers.ResolveClientFSBySlug(ctx, tenantSlug, req.ClientID)
       Si OK => clientProviders/clientScopes vienen de FS.
-    - Después abre repo del tenant (gating por DSN):
+    - DespuÃ©s abre repo del tenant (gating por DSN):
         helpers.OpenTenantRepo(ctx, c.TenantSQLManager, tenantSlug)
       Maneja:
-        - tenant inválido => 401 invalid_client
+        - tenant invÃ¡lido => 401 invalid_client
         - (cualquier otro error) si FS admin enabled => fallback registra FS-admin (!!)
         - si IsNoDBForTenant => WriteTenantDBMissing
         - else WriteTenantDBError
-  ⚠️ Ojo importante: el “fallback FS-admin” se activa ante CUALQUIER error de apertura de repo
-     (excepto tenant inexistente). Eso incluye caídas temporales de DB: podés terminar creando admins
-     por un problema infra. No digo que esté mal ahora, pero es una decisión heavy para revisar después.
+  âš ï¸ Ojo importante: el â€œfallback FS-adminâ€ se activa ante CUALQUIER error de apertura de repo
+     (excepto tenant inexistente). Eso incluye caÃ­das temporales de DB: podÃ©s terminar creando admins
+     por un problema infra. No digo que estÃ© mal ahora, pero es una decisiÃ³n heavy para revisar despuÃ©s.
 
-- Si no había client en FS, intenta lookup en DB:
+- Si no habÃ­a client en FS, intenta lookup en DB:
     repo.(clientGetter).GetClientByClientID(...)
-  y toma providers/scopes desde ahí.
+  y toma providers/scopes desde ahÃ­.
   Si el repo no implementa esa interfaz => invalid_client.
-📌 Patrón: Adapter/Capability-based programming via type assertion (ok para compat, pero ensucia handler).
+ðŸ“Œ PatrÃ³n: Adapter/Capability-based programming via type assertion (ok para compat, pero ensucia handler).
 
 D) Provider gating (password login habilitado)
-- Si clientProviders no está vacío:
+- Si clientProviders no estÃ¡ vacÃ­o:
     requiere que incluya "password"
-  Si no => 401 invalid_client (“password login deshabilitado para este client”)
-📌 Patrón: Policy Gate / Guard Clause.
+  Si no => 401 invalid_client (â€œpassword login deshabilitado para este clientâ€)
+ðŸ“Œ PatrÃ³n: Policy Gate / Guard Clause.
 
 E) Password policy (blacklist opcional)
 - Obtiene path:
@@ -109,8 +109,8 @@ E) Password policy (blacklist opcional)
 - Si hay path:
     - password.GetCachedBlacklist(path)
     - si Contains(password) => 400 policy_violation
-📌 Patrón: Cache (memoization) vía GetCachedBlacklist.
-⚠️ Esto mete política en el handler; en V2 convendría mover a un PasswordPolicyService.
+ðŸ“Œ PatrÃ³n: Cache (memoization) vÃ­a GetCachedBlacklist.
+âš ï¸ Esto mete polÃ­tica en el handler; en V2 convendrÃ­a mover a un PasswordPolicyService.
 
 F) Crear usuario + identidad password
 - phc := password.Hash(password.Default, req.Password)
@@ -123,7 +123,7 @@ F) Crear usuario + identidad password
 - repo.CreateUser(ctx, u)
 - repo.CreatePasswordIdentity(ctx, u.ID, email, verified=false, phc)
     - Si ErrConflict => 409 email_taken
-📌 Patrón: Transaction Script (todo en un handler). En V2 ideal “RegisterUserUseCase”.
+ðŸ“Œ PatrÃ³n: Transaction Script (todo en un handler). En V2 ideal â€œRegisterUserUseCaseâ€.
 
 G) Si autoLogin == false
 - Responde 200 con {user_id} y listo.
@@ -140,7 +140,7 @@ H) Si autoLogin == true: emitir tokens
 
 - Resolver issuer efectivo por tenant:
     effIss = jwtx.ResolveIssuer(base, issuerMode, slug, override)
-- Selección de key:
+- SelecciÃ³n de key:
     - si issuerMode == Path => Keys.ActiveForTenant(tenantSlug)
     - else => Keys.Active()
 - Emite access token EdDSA.
@@ -154,54 +154,54 @@ H) Si autoLogin == true: emitir tokens
 
 - Headers no-store/no-cache.
 
-I) Email verification (opcional, “soft”)
-- Determina si el client requiere verificación:
+I) Email verification (opcional, â€œsoftâ€)
+- Determina si el client requiere verificaciÃ³n:
     - cpctx.Provider.GetTenantBySlug(...)
     - cpctx.Provider.GetClient(...).RequireEmailVerification
 - Si verificationRequired && emailHandler != nil:
     - construye tidUUID, uidUUID (Parse)
     - emailHandler.SendVerificationEmail(ctx, rid, tidUUID, uidUUID, email, redirect="", clientID)
-  ⚠️ Está “soft fail”: ignora error (por diseño).
-  ⚠️ El rid se saca de w.Header().Get("X-Request-ID") (probablemente vacío si nadie lo setea antes).
+  âš ï¸ EstÃ¡ â€œsoft failâ€: ignora error (por diseÃ±o).
+  âš ï¸ El rid se saca de w.Header().Get("X-Request-ID") (probablemente vacÃ­o si nadie lo setea antes).
 
 J) Responde 200 con AuthRegisterResponse completo.
 
 ================================================================================
-Qué NO se usa / cosas raras (marcadas)
+QuÃ© NO se usa / cosas raras (marcadas)
 ================================================================================
-- Func contains(ss, v) está DECLARADA pero NO se usa en este archivo.
+- Func contains(ss, v) estÃ¡ DECLARADA pero NO se usa en este archivo.
 - Import "context" se usa (para clientGetter interface, etc) OK.
 - Import "jwtx" se usa.
-- Variable fsClient se guarda pero prácticamente no se usa luego (más que para “haveFSClient” y scopes/providers).
+- Variable fsClient se guarda pero prÃ¡cticamente no se usa luego (mÃ¡s que para â€œhaveFSClientâ€ y scopes/providers).
 - tokens.GenerateOpaqueToken(32) se llama aunque luego se pisa con CreateRefreshTokenTC si existe.
   (micro-ineficiente; no rompe nada).
 - Inconsistencia de hashing de refresh en fallback:
-    - acá: SHA256Base64URL(rawRT)
+    - acÃ¡: SHA256Base64URL(rawRT)
     - en refresh.go/logout: SHA256 hex
-  Esto es re importante a revisar globalmente después (vos ya venís viendo esa mezcla TC/legacy).
+  Esto es re importante a revisar globalmente despuÃ©s (vos ya venÃ­s viendo esa mezcla TC/legacy).
 - Fallback FS-admin cuando falla abrir repo (por cualquier error) puede ser riesgoso.
 
 ================================================================================
-Patrones (GoF / arquitectura) y cómo lo refactorizaría en V2
+Patrones (GoF / arquitectura) y cÃ³mo lo refactorizarÃ­a en V2
 ================================================================================
 
-1) Strategy (GoF) para “modo de registro”
+1) Strategy (GoF) para â€œmodo de registroâ€
 - RegisterStrategy:
     - FSAdminRegisterStrategy
     - TenantUserRegisterStrategy
-  El handler decide y delega. Te limpia el “if tenant/client missing” + el fallback raro.
+  El handler decide y delega. Te limpia el â€œif tenant/client missingâ€ + el fallback raro.
 
 2) Application Service / Use Case (Service Layer)
 - RegisterUserService.Register(ctx, cmd) -> result
   cmd incluye: tenantRef, clientID, email, password, customFields, autoLogin flag.
   Eso te separa:
-    - Validación/políticas
+    - ValidaciÃ³n/polÃ­ticas
     - Persistencia
-    - Emisión de tokens
+    - EmisiÃ³n de tokens
     - Side-effects (email)
 
-3) Template Method para “emitir access token”
-- Hoy la emisión JWT se repite en login/refresh/register (y admin variants).
+3) Template Method para â€œemitir access tokenâ€
+- Hoy la emisiÃ³n JWT se repite en login/refresh/register (y admin variants).
 - Crear:
     TokenIssuer.IssueAccess(ctx, params) -> token string, exp time.Time
   internamente:
@@ -209,7 +209,7 @@ Patrones (GoF / arquitectura) y cómo lo refactorizaría en V2
     - select key
     - build claims std/custom
     - sign
-  Así dejás un solo camino.
+  AsÃ­ dejÃ¡s un solo camino.
 
 4) Policy objects (GoF-ish) / Chain of Responsibility para validaciones
 - PasswordPolicyChain:
@@ -222,19 +222,19 @@ Patrones (GoF / arquitectura) y cómo lo refactorizaría en V2
   Cada policy retorna error tipado => el handler traduce a HTTP.
 
 5) Ports & Adapters (Clean-ish)
-- Definir interfaces “claras”:
+- Definir interfaces â€œclarasâ€:
     ClientCatalog (FS/DB)
     UserRepository
     IdentityRepository
     RefreshTokenRepository
-  En vez de type assertions “si implementa X”.
-  En V1 podés mantener adapters que envuelvan repo y expongan las capacidades.
+  En vez de type assertions â€œsi implementa Xâ€.
+  En V1 podÃ©s mantener adapters que envuelvan repo y expongan las capacidades.
 
 6) Observer / Domain Events (GoF: Observer)
-- En vez de que el handler “mande email”:
-    - Emitís evento UserRegistered{tenant, user, client, verificationRequired}
+- En vez de que el handler â€œmande emailâ€:
+    - EmitÃ­s evento UserRegistered{tenant, user, client, verificationRequired}
     - Subscriber: EmailVerificationSender
-  Así, si mañana querés colgar auditoría, métricas, welcome email, etc, no tocás el handler.
+  AsÃ­, si maÃ±ana querÃ©s colgar auditorÃ­a, mÃ©tricas, welcome email, etc, no tocÃ¡s el handler.
 
 7) Consistencia de tenantRef (slug + uuid)
 - Formalizar un TenantRef:
@@ -245,11 +245,11 @@ Patrones (GoF / arquitectura) y cómo lo refactorizaría en V2
 Resumen
 ================================================================================
 - auth_register.go hace: register tenant-user con password (+ blacklist + provider gating), crea identidad,
-  y opcionalmente auto-login + refresh + email verification; y también permite registrar FS-admin global.
-- Está cargado de responsabilidades mezcladas (token issuance, policies, repo opening, email side-effect),
-  con repetición respecto a login/refresh y varias “compat branches” (FS vs DB).
-- Para V2, lo más rentable es separar por Strategy (FS-admin vs tenant user), extraer TokenIssuer compartido,
-  y mover políticas + side effects (email) a services/events para limpiar el handler.
+  y opcionalmente auto-login + refresh + email verification; y tambiÃ©n permite registrar FS-admin global.
+- EstÃ¡ cargado de responsabilidades mezcladas (token issuance, policies, repo opening, email side-effect),
+  con repeticiÃ³n respecto a login/refresh y varias â€œcompat branchesâ€ (FS vs DB).
+- Para V2, lo mÃ¡s rentable es separar por Strategy (FS-admin vs tenant user), extraer TokenIssuer compartido,
+  y mover polÃ­ticas + side effects (email) a services/events para limpiar el handler.
 */
 
 package handlers
@@ -266,13 +266,13 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/app/v1"
 	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
-	"github.com/dropDatabas3/hellojohn/internal/controlplane"
+	"github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
 	"github.com/dropDatabas3/hellojohn/internal/http/v1/helpers"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/security/password"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 )
 
@@ -413,7 +413,7 @@ func NewAuthRegisterHandler(c *app.Container, emailHandler *EmailFlowsHandler, a
 		rc, err := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, tenantSlug)
 		if err != nil {
 			if helpers.IsTenantNotFound(err) {
-				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "tenant inválido", 2100)
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "tenant invÃ¡lido", 2100)
 				return
 			}
 			// Fallback FS-admin para cualquier error de apertura (excepto tenant inexistente)
@@ -493,11 +493,11 @@ func NewAuthRegisterHandler(c *app.Container, emailHandler *EmailFlowsHandler, a
 					clientScopes = append([]string{}, cdb.Scopes...)
 					fsClient = helpers.FSClient{TenantSlug: tenantSlug, ClientID: cdb.ClientID}
 				} else {
-					httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1102)
+					httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client invÃ¡lido", 1102)
 					return
 				}
 			} else {
-				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1102)
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client invÃ¡lido", 1102)
 				return
 			}
 		}
@@ -524,7 +524,7 @@ func NewAuthRegisterHandler(c *app.Container, emailHandler *EmailFlowsHandler, a
 		}
 		if p != "" {
 			if bl, err := password.GetCachedBlacklist(p); err == nil && bl.Contains(req.Password) {
-				httpx.WriteError(w, http.StatusBadRequest, "policy_violation", "password no permitido por política", 2401)
+				httpx.WriteError(w, http.StatusBadRequest, "policy_violation", "password no permitido por polÃ­tica", 2401)
 				return
 			}
 		}
@@ -559,7 +559,7 @@ func NewAuthRegisterHandler(c *app.Container, emailHandler *EmailFlowsHandler, a
 			return
 		}
 
-		// Si no hay auto-login, devolver sólo user_id
+		// Si no hay auto-login, devolver sÃ³lo user_id
 		if !autoLogin {
 			httpx.WriteJSON(w, http.StatusOK, AuthRegisterResponse{UserID: u.ID})
 			return
@@ -582,7 +582,7 @@ func NewAuthRegisterHandler(c *app.Container, emailHandler *EmailFlowsHandler, a
 		effIss := c.Issuer.Iss
 		if cpctx.Provider != nil {
 			if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil {
-				effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+				effIss = jwtx.ResolveIssuer(c.Issuer.Iss, string(ten.Settings.IssuerMode), ten.Slug, ten.Settings.IssuerOverride)
 			}
 		}
 		now := time.Now().UTC()

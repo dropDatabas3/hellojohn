@@ -16,9 +16,9 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/config"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
-	"github.com/dropDatabas3/hellojohn/internal/store"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
-	pgdriver "github.com/dropDatabas3/hellojohn/internal/store/pg"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
+	pgdriver "github.com/dropDatabas3/hellojohn/internal/store/v1/pg"
 )
 
 func main() {

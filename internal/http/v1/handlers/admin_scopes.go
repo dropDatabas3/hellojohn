@@ -193,7 +193,7 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/app/v1"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
 	"github.com/dropDatabas3/hellojohn/internal/validation"
 )
 

@@ -153,7 +153,7 @@ import (
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
 	"github.com/dropDatabas3/hellojohn/internal/http/v1/helpers"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
 )
 
 type SessionLoginRequest struct {

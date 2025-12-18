@@ -295,8 +295,8 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/audit"
 	"github.com/dropDatabas3/hellojohn/internal/email"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
-	storelib "github.com/dropDatabas3/hellojohn/internal/store"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	storelib "github.com/dropDatabas3/hellojohn/internal/store/v1"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
 )
 
 type AdminUsersHandler struct{ c *app.Container }

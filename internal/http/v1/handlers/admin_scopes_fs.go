@@ -192,8 +192,8 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/app/v1"
 	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
-	"github.com/dropDatabas3/hellojohn/internal/cluster"
-	cp "github.com/dropDatabas3/hellojohn/internal/controlplane"
+	clusterv1 "github.com/dropDatabas3/hellojohn/internal/cluster/v1"
+	cp "github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
 )
 
@@ -244,8 +244,8 @@ func (h *adminScopesFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if h.container != nil && h.container.ClusterNode != nil {
-				payload, _ := json.Marshal(cluster.UpsertScopeDTO{Name: strings.TrimSpace(s.Name), Description: s.Description, System: s.System})
-				m := cluster.Mutation{Type: cluster.MutationUpsertScope, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
+				payload, _ := json.Marshal(clusterv1.UpsertScopeDTO{Name: strings.TrimSpace(s.Name), Description: s.Description, System: s.System})
+				m := clusterv1.Mutation{Type: clusterv1.MutationUpsertScope, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
 				if _, err := h.container.ClusterNode.Apply(r.Context(), m); err != nil {
 					httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
 					return
@@ -274,8 +274,8 @@ func (h *adminScopesFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodDelete:
 			if h.container != nil && h.container.ClusterNode != nil {
-				payload, _ := json.Marshal(cluster.DeleteScopeDTO{Name: name})
-				m := cluster.Mutation{Type: cluster.MutationDeleteScope, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
+				payload, _ := json.Marshal(clusterv1.DeleteScopeDTO{Name: name})
+				m := clusterv1.Mutation{Type: clusterv1.MutationDeleteScope, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
 				if _, err := h.container.ClusterNode.Apply(r.Context(), m); err != nil {
 					httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
 					return

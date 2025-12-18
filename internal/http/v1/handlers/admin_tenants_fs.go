@@ -434,16 +434,16 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/app/v1"
 	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
-	"github.com/dropDatabas3/hellojohn/internal/cluster"
-	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane"
-	cpfs "github.com/dropDatabas3/hellojohn/internal/controlplane/fs"
+	clusterv1 "github.com/dropDatabas3/hellojohn/internal/cluster/v1"
+	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
+	cpfs "github.com/dropDatabas3/hellojohn/internal/controlplane/v1/fs"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
-	"github.com/dropDatabas3/hellojohn/internal/infra/tenantcache"
-	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
+	"github.com/dropDatabas3/hellojohn/internal/infra/v1/tenantcache"
+	"github.com/dropDatabas3/hellojohn/internal/infra/v1/tenantsql"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/security/password"
 	"github.com/dropDatabas3/hellojohn/internal/security/secretbox"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -651,8 +651,8 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 
 				// Crear tenant via Raft si existe cluster, sino directo
 				if c != nil && c.ClusterNode != nil {
-					payload, _ := json.Marshal(cluster.UpsertTenantDTO{ID: req.Slug, Name: req.Name, Slug: req.Slug, Settings: req.Settings})
-					m := cluster.Mutation{Type: cluster.MutationUpsertTenant, TenantSlug: req.Slug, TsUnix: time.Now().Unix(), Payload: payload}
+					payload, _ := json.Marshal(clusterv1.UpsertTenantDTO{ID: req.Slug, Name: req.Name, Slug: req.Slug, Settings: req.Settings})
+					m := clusterv1.Mutation{Type: clusterv1.MutationUpsertTenant, TenantSlug: req.Slug, TsUnix: time.Now().Unix(), Payload: payload}
 					if _, err := c.ClusterNode.Apply(r.Context(), m); err != nil {
 						httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
 						return
@@ -791,13 +791,13 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 					if b, rerr := os.ReadFile(filepath.Join(keysDir, "retiring.json")); rerr == nil {
 						retBytes = b
 					}
-					dto := cluster.RotateTenantKeyDTO{
+					dto := clusterv1.RotateTenantKeyDTO{
 						ActiveJSON:   string(actBytes),
 						RetiringJSON: string(retBytes),
 						GraceSeconds: grace,
 					}
 					payload, _ := json.Marshal(dto)
-					m := cluster.Mutation{Type: cluster.MutationRotateTenantKey, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
+					m := clusterv1.Mutation{Type: clusterv1.MutationRotateTenantKey, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
 					if _, err := c.ClusterNode.Apply(r.Context(), m); err != nil {
 						httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
 						return
@@ -807,7 +807,7 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 						c.JWKSCache.Invalidate(slug)
 					}
 					setNoStore(w)
-					httpx.WriteJSON(w, http.StatusOK, map[string]any{"kid": sk.KID})
+					httpx.WriteJSON(w, http.StatusOK, map[string]any{"kid": sk.ID})
 					return
 				}
 				// Fallback (no cluster): local rotate only
@@ -816,7 +816,7 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 						c.JWKSCache.Invalidate(slug)
 					}
 					setNoStore(w)
-					httpx.WriteJSON(w, http.StatusOK, map[string]any{"kid": sk.KID})
+					httpx.WriteJSON(w, http.StatusOK, map[string]any{"kid": sk.ID})
 					return
 				} else {
 					httpx.WriteError(w, http.StatusInternalServerError, "server_error", err.Error(), 5061)
@@ -938,8 +938,8 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 				}
 
 				if c != nil && c.ClusterNode != nil {
-					payload, _ := json.Marshal(cluster.UpsertTenantDTO{ID: strings.TrimSpace(in.ID), Name: strings.TrimSpace(in.Name), Slug: in.Slug, Settings: in.Settings})
-					m := cluster.Mutation{Type: cluster.MutationUpsertTenant, TenantSlug: in.Slug, TsUnix: time.Now().Unix(), Payload: payload}
+					payload, _ := json.Marshal(clusterv1.UpsertTenantDTO{ID: strings.TrimSpace(in.ID), Name: strings.TrimSpace(in.Name), Slug: in.Slug, Settings: in.Settings})
+					m := clusterv1.Mutation{Type: clusterv1.MutationUpsertTenant, TenantSlug: in.Slug, TsUnix: time.Now().Unix(), Payload: payload}
 					if _, err := c.ClusterNode.Apply(r.Context(), m); err != nil {
 						httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
 						return
@@ -1006,7 +1006,7 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 			if len(parts) == 1 && r.Method == http.MethodDelete {
 				// Leader enforcement moved to middleware
 				if c != nil && c.ClusterNode != nil {
-					m := cluster.Mutation{Type: cluster.MutationDeleteTenant, TenantSlug: slug, TsUnix: time.Now().Unix()}
+					m := clusterv1.Mutation{Type: clusterv1.MutationDeleteTenant, TenantSlug: slug, TsUnix: time.Now().Unix()}
 					if _, err := c.ClusterNode.Apply(r.Context(), m); err != nil {
 						httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
 						return
@@ -1626,8 +1626,8 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 
 					// Apply via Raft if cluster
 					if c != nil && c.ClusterNode != nil {
-						payload, _ := json.Marshal(cluster.UpdateTenantSettingsDTO{Settings: newSettings})
-						m := cluster.Mutation{Type: cluster.MutationUpdateTenantSettings, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
+						payload, _ := json.Marshal(clusterv1.UpdateTenantSettingsDTO{Settings: newSettings})
+						m := clusterv1.Mutation{Type: clusterv1.MutationUpdateTenantSettings, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
 						if _, err := c.ClusterNode.Apply(r.Context(), m); err != nil {
 							httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
 							return
@@ -1682,9 +1682,9 @@ func NewAdminTenantsFSHandler(c *app.Container) http.Handler {
 					in.ClientID = parts[2]
 					// Leader enforcement moved to middleware
 					if c != nil && c.ClusterNode != nil {
-						dto := cluster.UpsertClientDTO{Name: in.Name, ClientID: in.ClientID, Type: in.Type, RedirectURIs: in.RedirectURIs, AllowedOrigins: in.AllowedOrigins, Providers: in.Providers, Scopes: in.Scopes, Secret: in.Secret}
+						dto := clusterv1.UpsertClientDTO{Name: in.Name, ClientID: in.ClientID, Type: in.Type, RedirectURIs: in.RedirectURIs, AllowedOrigins: in.AllowedOrigins, Providers: in.Providers, Scopes: in.Scopes, Secret: in.Secret}
 						payload, _ := json.Marshal(dto)
-						m := cluster.Mutation{Type: cluster.MutationUpsertClient, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
+						m := clusterv1.Mutation{Type: clusterv1.MutationUpsertClient, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
 						if _, err := c.ClusterNode.Apply(r.Context(), m); err != nil {
 							httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
 							return

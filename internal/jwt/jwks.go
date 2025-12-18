@@ -3,34 +3,41 @@ package jwt
 import (
 	"encoding/json"
 
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	"github.com/dropDatabas3/hellojohn/internal/domain/repository"
 )
 
-type jwk struct {
-	Kty string `json:"kty"` // "OKP"
-	Crv string `json:"crv"` // "Ed25519"
-	Kid string `json:"kid"`
-	Alg string `json:"alg"` // "EdDSA"
-	Use string `json:"use"` // "sig"
-	X   string `json:"x"`   // base64url(pub)
-}
+// buildJWKS construye JWKS JSON a partir de un slice de SigningKey.
+// Deprecated: usar repository.JWKS directamente cuando sea posible.
+func buildJWKS(keys []repository.SigningKey) []byte {
+	jwks := repository.JWKS{
+		Keys: make([]repository.JWK, 0, len(keys)),
+	}
 
-type jwks struct {
-	Keys []jwk `json:"keys"`
-}
-
-func buildJWKS(keys []core.SigningKey) []byte {
-	out := jwks{Keys: make([]jwk, 0, len(keys))}
 	for _, k := range keys {
-		out.Keys = append(out.Keys, jwk{
+		if k.PublicKey == nil {
+			continue
+		}
+
+		// Obtener bytes de la clave pública
+		var pubBytes []byte
+		switch pk := k.PublicKey.(type) {
+		case []byte:
+			pubBytes = pk
+		default:
+			// Para ed25519.PublicKey u otros
+			continue
+		}
+
+		jwks.Keys = append(jwks.Keys, repository.JWK{
+			KID: k.ID,
 			Kty: "OKP",
 			Crv: "Ed25519",
-			Kid: k.KID,
-			Alg: k.Alg,
+			Alg: k.Algorithm,
 			Use: "sig",
-			X:   EncodeBase64URL(k.PublicKey),
+			X:   EncodeBase64URL(pubBytes),
 		})
 	}
-	b, _ := json.Marshal(out)
+
+	b, _ := json.Marshal(jwks)
 	return b
 }

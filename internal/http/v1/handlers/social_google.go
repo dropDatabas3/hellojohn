@@ -256,7 +256,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/oauth/google"
 	"github.com/dropDatabas3/hellojohn/internal/rate"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
 	"github.com/dropDatabas3/hellojohn/internal/util"
 )
 

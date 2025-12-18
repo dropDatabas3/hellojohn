@@ -1,15 +1,15 @@
-/*
-oauth_introspect.go — OAuth2 Token Introspection (POST) con auth de cliente + soporte refresh opaco y access JWT (EdDSA)
+﻿/*
+oauth_introspect.go â€” OAuth2 Token Introspection (POST) con auth de cliente + soporte refresh opaco y access JWT (EdDSA)
 
-Qué es este archivo (la posta)
+QuÃ© es este archivo (la posta)
 ------------------------------
-Este archivo define `NewOAuthIntrospectHandler(c, auth)` que expone un endpoint de introspección estilo RFC 7662:
-- Exige **autenticación del cliente** (via `clientBasicAuth` inyectado).
+Este archivo define `NewOAuthIntrospectHandler(c, auth)` que expone un endpoint de introspecciÃ³n estilo RFC 7662:
+- Exige **autenticaciÃ³n del cliente** (via `clientBasicAuth` inyectado).
 - Recibe `token` por **x-www-form-urlencoded** (`r.ParseForm()`).
-- Devuelve siempre **200 OK** con `{ "active": true|false, ... }` para tokens inválidos (comportamiento típico de introspection).
+- Devuelve siempre **200 OK** con `{ "active": true|false, ... }` para tokens invÃ¡lidos (comportamiento tÃ­pico de introspection).
 - Soporta 2 tipos de token:
   1) **Refresh token opaco** (nuestro formato) => lookup en DB por hash.
-  2) **Access token JWT** (EdDSA) => valida firma usando keystore/JWKS y revisa expiración + issuer esperado.
+  2) **Access token JWT** (EdDSA) => valida firma usando keystore/JWKS y revisa expiraciÃ³n + issuer esperado.
 
 Rutas soportadas / contrato
 ---------------------------
@@ -18,29 +18,29 @@ Rutas soportadas / contrato
   Form:
     token=<string>
   Query opcional:
-    include_sys=1|true  (solo si active=true: expone roles/perms del namespace “system” dentro de claims custom)
+    include_sys=1|true  (solo si active=true: expone roles/perms del namespace â€œsystemâ€ dentro de claims custom)
 
 Respuestas:
 - 405 JSON si no es POST.
 - 401 JSON si falla auth del cliente.
-- 400 JSON si el form es inválido o falta token.
+- 400 JSON si el form es invÃ¡lido o falta token.
 - 200 JSON:
-  - `{ "active": false }` si token inválido / no encontrado / firma inválida / expired / issuer mismatch.
-  - `{ "active": true, ... }` con campos según tipo de token.
+  - `{ "active": false }` si token invÃ¡lido / no encontrado / firma invÃ¡lida / expired / issuer mismatch.
+  - `{ "active": true, ... }` con campos segÃºn tipo de token.
 
 Flujo paso a paso (secuencia real)
 ----------------------------------
-1) Validación HTTP básica:
-   - Método: POST.
+1) ValidaciÃ³n HTTP bÃ¡sica:
+   - MÃ©todo: POST.
    - Headers: setea `Cache-Control: no-store` y `Pragma: no-cache` siempre.
 2) AuthN del cliente:
    - `auth.ValidateClientAuth(r)` debe dar ok.
-   - Nota: devuelve (tenantID, clientID) pero acá se ignora (solo se usa el ok).
+   - Nota: devuelve (tenantID, clientID) pero acÃ¡ se ignora (solo se usa el ok).
 3) Parseo del request:
    - `r.ParseForm()`
    - Lee `token` de `r.PostForm.Get("token")`.
-4) Ruta A: refresh token opaco (heurística por formato)
-   - Condición: `len(tok) >= 40` y **no contiene "."**.
+4) Ruta A: refresh token opaco (heurÃ­stica por formato)
+   - CondiciÃ³n: `len(tok) >= 40` y **no contiene "."**.
    - Hash: `tokens.SHA256Base64URL(tok)`.
    - Busca en DB global: `c.Store.GetRefreshTokenByHash(ctx, hash)`.
    - Si no existe / error => `{active:false}`.
@@ -53,15 +53,15 @@ Flujo paso a paso (secuencia real)
        - `exp`/`iat` desde `ExpiresAt`/`IssuedAt`
 5) Ruta B: access token JWT (EdDSA)
    - `jwtv5.Parse(tok, c.Issuer.KeyfuncFromTokenClaims(), WithValidMethods(["EdDSA"]))`
-     - Keyfunc “deriva” la key desde claims (por tenant/issuer/kid) vía keystore/JWKS.
-   - Si parse/firma inválida => `{active:false}`.
+     - Keyfunc â€œderivaâ€ la key desde claims (por tenant/issuer/kid) vÃ­a keystore/JWKS.
+   - Si parse/firma invÃ¡lida => `{active:false}`.
    - Extrae claims relevantes:
      - `exp`, `iat` (float64), `sub`, `aud`(client_id), `scope` o `scp`, `tid`, `acr`, `amr[]`.
    - `active := exp > now`.
-   - Validación extra de issuer (multi-tenant / issuer mode):
-     - Si hay `iss` y existe `cpctx.Provider`, intenta derivar `slug` desde `iss` (modo path / heurística de `/t/<slug>/...`).
+   - ValidaciÃ³n extra de issuer (multi-tenant / issuer mode):
+     - Si hay `iss` y existe `cpctx.Provider`, intenta derivar `slug` desde `iss` (modo path / heurÃ­stica de `/t/<slug>/...`).
      - Carga tenant por slug y calcula issuer esperado:
-       `jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)`
+       `jwtx.ResolveIssuer(c.Issuer.Iss, string(ten.Settings.IssuerMode), ten.Slug, ten.Settings.IssuerOverride)`
      - Si `expected != iss` => `active=false`.
    - Construye respuesta:
      - `token_type=access_token`
@@ -74,51 +74,51 @@ Flujo paso a paso (secuencia real)
        2) Fallback compat: clave `c.Issuer.Iss` directo (legacy)
      - Normaliza roles/perms aceptando `[]any` o `[]string`.
 7) Fin:
-   - Hace un `uuid.Parse(sub)` “best effort” pero **no falla** si no es UUID (solo ignora).
+   - Hace un `uuid.Parse(sub)` â€œbest effortâ€ pero **no falla** si no es UUID (solo ignora).
    - Responde JSON 200.
 
-Dependencias (reales) y cómo se usan
+Dependencias (reales) y cÃ³mo se usan
 ------------------------------------
 - `clientBasicAuth` (inyectado):
   - Port para validar auth del cliente (probablemente Basic Auth o similar).
-  - Acá se usa solo como “gate” (no se cruza contra el token).
+  - AcÃ¡ se usa solo como â€œgateâ€ (no se cruza contra el token).
 - `c.Store`:
   - Requerido para refresh token introspection: `GetRefreshTokenByHash`.
   - OJO: es global store (no per-tenant).
 - `c.Issuer`:
-  - `KeyfuncFromTokenClaims()` para validar JWT con keystore/JWKS (según claims/kid).
+  - `KeyfuncFromTokenClaims()` para validar JWT con keystore/JWKS (segÃºn claims/kid).
   - `c.Issuer.Iss` para namespace system y para resolver issuer esperado.
 - `cpctx.Provider`:
   - Fuente de verdad para buscar tenant por slug y traer settings (IssuerMode / Override).
 - `jwtx.ResolveIssuer(...)`:
-  - Recalcula el issuer esperado según modo (global/path/domain) y override.
+  - Recalcula el issuer esperado segÃºn modo (global/path/domain) y override.
 - `claimsNS.SystemNamespace(...)`:
-  - Convención de nombres para ubicar claims del “system namespace” (roles/perms).
+  - ConvenciÃ³n de nombres para ubicar claims del â€œsystem namespaceâ€ (roles/perms).
 - `tokens.SHA256Base64URL`:
   - Hash del refresh opaco (y criterio de lookup).
 
-Seguridad / invariantes (lo crítico)
+Seguridad / invariantes (lo crÃ­tico)
 ------------------------------------
 - Introspection protegido por auth de cliente:
   - Si no hay auth => 401 invalid_client.
   - (Pero) no valida que el `client_id` autenticado coincida con el `aud`/`client_id` del token JWT ni con `rt.ClientIDText`.
-  - En introspection “formal” eso suele ser esperado: el cliente solo puede introspectar tokens propios.
+  - En introspection â€œformalâ€ eso suele ser esperado: el cliente solo puede introspectar tokens propios.
 - Refresh token lookup:
   - Usa hash SHA256 (no almacena el token crudo) => ok.
   - Marca active=false si revocado o expirado.
 - JWT access token:
   - Valida firma EdDSA con keyfunc basada en claims (multi-tenant ready).
   - Chequea exp.
-  - Chequeo extra de issuer esperado por tenant (reduce riesgo de aceptar tokens con issuer “parecido”).
+  - Chequeo extra de issuer esperado por tenant (reduce riesgo de aceptar tokens con issuer â€œparecidoâ€).
 - No-store/no-cache:
   - Bien puesto para que proxies no cacheen introspection.
 
 Patrones detectados
 -------------------
 - Strategy / Port-Adapter:
-  - `clientBasicAuth` como puerto para auth; permite cambiar implementación sin tocar handler.
-- Dual-path parsing (heurística por formato):
-  - “opaque refresh vs JWT” por presencia de '.' y longitud.
+  - `clientBasicAuth` como puerto para auth; permite cambiar implementaciÃ³n sin tocar handler.
+- Dual-path parsing (heurÃ­stica por formato):
+  - â€œopaque refresh vs JWTâ€ por presencia de '.' y longitud.
 - Policy gate por issuer-mode:
   - Recalcula issuer esperado usando settings del tenant (control-plane) y lo compara.
 
@@ -127,35 +127,35 @@ Cosas no usadas / legacy / riesgos
 - Riesgo #1 (alto): introspection no ata el token al cliente autenticado.
   - JWT: responde `client_id` desde `aud` pero no verifica contra el cliente autenticado.
   - Refresh: devuelve datos del refresh sin verificar ownership.
-  ⇒ Cualquier cliente con credenciales válidas del introspection endpoint podría consultar tokens ajenos.
-- Heurística refresh opaco:
-  - `len >= 40` + “sin puntos” puede matchear otros tokens opacos (o algún JWT raro sin '.').
-  - Si mañana cambiás formato de refresh, esto se rompe.
-- Derivación de slug desde `iss`:
-  - Es heurística por split de path; si cambian rutas de issuer, puede dejar de validar bien.
-  - Si no puede derivar slug, directamente no aplica la comparación expected vs iss (queda “best effort”).
+  â‡’ Cualquier cliente con credenciales vÃ¡lidas del introspection endpoint podrÃ­a consultar tokens ajenos.
+- HeurÃ­stica refresh opaco:
+  - `len >= 40` + â€œsin puntosâ€ puede matchear otros tokens opacos (o algÃºn JWT raro sin '.').
+  - Si maÃ±ana cambiÃ¡s formato de refresh, esto se rompe.
+- DerivaciÃ³n de slug desde `iss`:
+  - Es heurÃ­stica por split de path; si cambian rutas de issuer, puede dejar de validar bien.
+  - Si no puede derivar slug, directamente no aplica la comparaciÃ³n expected vs iss (queda â€œbest effortâ€).
 - `tenantID, clientID` de `ValidateClientAuth` se ignoran:
-  - Parece que estaban pensados para aplicar validaciones extra (ownership) pero quedó a medio camino.
+  - Parece que estaban pensados para aplicar validaciones extra (ownership) pero quedÃ³ a medio camino.
 
-Ideas para V2 (sin decidir nada) + guía de desarme en capas
+Ideas para V2 (sin decidir nada) + guÃ­a de desarme en capas
 -----------------------------------------------------------
-Objetivo: que introspection sea consistente, multi-tenant real, y con autorización correcta.
+Objetivo: que introspection sea consistente, multi-tenant real, y con autorizaciÃ³n correcta.
 
 1) DTO / Controller
 - Controller minimal:
   - parse method + form (`token`, opcionales flags)
   - llama a service y devuelve JSON
 
-2) Services (lógica)
+2) Services (lÃ³gica)
 - `TokenClassifier`:
-  - `Detect(token) -> TokenKind{RefreshOpaque, AccessJWT, Unknown}` (sin heurística mágica hardcodeada)
+  - `Detect(token) -> TokenKind{RefreshOpaque, AccessJWT, Unknown}` (sin heurÃ­stica mÃ¡gica hardcodeada)
 - `RefreshIntrospectionService`:
   - `IntrospectRefresh(ctx, rawToken) -> IntrospectionResult`
-  - verifica revocación/expiración
+  - verifica revocaciÃ³n/expiraciÃ³n
   - (importante) valida ownership vs client autenticado
 - `JWTIntrospectionService`:
   - `ParseAndValidate(ctx, jwtRaw) -> claims + active`
-  - issuer check: sacar “parse slug” a una función `TenantFromIssuer(iss)` o usar claim `tid`/`tenant` si existe.
+  - issuer check: sacar â€œparse slugâ€ a una funciÃ³n `TenantFromIssuer(iss)` o usar claim `tid`/`tenant` si existe.
   - ownership: valida `aud` vs client autenticado (y si es array aud, soportarlo).
 - `SystemClaimsProjector`:
   - `ExtractRolesPerms(claims) -> roles, perms` (con compat legacy).
@@ -164,9 +164,9 @@ Objetivo: que introspection sea consistente, multi-tenant real, y con autorizaci
 - `ClientAuth` (ya existe) pero devolver identidad completa:
   - tenantID, clientID, authMethod, ok
 - `TenantResolver`:
-  - resolver tenant desde `tid` claim primero (más confiable) y fallback a `iss`.
-- `RefreshTokenRepository` con método tenant/client aware:
-  - `GetByHash(ctx, tenantID, clientID, hash)` o por lo menos “check ownership”.
+  - resolver tenant desde `tid` claim primero (mÃ¡s confiable) y fallback a `iss`.
+- `RefreshTokenRepository` con mÃ©todo tenant/client aware:
+  - `GetByHash(ctx, tenantID, clientID, hash)` o por lo menos â€œcheck ownershipâ€.
 
 4) Patrones GoF aplicables
 - Strategy:
@@ -179,14 +179,14 @@ Objetivo: que introspection sea consistente, multi-tenant real, y con autorizaci
 Concurrencia
 ------------
 No hay ganancia real usando goroutines: es 1 lookup DB o 1 parse JWT + 1 lookup control-plane.
-Si querés optimizar:
-- Podés hacer issuer expected + parse claims en paralelo, pero la complejidad no lo vale.
+Si querÃ©s optimizar:
+- PodÃ©s hacer issuer expected + parse claims en paralelo, pero la complejidad no lo vale.
 Mejor: caching corto del tenant resolve (slug->settings) si esto pega muy seguido.
 
 Resumen
 -------
-- Introspect endpoint sólido en “active false on invalid”, con soporte refresh opaco + JWT EdDSA y chequeo de issuer esperado.
-- Punto rojo: falta autorización de ownership (atar token al cliente autenticado) y hay heurísticas/compat legacy que conviene encapsular.
+- Introspect endpoint sÃ³lido en â€œactive false on invalidâ€, con soporte refresh opaco + JWT EdDSA y chequeo de issuer esperado.
+- Punto rojo: falta autorizaciÃ³n de ownership (atar token al cliente autenticado) y hay heurÃ­sticas/compat legacy que conviene encapsular.
 */
 
 package handlers
@@ -225,7 +225,7 @@ func NewOAuthIntrospectHandler(c *app.Container, auth clientBasicAuth) http.Hand
 		}
 
 		if err := r.ParseForm(); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "form inválido", 2602)
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "form invÃ¡lido", 2602)
 			return
 		}
 		tok := strings.TrimSpace(r.PostForm.Get("token"))
@@ -309,7 +309,7 @@ func NewOAuthIntrospectHandler(c *app.Container, auth clientBasicAuth) http.Hand
 			}
 			if slug != "" {
 				if ten, err := cpctx.Provider.GetTenantBySlug(r.Context(), slug); err == nil && ten != nil {
-					expected := jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+					expected := jwtx.ResolveIssuer(c.Issuer.Iss, string(ten.Settings.IssuerMode), ten.Slug, ten.Settings.IssuerOverride)
 					if expected != iss {
 						active = false
 					}
@@ -339,7 +339,7 @@ func NewOAuthIntrospectHandler(c *app.Container, auth clientBasicAuth) http.Hand
 			resp["iss"] = iss
 		}
 
-		// Si ?include_sys=1, exponemos roles/perms del namespace de sistema cuando el token está activo.
+		// Si ?include_sys=1, exponemos roles/perms del namespace de sistema cuando el token estÃ¡ activo.
 		if active {
 			if v := r.URL.Query().Get("include_sys"); v == "1" || strings.EqualFold(v, "true") {
 				var roles, perms []string
@@ -391,7 +391,7 @@ func NewOAuthIntrospectHandler(c *app.Container, auth clientBasicAuth) http.Hand
 			}
 		}
 
-		// Validación ligera de formato UUID en sub si parece UUID (no aborta en error)
+		// ValidaciÃ³n ligera de formato UUID en sub si parece UUID (no aborta en error)
 		if _, err := uuid.Parse(sub); err != nil { /* ignore */
 		}
 

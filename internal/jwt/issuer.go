@@ -1,6 +1,7 @@
 package jwt
 
 import (
+	"context"
 	"crypto/ed25519"
 	"errors"
 	"fmt"
@@ -8,17 +9,21 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
-	"github.com/dropDatabas3/hellojohn/internal/controlplane"
+	"github.com/dropDatabas3/hellojohn/internal/domain/types"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
+// TenantResolver es una función para mapear tenant ID (UUID) a slug.
+// Se inyecta opcionalmente para resolver "tid" claims a slugs.
+type TenantResolver func(ctx context.Context, tenantID string) (slug string, err error)
+
 // Issuer firma tokens usando la clave activa del keystore persistente.
 type Issuer struct {
-	Iss       string              // "iss"
-	Keys      *PersistentKeystore // keystore persistente
-	AccessTTL time.Duration       // TTL por defecto de Access/ID (ej: 15m)
+	Iss            string              // "iss" base
+	Keys           *PersistentKeystore // keystore persistente
+	AccessTTL      time.Duration       // TTL por defecto de Access/ID (ej: 15m)
+	TenantResolver TenantResolver      // opcional: para mapear tid→slug
 }
 
 func NewIssuer(iss string, ks *PersistentKeystore) *Issuer {
@@ -27,6 +32,12 @@ func NewIssuer(iss string, ks *PersistentKeystore) *Issuer {
 		Keys:      ks,
 		AccessTTL: 15 * time.Minute,
 	}
+}
+
+// WithTenantResolver agrega un resolver de tenants.
+func (i *Issuer) WithTenantResolver(resolver TenantResolver) *Issuer {
+	i.TenantResolver = resolver
+	return i
 }
 
 // ActiveKID devuelve el KID activo actual.
@@ -156,9 +167,7 @@ func (i *Issuer) IssueIDToken(sub, aud string, std map[string]any, extra map[str
 }
 
 // IssueAccessForTenant emite un Access Token para un tenant específico usando su clave activa
-// y un issuer efectivo resuelto por configuración (path/domain/override).
-// - tenant: slug del tenant (para keystore multi-tenant)
-// - iss: issuer efectivo a inyectar en el claim "iss"
+// y un issuer efectivo resuelto por configuración.
 func (i *Issuer) IssueAccessForTenant(tenant, iss, sub, aud string, std map[string]any, custom map[string]any) (string, time.Time, error) {
 	now := time.Now().UTC()
 	exp := now.Add(i.AccessTTL)
@@ -193,8 +202,7 @@ func (i *Issuer) IssueAccessForTenant(tenant, iss, sub, aud string, std map[stri
 	return signed, exp, nil
 }
 
-// IssueIDTokenForTenant emite un ID Token OIDC para un tenant específico usando su clave activa
-// y un issuer efectivo provisto.
+// IssueIDTokenForTenant emite un ID Token OIDC para un tenant específico.
 func (i *Issuer) IssueIDTokenForTenant(tenant, iss, sub, aud string, std map[string]any, extra map[string]any) (string, time.Time, error) {
 	now := time.Now().UTC()
 	exp := now.Add(i.AccessTTL)
@@ -260,17 +268,17 @@ func (i *Issuer) SignEdDSA(claims map[string]any) (string, error) {
 // - Path:   {base}/t/{slug}
 // - Domain: futuro (por ahora igual que Path)
 // - Global: base
-func ResolveIssuer(baseURL string, mode controlplane.IssuerMode, tenantSlug, override string) string {
+// mode acepta string para compatibilidad con controlplane/v1.IssuerMode
+func ResolveIssuer(baseURL string, mode string, tenantSlug, override string) string {
 	if override != "" {
 		return strings.TrimRight(override, "/")
 	}
 	base := strings.TrimRight(baseURL, "/")
-	switch mode {
-	case controlplane.IssuerModePath:
+	switch types.IssuerMode(mode) {
+	case types.IssuerModePath:
 		return fmt.Sprintf("%s/t/%s", base, tenantSlug)
-	case controlplane.IssuerModeDomain:
+	case types.IssuerModeDomain:
 		// futuro: slug subdominio (requiere DNS)
-		// return fmt.Sprintf("https://%s.%s", tenantSlug, strings.TrimPrefix(base, "https://"))
 		return fmt.Sprintf("%s/t/%s", base, tenantSlug) // por ahora
 	default:
 		return base // global
@@ -278,8 +286,7 @@ func ResolveIssuer(baseURL string, mode controlplane.IssuerMode, tenantSlug, ove
 }
 
 // KeyfuncFromTokenClaims intenta derivar el tenant a partir de los claims (tid) o del iss (modo path /t/{slug})
-// y usa PublicKeyByKIDForTenant para validar la firma. Retorna error si no logra derivar tenant o no encuentra KID.
-// Nota: requiere que el parser llene MapClaims.
+// y usa PublicKeyByKIDForTenant para validar la firma.
 func (i *Issuer) KeyfuncFromTokenClaims() jwtv5.Keyfunc {
 	return func(t *jwtv5.Token) (any, error) {
 		kid, _ := t.Header["kid"].(string)
@@ -287,8 +294,6 @@ func (i *Issuer) KeyfuncFromTokenClaims() jwtv5.Keyfunc {
 			return nil, errors.New("kid_missing")
 		}
 
-		// Derivar el slug del tenant preferentemente desde el issuer (modo path),
-		// y como alternativa mapear tid (UUID) -> slug vía el control-plane.
 		var tenantSlug string
 		if mc, ok := t.Claims.(jwtv5.MapClaims); ok {
 			// 1) Intentar desde iss: .../t/{slug}
@@ -301,23 +306,16 @@ func (i *Issuer) KeyfuncFromTokenClaims() jwtv5.Keyfunc {
 						}
 					}
 				}
-				// Fallback removed: splitting raw URL yields domain/port which is not a tenant slug.
-				// if tenantSlug == "" { ... }
 			}
 
-			// 2) Si no se obtuvo desde iss, usar tid. Si parece UUID, mapear a slug; si no, tratarlo como slug.
+			// 2) Si no se obtuvo desde iss, usar tid. Si parece UUID, mapear a slug vía resolver.
 			if tenantSlug == "" {
 				if v, okTid := mc["tid"].(string); okTid && v != "" {
 					if _, err := uuid.Parse(v); err == nil {
-						// tid es UUID; intentar mapear a slug a través del provider si está disponible
-						if cpctx.Provider != nil {
-							if tenants, err := cpctx.Provider.ListTenants(i.Keys.ctx); err == nil {
-								for _, tn := range tenants {
-									if tn.ID == v {
-										tenantSlug = tn.Slug
-										break
-									}
-								}
+						// tid es UUID; intentar mapear a slug a través del resolver
+						if i.TenantResolver != nil {
+							if slug, err := i.TenantResolver(context.Background(), v); err == nil {
+								tenantSlug = slug
 							}
 						}
 					} else {
@@ -334,12 +332,10 @@ func (i *Issuer) KeyfuncFromTokenClaims() jwtv5.Keyfunc {
 			if err == nil {
 				return ed25519.PublicKey(pub), nil
 			}
-			// Si falla (ej. key not found), no retornar error todavía.
-			// Puede que el token haya sido firmado con la llave global compartida.
+			// Si falla, continuar con fallback global
 		}
 
 		// 4) Fallback: Buscar en el Global Keyring
-		// Esto maneja el caso donde IssuerMode=Global y se usa una llave compartida para todos los tenants.
 		pub, err := i.Keys.PublicKeyByKID(kid)
 		if err != nil {
 			return nil, fmt.Errorf("kid_not_found: %s (tenant=%s)", kid, tenantSlug)

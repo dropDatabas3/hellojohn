@@ -1,35 +1,35 @@
-/*
-auth_refresh.go — Refresh + Logout (rotación de refresh tokens) + refresh “admin stateless” por JWT
+﻿/*
+auth_refresh.go â€” Refresh + Logout (rotaciÃ³n de refresh tokens) + refresh â€œadmin statelessâ€ por JWT
 
 Este archivo en realidad contiene DOS handlers:
   1) NewAuthRefreshHandler  -> POST /v1/auth/refresh (renueva access + rota refresh)
   2) NewAuthLogoutHandler   -> POST /v1/auth/logout  (revoca un refresh puntual; idempotente)
 
-Además, soporta un caso especial:
-  - “Refresh token JWT” (stateless) para admins FS/globales: si el refresh parece JWT, lo valida y re-emite access+refresh JWT.
+AdemÃ¡s, soporta un caso especial:
+  - â€œRefresh token JWTâ€ (stateless) para admins FS/globales: si el refresh parece JWT, lo valida y re-emite access+refresh JWT.
 
 ================================================================================
-1) POST /v1/auth/refresh — NewAuthRefreshHandler
+1) POST /v1/auth/refresh â€” NewAuthRefreshHandler
 ================================================================================
 
-Qué hace (objetivo funcional)
+QuÃ© hace (objetivo funcional)
 -----------------------------
-- Recibe (client_id, refresh_token) y un “tenant context” (tenant_id opcional o derivado del request).
+- Recibe (client_id, refresh_token) y un â€œtenant contextâ€ (tenant_id opcional o derivado del request).
 - Valida el refresh token contra el storage (DB per-tenant) usando hash SHA-256 (hex).
-- Si está OK:
+- Si estÃ¡ OK:
     - Emite un NUEVO access token (JWT EdDSA)
-    - Emite un NUEVO refresh token (rotación)
+    - Emite un NUEVO refresh token (rotaciÃ³n)
     - Revoca el refresh viejo
 - En paralelo, arma claims:
     - tid, amr=["refresh"], scp=scopes del client
     - custom SYS claims (roles/perms/is_admin/etc) si el repo lo soporta
-    - issuer efectivo según tenant (IssuerMode) y firma con key global o per-tenant (si IssuerModePath)
+    - issuer efectivo segÃºn tenant (IssuerMode) y firma con key global o per-tenant (si IssuerModePath)
 
 Entrada / salida
 ----------------
 Request JSON:
   {
-    "tenant_id": "<opcional>",   // ACEPTADO pero (en teoría) no debería ser fuente de verdad.
+    "tenant_id": "<opcional>",   // ACEPTADO pero (en teorÃ­a) no deberÃ­a ser fuente de verdad.
     "client_id": "<obligatorio>",
     "refresh_token": "<obligatorio>"
   }
@@ -42,16 +42,16 @@ Response JSON 200:
     "refresh_token": "..."
   }
 
-Errores típicos:
+Errores tÃ­picos:
 - 400 missing_fields si falta client_id o refresh_token
 - 401 invalid_grant si el refresh no existe / revocado / expirado
 - 401 invalid_client si el client_id no matchea con el del refresh
 - 500 si no hay TenantSQLManager / no se pueden obtener keys / etc
-- “tenant db missing/error” con helpers/httpx wrappers
+- â€œtenant db missing/errorâ€ con helpers/httpx wrappers
 
 Flujo paso a paso (detallado)
 -----------------------------
-A) Validaciones HTTP básicas
+A) Validaciones HTTP bÃ¡sicas
    - Solo POST.
    - Content-Type set a JSON.
    - ReadJSON en RefreshRequest.
@@ -62,38 +62,38 @@ B) Resolver tenant (para ubicar el repo inicial)
    - tenantSlug se obtiene en orden:
        1) body.tenant_id
        2) helpers.ResolveTenantSlug(r)
-   - Si sigue vacío => 400.
-   - Llama a helpers.ResolveTenantSlugAndID(ctx, tenantSlug) pero ignora el resultado (solo “warmup”).
-     ⚠️ Nota: ese resultado no se usa, y además el comentario dice “source of truth remains RT”.
+   - Si sigue vacÃ­o => 400.
+   - Llama a helpers.ResolveTenantSlugAndID(ctx, tenantSlug) pero ignora el resultado (solo â€œwarmupâ€).
+     âš ï¸ Nota: ese resultado no se usa, y ademÃ¡s el comentario dice â€œsource of truth remains RTâ€.
 
 C) Caso especial: refresh token con formato JWT (admin stateless)
-   - Heurística: strings.Count(token, ".") == 2
+   - HeurÃ­stica: strings.Count(token, ".") == 2
    - jwt.Parse con keyfunc custom:
        - extrae kid del header
        - busca public key por KID en c.Issuer.Keys.PublicKeyByKID
    - Verifica claim token_use == "refresh"
-   - Si es válido:
+   - Si es vÃ¡lido:
        - emite nuevo ACCESS JWT (aud="admin", tid="global", amr=["pwd","refresh"], scopes hardcode)
        - emite nuevo REFRESH JWT (token_use="refresh", aud="admin") con TTL refreshTTL
        - responde 200 con ambos
-   - Si falla parse/valid => log y cae al flujo “DB refresh”.
-   📌 Patrón: “Dual-mode token strategy” (stateless vs stateful). Está mezclado en el handler.
+   - Si falla parse/valid => log y cae al flujo â€œDB refreshâ€.
+   ðŸ“Œ PatrÃ³n: â€œDual-mode token strategyâ€ (stateless vs stateful). EstÃ¡ mezclado en el handler.
 
-D) Flujo principal (refresh stateful via DB) — “RT como fuente de verdad”
+D) Flujo principal (refresh stateful via DB) â€” â€œRT como fuente de verdadâ€
    1) Hashear refresh_token:
         sha256(refresh_token) -> hex string
-      Comentario: “alineado con store PG”.
+      Comentario: â€œalineado con store PGâ€.
 
-   2) Abrir repo per-tenant (por tenantSlug resuelto “del contexto”):
+   2) Abrir repo per-tenant (por tenantSlug resuelto â€œdel contextoâ€):
         repo := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, tenantSlug)
       Maneja:
-        - tenant inválido -> 401 invalid_client
+        - tenant invÃ¡lido -> 401 invalid_client
         - sin DB -> httpx.WriteTenantDBMissing
         - otros -> httpx.WriteTenantDBError
 
    3) Buscar refresh token por hash:
         rt := repo.GetRefreshTokenByHash(ctx, hashHex)
-      Si no existe => 401 invalid_grant (“refresh inválido”).
+      Si no existe => 401 invalid_grant (â€œrefresh invÃ¡lidoâ€).
 
    4) Validar estado del refresh:
         - si rt.RevokedAt != nil o now >= rt.ExpiresAt => 401 invalid_grant
@@ -102,19 +102,19 @@ D) Flujo principal (refresh stateful via DB) — “RT como fuente de verdad”
         - clientID := rt.ClientIDText
         - si request.ClientID no coincide => 401 invalid_client
 
-   6) “RT define el tenant” (re-abrir repo si corresponde)
+   6) â€œRT define el tenantâ€ (re-abrir repo si corresponde)
       - Si rt.TenantID (texto/uuid) no coincide con tenantSlug actual:
           slug2 := helpers.ResolveTenantSlugAndID(ctx, rt.TenantID)
           repo2 := OpenTenantRepo(ctx, slug2)
         y se pasa a usar repo2.
-      ⚠️ Esto mezcla “slug” vs “uuid” de forma peligrosa:
+      âš ï¸ Esto mezcla â€œslugâ€ vs â€œuuidâ€ de forma peligrosa:
          rt.TenantID se comenta como UUID, pero tenantSlug es slug. Compararlos con EqualFold puede fallar siempre.
-         Igual la idea es correcta: “si el token pertenece a otro tenant, usar ese tenant”.
+         Igual la idea es correcta: â€œsi el token pertenece a otro tenant, usar ese tenantâ€.
 
-   7) Rechazar refresh si el usuario está deshabilitado
+   7) Rechazar refresh si el usuario estÃ¡ deshabilitado
       - repo.GetUserByID(rt.UserID)
       - si DisabledAt != nil => 401 user_disabled
-      ⚠️ Solo mira DisabledAt, no DisabledUntil (en login sí se mira DisabledUntil).
+      âš ï¸ Solo mira DisabledAt, no DisabledUntil (en login sÃ­ se mira DisabledUntil).
 
    8) Scopes
       - Intenta obtener scopes desde FS:
@@ -123,7 +123,7 @@ D) Flujo principal (refresh stateful via DB) — “RT como fuente de verdad”
       - std claims: tid=rt.TenantID, amr=["refresh"], scp="..."
 
    9) Hook de claims + SYS namespace
-      - applyAccessClaimsHook(...) modifica std/custom (hook tipo “policy engine”)
+      - applyAccessClaimsHook(...) modifica std/custom (hook tipo â€œpolicy engineâ€)
       - Luego calcula issuer efectivo:
           effIss = jwtx.ResolveIssuer(base, issuerMode, slug, override)
       - Agrega system claims (roles/perms) si el repo implementa RBAC:
@@ -131,20 +131,20 @@ D) Flujo principal (refresh stateful via DB) — “RT como fuente de verdad”
         y luego:
           helpers.PutSystemClaimsV2(custom, effIss, u.Metadata, roles, perms)
 
-   10) Selección de key para firmar (global vs per-tenant)
+   10) SelecciÃ³n de key para firmar (global vs per-tenant)
       - Si issuerMode del tenant == Path => usa ActiveForTenant(slugForKeys)
       - Si no => Active() global
       - Emite access token JWT (aud=clientID, sub=userID, iss=effIss)
 
-   11) Rotación de refresh token (nuevo refresh + revocar viejo)
-      - Camino “nuevo” preferido:
+   11) RotaciÃ³n de refresh token (nuevo refresh + revocar viejo)
+      - Camino â€œnuevoâ€ preferido:
           CreateRefreshTokenTC(ctx, tenantID, clientID, userID, ttl) (devuelve raw token)
       - Si no existe:
           - genera raw opaque token
           - hashea a hex
-          - intenta un método TC alternativo con firma rara:
+          - intenta un mÃ©todo TC alternativo con firma rara:
               CreateRefreshTokenTC(ctx, tenantID, clientID, newHash, expiresAt, &oldID)
-            ⚠️ Esto parece OTRA interfaz con mismo nombre pero distinta firma: peligro de confusión.
+            âš ï¸ Esto parece OTRA interfaz con mismo nombre pero distinta firma: peligro de confusiÃ³n.
           - si no, usa legacy repo.CreateRefreshToken(...)
       - Finalmente revoca el viejo:
           repo.RevokeRefreshToken(ctx, rt.ID) (si falla, log y sigue)
@@ -153,16 +153,16 @@ D) Flujo principal (refresh stateful via DB) — “RT como fuente de verdad”
       - Cache-Control no-store + Pragma no-cache
       - 200 con access_token + refresh_token nuevo
 
-Qué NO se usa / cosas raras (marcadas, sin decidir todavía)
+QuÃ© NO se usa / cosas raras (marcadas, sin decidir todavÃ­a)
 -----------------------------------------------------------
-- RefreshRequest.TenantID: comentario dice “aceptado por contrato; no usado para lógica”.
-  En realidad SÍ se usa como primer intento para tenantSlug. Lo que “no se usa” es como fuente de verdad final:
+- RefreshRequest.TenantID: comentario dice â€œaceptado por contrato; no usado para lÃ³gicaâ€.
+  En realidad SÃ se usa como primer intento para tenantSlug. Lo que â€œno se usaâ€ es como fuente de verdad final:
   el refresh token encontrado define el tenant real.
-- Se llama helpers.ResolveTenantSlugAndID(ctx, tenantSlug) y se descarta => es “dead-ish” (side effects?).
-- Comparación rt.TenantID vs tenantSlug es dudosa (UUID vs slug). Riesgo de reabrir repo mal.
-- Doble sistema de refresh “TC” con interfaces distintas y mismo nombre => deuda técnica fuerte.
+- Se llama helpers.ResolveTenantSlugAndID(ctx, tenantSlug) y se descarta => es â€œdead-ishâ€ (side effects?).
+- ComparaciÃ³n rt.TenantID vs tenantSlug es dudosa (UUID vs slug). Riesgo de reabrir repo mal.
+- Doble sistema de refresh â€œTCâ€ con interfaces distintas y mismo nombre => deuda tÃ©cnica fuerte.
 - Inconsistencia de bloqueo de usuario (solo DisabledAt, no DisabledUntil).
-- Mezcla de “admin refresh JWT” y “user refresh DB” en el mismo handler => alto acoplamiento.
+- Mezcla de â€œadmin refresh JWTâ€ y â€œuser refresh DBâ€ en el mismo handler => alto acoplamiento.
 
 Patrones / refactor propuesto (con ganas, para V2)
 --------------------------------------------------
@@ -170,12 +170,12 @@ A) Separar responsabilidades (Single Responsibility + GoF Strategy)
    - Strategy: RefreshModeStrategy
        1) JWTStatelessRefreshStrategy (admin/global)
        2) DBRefreshStrategy (tenant/user)
-     El handler solo decide cuál aplica y delega.
+     El handler solo decide cuÃ¡l aplica y delega.
 
 B) Service Layer (Application Service / Use Case)
    - RefreshService.Refresh(ctx, RefreshCommand) -> RefreshResult
    - LogoutService.Logout(ctx, LogoutCommand) -> error
-   Esto te permite testear sin HTTP y reutilizar lógica desde otros flows (ej: device sessions).
+   Esto te permite testear sin HTTP y reutilizar lÃ³gica desde otros flows (ej: device sessions).
 
 C) Repository Port + Adapter
    - Definir una interfaz clara:
@@ -187,73 +187,73 @@ C) Repository Port + Adapter
      Luego adapters:
        - PostgresTenantRepoAdapter
        - (Opcional) LegacyAdapter
-     Evitás los type assertions repetidos y las firmas “TC” duplicadas.
+     EvitÃ¡s los type assertions repetidos y las firmas â€œTCâ€ duplicadas.
 
-D) Factory para “issuer + signing key” (Factory Method / Abstract Factory)
+D) Factory para â€œissuer + signing keyâ€ (Factory Method / Abstract Factory)
    - IssuerResolver.Resolve(tenantSlug) -> effIss, mode
    - KeySelector.Select(mode, tenantSlug) -> (kid, priv)
-   Sacás el if/else repetido.
+   SacÃ¡s el if/else repetido.
 
 E) Template Method para construir claims
    - buildBaseClaims(...)
    - enrichWithHook(...)
    - enrichWithRBACIfSupported(...)
-   Así el flujo refresh/login comparten construcción de claims.
+   AsÃ­ el flujo refresh/login comparten construcciÃ³n de claims.
 
 F) Seguridad / consistencia
-   - Normalizar “tenant identity”:
+   - Normalizar â€œtenant identityâ€:
        TenantRef {Slug, UUID}
-     Y dejar UNA sola comparación (no slug vs uuid).
+     Y dejar UNA sola comparaciÃ³n (no slug vs uuid).
    - Asegurar que scope lookup usa slug correcto (no rt.TenantID si es UUID).
-   - Hacer revocación/rotación transaccional si el store lo banca (ideal):
-       rotate => create new + revoke old en una transacción.
+   - Hacer revocaciÃ³n/rotaciÃ³n transaccional si el store lo banca (ideal):
+       rotate => create new + revoke old en una transacciÃ³n.
 
 G) Concurrencia (si aplica, sin inventar)
-   - Acá no hace falta worker pool: es request/response puro.
-   - Lo único concurrente útil sería:
+   - AcÃ¡ no hace falta worker pool: es request/response puro.
+   - Lo Ãºnico concurrente Ãºtil serÃ­a:
        - paralelizar (con errgroup) lookup de tenant config + rbac roles/perms,
          pero solo si esos accesos son independientes y no agregan carga innecesaria.
-     Ojo: primero claridad, después micro-optimización.
+     Ojo: primero claridad, despuÃ©s micro-optimizaciÃ³n.
 
 ================================================================================
-2) POST /v1/auth/logout — NewAuthLogoutHandler
+2) POST /v1/auth/logout â€” NewAuthLogoutHandler
 ================================================================================
 
-Qué hace
+QuÃ© hace
 --------
 - Recibe refresh_token + client_id (+ tenant context)
-- Busca el refresh por hash en el repo del tenant “contextual”
+- Busca el refresh por hash en el repo del tenant â€œcontextualâ€
 - Si no existe: devuelve 204 (idempotente, no filtra existencia)
 - Si existe:
     - valida que client_id matchee
     - si el token pertenece a otro tenant, reabre repo para ese tenant
-    - intenta revocar por hash con método TC (si existe)
+    - intenta revocar por hash con mÃ©todo TC (si existe)
     - devuelve 204
 
 Notas importantes
 -----------------
 - Logout es idempotente: si el refresh no existe, igual 204.
-- Acá NO se usa repo.RevokeRefreshToken(tokenID) de forma directa; usa un método TC opcional
-  (Revoker por hash) y si no existe, no hace nada más (igual responde 204).
+- AcÃ¡ NO se usa repo.RevokeRefreshToken(tokenID) de forma directa; usa un mÃ©todo TC opcional
+  (Revoker por hash) y si no existe, no hace nada mÃ¡s (igual responde 204).
   Eso puede dejar tokens sin revocar si el store no implementa revoker TC.
 
 Patrones/refactor para logout
 -----------------------------
-- Compartir el mismo “RefreshTokenResolver” del refresh:
+- Compartir el mismo â€œRefreshTokenResolverâ€ del refresh:
     resolveByRawToken -> (repo, rt)
 - Command + Service:
     LogoutService.RevokeRefresh(ctx, tenantRef, clientID, rawRefresh) -> error
 - Strategy:
     - Revocar por ID (si ya encontraste rt.ID)
     - Revocar por hash (si el store lo prefiere)
-  Elegís la estrategia por capacidades del repo.
+  ElegÃ­s la estrategia por capacidades del repo.
 
 Resumen corto
 -------------
 - auth_refresh.go mezcla: refresh stateless (admin JWT) + refresh stateful (DB) + logout puntual.
-- La idea central es correcta (RT como fuente de verdad, rotación + revocación),
-  pero está todo muy pegado con type assertions, comparaciones slug/uuid confusas y dos APIs “TC” distintas.
-- En V2 lo más rentable es separar en servicios + strategies + factories para issuer/keys,
+- La idea central es correcta (RT como fuente de verdad, rotaciÃ³n + revocaciÃ³n),
+  pero estÃ¡ todo muy pegado con type assertions, comparaciones slug/uuid confusas y dos APIs â€œTCâ€ distintas.
+- En V2 lo mÃ¡s rentable es separar en servicios + strategies + factories para issuer/keys,
   y estandarizar TenantRef para no volver a sufrir el quilombo slug/uuid.
 */
 
@@ -270,17 +270,17 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/app/v1"
 	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
-	"github.com/dropDatabas3/hellojohn/internal/controlplane"
+	"github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
 	"github.com/dropDatabas3/hellojohn/internal/http/v1/helpers"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 )
 
 type RefreshRequest struct {
-	TenantID     string `json:"tenant_id,omitempty"` // aceptado por contrato; no usado para lógica
+	TenantID     string `json:"tenant_id,omitempty"` // aceptado por contrato; no usado para lÃ³gica
 	ClientID     string `json:"client_id,omitempty"`
 	RefreshToken string `json:"refresh_token"`
 }
@@ -442,7 +442,7 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 		repo, err := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, tenantSlug)
 		if err != nil {
 			if helpers.IsTenantNotFound(err) {
-				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "tenant inválido", 2100)
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "tenant invÃ¡lido", 2100)
 				return
 			}
 			if helpers.IsNoDBForTenant(err) {
@@ -456,7 +456,7 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 			rt = rtx
 		}
 		if rt == nil {
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid_grant", "refresh inválido", 1401)
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_grant", "refresh invÃ¡lido", 1401)
 			return
 		}
 
@@ -469,7 +469,7 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 		// 2) ClientID desde RT si no vino en request; si vino y no coincide, invalid_client
 		clientID := rt.ClientIDText
 		if req.ClientID != "" && !strings.EqualFold(req.ClientID, clientID) {
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "cliente inválido", 1403)
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "cliente invÃ¡lido", 1403)
 			return
 		}
 
@@ -489,7 +489,7 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 			repo = repo2
 		}
 
-		// Rechazar refresh si el usuario está deshabilitado
+		// Rechazar refresh si el usuario estÃ¡ deshabilitado
 		if u, err := repo.GetUserByID(ctx, rt.UserID); err == nil && u != nil {
 			if u.DisabledAt != nil {
 				httpx.WriteError(w, http.StatusUnauthorized, "user_disabled", "usuario deshabilitado", 1410)
@@ -518,7 +518,7 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 			// Resolve slug from RT tenant UUID to compute issuer
 			slug2, _ := helpers.ResolveTenantSlugAndID(ctx, rt.TenantID)
 			if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, slug2); errTen == nil && ten != nil {
-				effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+				effIss = jwtx.ResolveIssuer(c.Issuer.Iss, string(ten.Settings.IssuerMode), ten.Slug, ten.Settings.IssuerOverride)
 			}
 		}
 		// derivar is_admin + RBAC (Fase 2)
@@ -538,7 +538,7 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 		// Per-tenant signing key (tenant comes from RT)
 		now2 := time.Now().UTC()
 		exp := now2.Add(c.Issuer.AccessTTL)
-		// Keys: por-tenant sólo si el issuer del tenant está en modo Path; caso contrario, global
+		// Keys: por-tenant sÃ³lo si el issuer del tenant estÃ¡ en modo Path; caso contrario, global
 		slugForKeys, _ := helpers.ResolveTenantSlugAndID(ctx, rt.TenantID)
 		var (
 			kid  string
@@ -581,13 +581,13 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 			return
 		}
 
-		// Crear nuevo refresh token usando método TC si está disponible
+		// Crear nuevo refresh token usando mÃ©todo TC si estÃ¡ disponible
 		var rawRT string
 		tcCreateStore, tcOk := any(repo).(interface {
 			CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
 		})
 		if tcOk {
-			// Usar método TC para crear el nuevo sobre el mismo tenant del RT (UUID)
+			// Usar mÃ©todo TC para crear el nuevo sobre el mismo tenant del RT (UUID)
 			rawRT, err = tcCreateStore.CreateRefreshTokenTC(ctx, rt.TenantID, clientID, rt.UserID, refreshTTL)
 			if err != nil {
 				log.Printf("refresh: create new rt TC err: %v", err)
@@ -595,7 +595,7 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 				return
 			}
 		} else {
-			// Fallback al método viejo
+			// Fallback al mÃ©todo viejo
 			rawRT, err = tokens.GenerateOpaqueToken(32)
 			if err != nil {
 				httpx.WriteError(w, http.StatusInternalServerError, "token_gen_failed", "no se pudo generar refresh", 1406)
@@ -604,7 +604,7 @@ func NewAuthRefreshHandler(c *app.Container, refreshTTL time.Duration) http.Hand
 			newHash := tokens.SHA256Hex(rawRT)
 			expiresAt := now.Add(refreshTTL)
 
-			// Usar CreateRefreshTokenTC para rotación
+			// Usar CreateRefreshTokenTC para rotaciÃ³n
 			if tcStore, ok := any(repo).(interface {
 				CreateRefreshTokenTC(context.Context, string, string, string, time.Time, *string) (string, error)
 			}); ok {
@@ -668,7 +668,7 @@ func NewAuthLogoutHandler(c *app.Container) http.HandlerFunc {
 		}
 
 		ctx := r.Context()
-		// Usar el mismo hashing que los métodos TC (hex en lugar de base64)
+		// Usar el mismo hashing que los mÃ©todos TC (hex en lugar de base64)
 		sum := sha256.Sum256([]byte(req.RefreshToken))
 		hash := hex.EncodeToString(sum[:])
 
@@ -690,7 +690,7 @@ func NewAuthLogoutHandler(c *app.Container) http.HandlerFunc {
 		repo, err := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, tenantSlug)
 		if err != nil {
 			if helpers.IsTenantNotFound(err) {
-				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "tenant inválido", 2100)
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "tenant invÃ¡lido", 2100)
 				return
 			}
 			if helpers.IsNoDBForTenant(err) {

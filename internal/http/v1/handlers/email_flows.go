@@ -317,13 +317,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/dropDatabas3/hellojohn/internal/controlplane"
+	"github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
 	"github.com/dropDatabas3/hellojohn/internal/email"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
 	"github.com/dropDatabas3/hellojohn/internal/http/v1/helpers"
-	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
+	"github.com/dropDatabas3/hellojohn/internal/infra/v1/tenantsql"
 	"github.com/dropDatabas3/hellojohn/internal/security/password"
-	"github.com/dropDatabas3/hellojohn/internal/store"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1"
 )
 
 // --- Interfaces de integración con tu core ---

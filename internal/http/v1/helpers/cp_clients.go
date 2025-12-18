@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
-	cp "github.com/dropDatabas3/hellojohn/internal/controlplane"
+	cp "github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
 )
 
 var (

@@ -240,7 +240,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/http/v1/helpers"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
 	"github.com/dropDatabas3/hellojohn/internal/security/totp"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
 )
 
 // (Removido) Antes usábamos un interface local con uuid.UUID; ahora el core.Repository ya expone los métodos con userID string.
@@ -509,7 +509,7 @@ func (h *mfaHandler) challenge(w http.ResponseWriter, r *http.Request) {
 	}
 	req.MFAToken = strings.TrimSpace(req.MFAToken)
 
-	// 🔴 Validación primero: falta code/recovery -> 400
+	// Validación primero: falta code/recovery -> 400
 	if strings.TrimSpace(req.Code) == "" && strings.TrimSpace(req.Recovery) == "" {
 		httpx.WriteError(w, http.StatusBadRequest, "missing_mfa_credential", "se requiere code o recovery", 1720)
 		return

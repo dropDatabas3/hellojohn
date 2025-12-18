@@ -3,7 +3,7 @@ package cpctx
 import (
 	"net/http"
 
-	cp "github.com/dropDatabas3/hellojohn/internal/controlplane"
+	cp "github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
 )
 
 // Provider es el ControlPlane activo (FS en MVP).

@@ -123,7 +123,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/app/v1"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
 	"github.com/dropDatabas3/hellojohn/internal/http/v1/helpers"
-	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
+	"github.com/dropDatabas3/hellojohn/internal/infra/v1/tenantsql"
 )
 
 func NewAuthLogoutAllHandler(c *app.Container) http.HandlerFunc {

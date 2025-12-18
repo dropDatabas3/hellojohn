@@ -211,11 +211,11 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/app/v1"
 	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
-	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane"
+	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
 	"github.com/dropDatabas3/hellojohn/internal/http/v1/helpers"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 )
 

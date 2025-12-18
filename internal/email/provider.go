@@ -7,7 +7,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/dropDatabas3/hellojohn/internal/controlplane"
+	"github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
 	"github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/google/uuid"
 )

@@ -183,8 +183,8 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/rate"
 	"github.com/dropDatabas3/hellojohn/internal/security/password"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
-	"github.com/dropDatabas3/hellojohn/internal/store"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 )
 

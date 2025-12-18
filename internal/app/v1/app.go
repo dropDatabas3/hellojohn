@@ -4,15 +4,15 @@ import (
 	"context"
 	"sync/atomic"
 
-	"github.com/dropDatabas3/hellojohn/internal/cache"
-	"github.com/dropDatabas3/hellojohn/internal/cluster"
+	"github.com/dropDatabas3/hellojohn/internal/cache/v1"
+	clusterv1 "github.com/dropDatabas3/hellojohn/internal/cluster/v1"
 	"github.com/dropDatabas3/hellojohn/internal/email"
 	"github.com/dropDatabas3/hellojohn/internal/http/v1/helpers"
-	"github.com/dropDatabas3/hellojohn/internal/infra/tenantcache"
-	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
+	"github.com/dropDatabas3/hellojohn/internal/infra/v1/tenantcache"
+	"github.com/dropDatabas3/hellojohn/internal/infra/v1/tenantsql"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
-	"github.com/dropDatabas3/hellojohn/internal/store"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
 )
 
 // Container es el contenedor DI simple que usamos en los handlers.
@@ -34,7 +34,7 @@ type Container struct {
 	TenantCacheManager *tenantcache.Manager
 
 	// ClusterNode provee acceso a estado/rol de Raft embebido
-	ClusterNode *cluster.Node
+	ClusterNode *clusterv1.Node
 
 	// LeaderRedirects: nodeID -> baseURL para 307 opcional hacia el líder
 	LeaderRedirects map[string]string

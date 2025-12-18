@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/dropDatabas3/hellojohn/internal/controlplane"
+	"github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
 )
 

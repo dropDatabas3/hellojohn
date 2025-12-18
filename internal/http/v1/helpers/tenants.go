@@ -5,8 +5,8 @@ import (
 	"errors"
 
 	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
-	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	"github.com/dropDatabas3/hellojohn/internal/infra/v1/tenantsql"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
 )
 
 // tenantRepoKey is the context key to store a per-request tenant repository.

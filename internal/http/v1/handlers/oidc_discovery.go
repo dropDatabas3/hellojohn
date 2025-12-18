@@ -1,17 +1,17 @@
-/*
-oidc_discovery.go — OIDC Discovery (global + per-tenant) + issuer/jwks por tenant
+﻿/*
+oidc_discovery.go â€” OIDC Discovery (global + per-tenant) + issuer/jwks por tenant
 
-Qué es este archivo (la posta)
+QuÃ© es este archivo (la posta)
 ------------------------------
-Este archivo publica documentos “discovery” para clientes OIDC:
+Este archivo publica documentos â€œdiscoveryâ€ para clientes OIDC:
 	- Discovery global: un solo issuer (c.Issuer.Iss) + endpoints globales
 	- Discovery por tenant: issuer resuelto por settings del tenant + jwks_uri por tenant
 
-En la práctica, estos endpoints son los que consumen:
+En la prÃ¡ctica, estos endpoints son los que consumen:
 	- SPAs/Frontends (para saber authorize/token/userinfo/jwks)
 	- SDKs/CLI (para bootstrap)
 
-Ojo: acá NO se registran rutas ni se usa chi params; el handler por-tenant parsea el path “a mano”.
+Ojo: acÃ¡ NO se registran rutas ni se usa chi params; el handler por-tenant parsea el path â€œa manoâ€.
 
 Dependencias reales
 -------------------
@@ -26,7 +26,7 @@ Rutas soportadas (contrato efectivo)
 A) Discovery global
 -------------------
 - GET/HEAD /.well-known/openid-configuration
-		(ruta exacta depende del wiring del router, pero este handler asume que se monta ahí)
+		(ruta exacta depende del wiring del router, pero este handler asume que se monta ahÃ­)
 
 		Response:
 			- issuer = strings.TrimRight(c.Issuer.Iss, "/")
@@ -53,12 +53,12 @@ B) Discovery por tenant
 
 		Nota de compat:
 			- Mantiene endpoints globales (authorize/token/userinfo) para no romper rutas existentes
-			- Pero jwks_uri sí es por tenant: {base}/.well-known/jwks/{slug}.json
+			- Pero jwks_uri sÃ­ es por tenant: {base}/.well-known/jwks/{slug}.json
 
 		Headers:
 			- setNoStore(w) (no-cache/no-store) para evitar cache agresivo cuando rota issuer/jwks
 
-Campos OIDC “de facto”
+Campos OIDC â€œde factoâ€
 ----------------------
 Este discovery declara:
 	- response_types_supported: ["code"]
@@ -76,27 +76,27 @@ Problemas principales (cuellos de botella + bugs probables)
 	 En NewTenantOIDCDiscoveryHandler se compila el regex en cada request.
 	 V2: declarar un var regexp global y reusar.
 
-2) Base issuer vs “host externo”
-	 Usa c.Issuer.Iss tal cual (config). Detrás de proxies puede diferir del host/scheme público.
-	 Solución típica: fijar issuer explícitamente (recomendado) o derivarlo de headers confiables.
+2) Base issuer vs â€œhost externoâ€
+	 Usa c.Issuer.Iss tal cual (config). DetrÃ¡s de proxies puede diferir del host/scheme pÃºblico.
+	 SoluciÃ³n tÃ­pica: fijar issuer explÃ­citamente (recomendado) o derivarlo de headers confiables.
 
-3) Contrato de endpoints parcialmente “tenant-aware”
+3) Contrato de endpoints parcialmente â€œtenant-awareâ€
 	 El discovery por tenant cambia issuer y jwks_uri, pero deja authorize/token/userinfo globales.
-	 Esto es compat-friendly, pero en V2 convendría que todo el surface sea coherente:
+	 Esto es compat-friendly, pero en V2 convendrÃ­a que todo el surface sea coherente:
 		 /t/{slug}/oauth2/authorize, /t/{slug}/oauth2/token, /t/{slug}/userinfo, etc.
 
-Cómo lo refactorizaría a V2 (plan concreto)
+CÃ³mo lo refactorizarÃ­a a V2 (plan concreto)
 -------------------------------------------
-FASE 1 — Validación/parseo consistente
+FASE 1 â€” ValidaciÃ³n/parseo consistente
 	- Usar router con params (chi) o un parser central para rutas /t/{slug}/...
 	- Regex precompilada.
 
-FASE 2 — Discovery coherente por tenant
+FASE 2 â€” Discovery coherente por tenant
 	- Publicar endpoints tenant-scoped (si el router v2 lo soporta) o documentar formalmente
-		que solo issuer/jwks varían y el resto es global.
+		que solo issuer/jwks varÃ­an y el resto es global.
 
-FASE 3 — Metadata driven
-	- Generar scopes/claims supported desde configuración/registries reales (evitar drift).
+FASE 3 â€” Metadata driven
+	- Generar scopes/claims supported desde configuraciÃ³n/registries reales (evitar drift).
 
 */
 
@@ -130,7 +130,7 @@ type oidcMetadata struct {
 	ClaimsSupported                   []string `json:"claims_supported,omitempty"`
 }
 
-// NewOIDCDiscoveryHandler publica el documento de configuración OIDC.
+// NewOIDCDiscoveryHandler publica el documento de configuraciÃ³n OIDC.
 // Usa el issuer configurado y arma las URLs absolutas para los endpoints.
 func NewOIDCDiscoveryHandler(c *app.Container) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -162,7 +162,7 @@ func NewOIDCDiscoveryHandler(c *app.Container) http.Handler {
 			// PKCE S256
 			CodeChallengeMethodsSupported: []string{"S256"},
 
-			// Scopes y claims típicos que exponemos hoy
+			// Scopes y claims tÃ­picos que exponemos hoy
 			ScopesSupported: []string{"openid", "email", "profile", "offline_access"},
 			ClaimsSupported: []string{
 				"iss", "sub", "aud", "exp", "iat", "nbf",
@@ -225,7 +225,7 @@ func NewTenantOIDCDiscoveryHandler(c *app.Container) http.Handler {
 		}
 
 		base := strings.TrimRight(c.Issuer.Iss, "/")
-		iss := jwtx.ResolveIssuer(base, tdef.Settings.IssuerMode, slug, tdef.Settings.IssuerOverride)
+		iss := jwtx.ResolveIssuer(base, string(tdef.Settings.IssuerMode), slug, tdef.Settings.IssuerOverride)
 
 		// Endpoints globales (sin /t/{slug}/) para no romper rutas existentes
 		meta := oidcMetadata{
@@ -249,7 +249,7 @@ func NewTenantOIDCDiscoveryHandler(c *app.Container) http.Handler {
 			},
 		}
 
-		// Per-tenant discovery: preferimos no cachear agresivamente (cambios de issuer/jwks por rotación)
+		// Per-tenant discovery: preferimos no cachear agresivamente (cambios de issuer/jwks por rotaciÃ³n)
 		setNoStore(w)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		if r.Method == http.MethodHead {

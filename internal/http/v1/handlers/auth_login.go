@@ -1,26 +1,26 @@
-/*
-auth_login.go — Login “password” + emisión de tokens (access + refresh) + gating por client + rate limit + MFA + RBAC (opcional)
+﻿/*
+auth_login.go â€” Login â€œpasswordâ€ + emisiÃ³n de tokens (access + refresh) + gating por client + rate limit + MFA + RBAC (opcional)
 
-Qué hace este handler
+QuÃ© hace este handler
 ---------------------
-Implementa (en la práctica):
+Implementa (en la prÃ¡ctica):
   POST /v1/auth/login
 
 Recibe credenciales (email + password) y, si valida:
 - Verifica que el client exista y permita provider "password"
 - Busca usuario por email en el user-store del tenant
 - Chequea password hash
-- Bloquea si el usuario está deshabilitado
+- Bloquea si el usuario estÃ¡ deshabilitado
 - Opcional: exige email verificado si el client lo pide (FS controlplane)
-- Opcional: bifurca a MFA (TOTP) si está habilitada y el device no es trusted
+- Opcional: bifurca a MFA (TOTP) si estÃ¡ habilitada y el device no es trusted
 - Emite Access Token (JWT EdDSA) con issuer efectivo por tenant
 - Persiste/crea Refresh Token via CreateRefreshTokenTC (store method)
-- Devuelve JSON con access_token + refresh_token + expiración
+- Devuelve JSON con access_token + refresh_token + expiraciÃ³n
 
-Además:
-- Soporta login “FS Admin” (sin tenant/client) si FSAdminEnabled()
+AdemÃ¡s:
+- Soporta login â€œFS Adminâ€ (sin tenant/client) si FSAdminEnabled()
 - Soporta body JSON o form-urlencoded
-- Aplica rate limiting específico de login (si MultiLimiter configurado)
+- Aplica rate limiting especÃ­fico de login (si MultiLimiter configurado)
 
 Entrada / salida
 ----------------
@@ -29,7 +29,7 @@ Request (JSON o form):
     tenant_id, client_id, email, password
   }
 Notas:
-- tenant_id y client_id son opcionales SOLO para el modo “FS admin”
+- tenant_id y client_id son opcionales SOLO para el modo â€œFS adminâ€
 - email y password siempre obligatorios
 
 Response (OK):
@@ -38,15 +38,15 @@ Response (OK):
 Errores relevantes:
 - 400 missing_fields (si falta email/pass o tenant/client cuando no hay FS admin)
 - 401 invalid_credentials (usuario o password)
-- 401 invalid_client (tenant/client inválidos o password no permitido)
+- 401 invalid_client (tenant/client invÃ¡lidos o password no permitido)
 - 423 user_disabled
-- 403 email_not_verified (si client exige verificación)
+- 403 email_not_verified (si client exige verificaciÃ³n)
 - 429 rate limit (lo escribe EnforceLoginLimit)
-- 5xx varios (tenant manager, store, emisión tokens, etc.)
+- 5xx varios (tenant manager, store, emisiÃ³n tokens, etc.)
 
 Flujo paso a paso (normal, NO FS-admin)
 ---------------------------------------
-1) Validación HTTP + parse body
+1) ValidaciÃ³n HTTP + parse body
    - Solo POST.
    - Content-Type:
        a) application/json:
@@ -60,17 +60,17 @@ Flujo paso a paso (normal, NO FS-admin)
 
    Normaliza email => trim + strings.ToLower
 
-2) Validación mínima
+2) ValidaciÃ³n mÃ­nima
    - email y password obligatorios
    - si falta tenant_id o client_id:
        - si helpers.FSAdminEnabled(): intenta FSAdminVerify(email, password)
-           - si OK => emite token “admin” (JWT access + refresh JWT stateless)
+           - si OK => emite token â€œadminâ€ (JWT access + refresh JWT stateless)
            - si FAIL => 401 invalid_credentials
        - si FSAdmin NO habilitado => 400 (tenant_id y client_id obligatorios)
 
 3) Resolve tenant slug + tenant UUID
    - helpers.ResolveTenantSlugAndID(ctx, req.TenantID)
-   - Devuelve tenantSlug y tenantUUID (string con UUID? O slug? según helper)
+   - Devuelve tenantSlug y tenantUUID (string con UUID? O slug? segÃºn helper)
 
 4) Resolver client (prefer FS) ANTES de abrir DB
    - helpers.ResolveClientFSBySlug(ctx, tenantSlug, req.ClientID)
@@ -78,16 +78,16 @@ Flujo paso a paso (normal, NO FS-admin)
        - guarda scopes/providers desde FSClient
        - haveFSClient = true
    - si no:
-       - se deja para fallback DB más adelante (cuando el repo ya esté abierto)
+       - se deja para fallback DB mÃ¡s adelante (cuando el repo ya estÃ© abierto)
 
-   Objetivo: “si client es inválido, no abras DB al pedo” (aunque hoy igual la abre antes del fallback DB; el comentario dice una cosa y el código hace otra en algunos caminos).
+   Objetivo: â€œsi client es invÃ¡lido, no abras DB al pedoâ€ (aunque hoy igual la abre antes del fallback DB; el comentario dice una cosa y el cÃ³digo hace otra en algunos caminos).
 
 5) Abrir repo del tenant (TenantSQLManager)
    - helpers.OpenTenantRepo(ctx, c.TenantSQLManager, tenantSlug)
    - Si error:
-       - si tenant inválido => 401 invalid_client (tenant inválido)
+       - si tenant invÃ¡lido => 401 invalid_client (tenant invÃ¡lido)
        - si FSAdminEnabled() => fallback FS admin (pero ahora con aud=req.ClientID)
-           * Provider gating: si el client tenía providers y no incluye "password" => bloquea
+           * Provider gating: si el client tenÃ­a providers y no incluye "password" => bloquea
            * Emite access token (sin refresh)
        - si no DB configurada => httpx.WriteTenantDBMissing
        - otros => httpx.WriteTenantDBError
@@ -96,17 +96,17 @@ Flujo paso a paso (normal, NO FS-admin)
 6) Rate limiting (si c.MultiLimiter != nil)
    - Lee cfg.Rate.Login.Window (parse duration)
    - EnforceLoginLimit(w, r, limiter, loginCfg, req.TenantID, req.Email)
-   - Si rate limited => ya respondió y corta
+   - Si rate limited => ya respondiÃ³ y corta
 
-7) Si no había FS client, lookup en DB ahora que repo está abierto
+7) Si no habÃ­a FS client, lookup en DB ahora que repo estÃ¡ abierto
    - interface clientGetter { GetClientByClientID(...) }
    - si el repo lo implementa, trae scopes/providers
    - si no existe client => 401 invalid_client
    - si repo no implementa => 401 invalid_client
 
 8) Provider gating (clientProviders)
-   - si providers no vacío => debe contener "password"
-   - si no => 401 invalid_client (“password login deshabilitado para este client”)
+   - si providers no vacÃ­o => debe contener "password"
+   - si no => 401 invalid_client (â€œpassword login deshabilitado para este clientâ€)
 
 9) Buscar usuario + identidad por email
    - repo.GetUserByEmail(ctx, tenantUUID, email)
@@ -119,7 +119,7 @@ Flujo paso a paso (normal, NO FS-admin)
    - Responde 423 Locked (bien)
 
 11) Verificar password
-   - Si identity/passwordHash nil o vacío => 401
+   - Si identity/passwordHash nil o vacÃ­o => 401
    - repo.CheckPassword(hash, req.Password) => 401 si no coincide
 
 12) Email verification (opcional por client FS)
@@ -133,7 +133,7 @@ Flujo paso a paso (normal, NO FS-admin)
            - calcula hash tokens.SHA256Base64URL(cookie.Value)
            - si trusted => trustedByCookie=true
        - Si NO trusted => bifurca:
-           - crea mfaChallenge (struct no visible acá)
+           - crea mfaChallenge (struct no visible acÃ¡)
            - genera opaque token mid
            - guarda en c.Cache (TTL 5m) bajo key mfa:token:<mid>
            - responde 200 con {mfa_required:true, mfa_token:mid, amr:["pwd"]}
@@ -146,14 +146,14 @@ Flujo paso a paso (normal, NO FS-admin)
    - std claims: tid, amr, acr, scp
    - applyAccessClaimsHook(...) (hook opcional, puede mutar std/custom)
    - RBAC opcional:
-       - si repo implementa GetUserRoles/GetUserPermissions => los agrega al “custom system claims”
+       - si repo implementa GetUserRoles/GetUserPermissions => los agrega al â€œcustom system claimsâ€
 
 15) Resolver issuer efectivo por tenant (y key para firmar)
    - effIss := c.Issuer.Iss
    - cpctx.Provider.GetTenantBySlug(ctx, tenantSlug)
    - effIss = jwtx.ResolveIssuer(globalIss, issuerMode, slug, override)
    - PutSystemClaimsV2(custom, effIss, u.Metadata, roles, perms)
-   - Selección de key:
+   - SelecciÃ³n de key:
        - si IssuerModePath => c.Issuer.Keys.ActiveForTenant(tenantSlug)
        - else => c.Issuer.Keys.Active()
 
@@ -170,22 +170,22 @@ Flujo paso a paso (normal, NO FS-admin)
    - Cache-Control no-store, Pragma no-cache
    - JSON: AuthLoginResponse (access + refresh + expires)
 
-Cosas que están “raras” o para marcar (sin decidir aún)
+Cosas que estÃ¡n â€œrarasâ€ o para marcar (sin decidir aÃºn)
 -------------------------------------------------------
 1) Debug logs a lo pavote
    - log.Printf("DEBUG: ...") por todos lados.
    - Esto en prod te llena logs y te puede afectar performance.
-   - No está usando logger estructurado, ni levels reales.
+   - No estÃ¡ usando logger estructurado, ni levels reales.
 
 2) Import potencialmente no usado
-   - En ESTE archivo, revisá: `github.com/dropDatabas3/hellojohn/internal/controlplane`
+   - En ESTE archivo, revisÃ¡: `github.com/dropDatabas3/hellojohn/internal/controlplane`
      Solo se usa para comparar `ten.Settings.IssuerMode == controlplane.IssuerModePath`.
-     O sea: sí se usa.
-   - `tokens` y `jwtx` y `util` también se usan.
+     O sea: sÃ­ se usa.
+   - `tokens` y `jwtx` y `util` tambiÃ©n se usan.
    - `cpctx` se usa.
    (Igual, el compilador te lo canta si alguno sobra.)
 
-3) Doble modo “FS admin”
+3) Doble modo â€œFS adminâ€
    - Hay dos caminos:
        a) cuando faltan tenant/client (stateless refresh JWT para admin)
        b) cuando falla abrir repo tenant y FSAdminEnabled() (sin refresh)
@@ -194,62 +194,62 @@ Cosas que están “raras” o para marcar (sin decidir aún)
    - Tid fijo "global" (ok) pero mezcla claims/flows.
 
 4) Mezcla de fuentes para client gating
-   - Primero intenta FS, después DB.
-   - Después vuelve a consultar cpctx.Provider.GetClient() solo para email verification.
-   - Es decir: el “client config” se obtiene 2-3 veces por distintos caminos.
+   - Primero intenta FS, despuÃ©s DB.
+   - DespuÃ©s vuelve a consultar cpctx.Provider.GetClient() solo para email verification.
+   - Es decir: el â€œclient configâ€ se obtiene 2-3 veces por distintos caminos.
 
 5) Cache usage para MFA
-   - c.Cache.Set(...) asume que Cache existe y está inicializada.
+   - c.Cache.Set(...) asume que Cache existe y estÃ¡ inicializada.
    - No hay nil-check (si c.Cache puede ser nil, esto explota).
-   - El tipo `mfaChallenge` no está definido acá: dependencia implícita del paquete.
+   - El tipo `mfaChallenge` no estÃ¡ definido acÃ¡: dependencia implÃ­cita del paquete.
 
 6) Comentarios vs comportamiento
-   - “Primero resolver client desde FS… y no abrir DB”,
-     pero después abre repo igual, y si no había FS client recién ahí intenta DB.
+   - â€œPrimero resolver client desde FSâ€¦ y no abrir DBâ€,
+     pero despuÃ©s abre repo igual, y si no habÃ­a FS client reciÃ©n ahÃ­ intenta DB.
      El objetivo se cumple parcialmente, pero no siempre.
 
 7) Token issuance duplicado
-   - La lógica de construir JWT (claims + headers + SignedString) está repetida
+   - La lÃ³gica de construir JWT (claims + headers + SignedString) estÃ¡ repetida
      en varios handlers (y dentro de este mismo para FS admin vs normal).
-   - Refactor claro hacia un “TokenIssuer” (Builder / Factory) cuando hagamos visión global.
+   - Refactor claro hacia un â€œTokenIssuerâ€ (Builder / Factory) cuando hagamos visiÃ³n global.
 
-Patrones que encajan para la futura refactor (sin implementarla todavía)
+Patrones que encajan para la futura refactor (sin implementarla todavÃ­a)
 -----------------------------------------------------------------------
 - GoF: Facade / Service Layer
-  AuthService.LoginPassword(...) que devuelva un “resultado” (tokens o mfa_required).
+  AuthService.LoginPassword(...) que devuelva un â€œresultadoâ€ (tokens o mfa_required).
 
 - GoF: Strategy + Chain of Responsibility
   ClientResolver (FS -> DB), TenantResolver (ID/slug), AdminAuthStrategy.
 
 - GoF: Builder
-  Para armar JWT claims + headers de forma consistente (evitar duplicación).
+  Para armar JWT claims + headers de forma consistente (evitar duplicaciÃ³n).
 
 - GoF: Template Method
-  “emitAccessToken()” con pasos fijos (issuer -> key -> claims -> sign),
-  y variaciones por tipo de sesión (user/admin).
+  â€œemitAccessToken()â€ con pasos fijos (issuer -> key -> claims -> sign),
+  y variaciones por tipo de sesiÃ³n (user/admin).
 
 - Concurrencia (solo donde aporte)
   No hace falta en login; el bottleneck es DB + hashing.
-  Si se agrega, sería para “resolver client+tenant config” en paralelo con cache,
+  Si se agrega, serÃ­a para â€œresolver client+tenant configâ€ en paralelo con cache,
   pero cuidado: no sumar latencia por goroutines al pedo.
 
-Ideas de eficiencia/reutilización para el repaso global
+Ideas de eficiencia/reutilizaciÃ³n para el repaso global
 -------------------------------------------------------
-- Unificar parse de request (JSON/form + fallback PascalCase) en helper común.
-- Unificar resolución de client/tenant (y cachearlo).
-- Unificar issuer/key selection en un “IssuerResolver/KeySelector”.
-- Unificar emisión de tokens en un componente reutilizable.
-- Limpiar FS admin flows (definir 1 sola política coherente).
-- Mover rate limiting a middleware semántico (o helper menos invasivo).
-- Evitar múltiples hits a cpctx.Provider (traer client config 1 vez y reusar).
+- Unificar parse de request (JSON/form + fallback PascalCase) en helper comÃºn.
+- Unificar resoluciÃ³n de client/tenant (y cachearlo).
+- Unificar issuer/key selection en un â€œIssuerResolver/KeySelectorâ€.
+- Unificar emisiÃ³n de tokens en un componente reutilizable.
+- Limpiar FS admin flows (definir 1 sola polÃ­tica coherente).
+- Mover rate limiting a middleware semÃ¡ntico (o helper menos invasivo).
+- Evitar mÃºltiples hits a cpctx.Provider (traer client config 1 vez y reusar).
 
 En resumen
 ----------
-Este handler es el “centro neurálgico” del login password: parsea, rate-limitea, valida client, busca user, chequea password,
-aplica políticas (email verification, user disabled), opcionalmente MFA, arma claims (scopes + RBAC + hook),
+Este handler es el â€œcentro neurÃ¡lgicoâ€ del login password: parsea, rate-limitea, valida client, busca user, chequea password,
+aplica polÃ­ticas (email verification, user disabled), opcionalmente MFA, arma claims (scopes + RBAC + hook),
 resuelve issuer/key por tenant y emite tokens (access + refresh persistido).
-Está funcional, pero hoy tiene duplicación fuerte (token issuance), caminos FS admin inconsistentes,
-y mucha lógica de orquestación que pide a gritos separarse en servicios/resolvers reutilizables.
+EstÃ¡ funcional, pero hoy tiene duplicaciÃ³n fuerte (token issuance), caminos FS admin inconsistentes,
+y mucha lÃ³gica de orquestaciÃ³n que pide a gritos separarse en servicios/resolvers reutilizables.
 */
 
 package handlers
@@ -266,12 +266,12 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/app/v1"
 	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/config"
-	"github.com/dropDatabas3/hellojohn/internal/controlplane"
+	"github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
 	"github.com/dropDatabas3/hellojohn/internal/http/v1/helpers"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
 	"github.com/dropDatabas3/hellojohn/internal/util"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 )
@@ -308,16 +308,16 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		ct := strings.ToLower(r.Header.Get("Content-Type"))
 		switch {
 		case strings.Contains(ct, "application/json"):
-			// Leemos el body con límite (igual que ReadJSON) y soportamos claves alternativas
+			// Leemos el body con lÃ­mite (igual que ReadJSON) y soportamos claves alternativas
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 			defer r.Body.Close()
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
-				httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "json inválido", 1102)
+				httpx.WriteError(w, http.StatusBadRequest, "invalid_json", "json invÃ¡lido", 1102)
 				return
 			}
 
-			// Intento 1: snake_case estándar
+			// Intento 1: snake_case estÃ¡ndar
 			_ = json.Unmarshal(body, &req)
 
 			// Fallback: PascalCase (compat con tests que no ponen tags)
@@ -346,7 +346,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 
 		case strings.Contains(ct, "application/x-www-form-urlencoded"):
 			if err := r.ParseForm(); err != nil {
-				httpx.WriteError(w, http.StatusBadRequest, "invalid_form", "form inválido", 1001)
+				httpx.WriteError(w, http.StatusBadRequest, "invalid_form", "form invÃ¡lido", 1001)
 				return
 			}
 			req.TenantID = strings.TrimSpace(r.FormValue("tenant_id"))
@@ -359,7 +359,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			return
 		}
 
-		// normalización consistente
+		// normalizaciÃ³n consistente
 		req.Email = strings.TrimSpace(strings.ToLower(req.Email))
 
 		log.Printf("DEBUG: after email normalization, validating fields")
@@ -447,7 +447,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 					return
 				}
 				// If FS admin verification failed, return invalid credentials.
-				httpx.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "usuario o password inválidos", 1202)
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "usuario o password invÃ¡lidos", 1202)
 				return
 			}
 
@@ -477,7 +477,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			haveFSClient = true
 		}
 
-		// Abrir repo por tenant solo después de tener un client válido (o si no hay en FS, intentaremos fallback DB más abajo)
+		// Abrir repo por tenant solo despuÃ©s de tener un client vÃ¡lido (o si no hay en FS, intentaremos fallback DB mÃ¡s abajo)
 		// Compatibility: if per-tenant DB is not configured, fall back to global store (if available).
 		var repoCore core.Repository
 		if c == nil || c.TenantSQLManager == nil {
@@ -487,7 +487,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		if rc, err := helpers.OpenTenantRepo(ctx, c.TenantSQLManager, tenantSlug); err != nil {
 			// Phase 4: gate by tenant DB. No fallback to global store in FS-only mode.
 			if helpers.IsTenantNotFound(err) {
-				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "tenant inválido", 2100)
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "tenant invÃ¡lido", 2100)
 				return
 			}
 			if helpers.FSAdminEnabled() {
@@ -495,7 +495,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 				// Triggered on any tenant repo open error when explicitly enabled.
 				ufs, ok := helpers.FSAdminVerify(req.Email, req.Password)
 				if !ok {
-					httpx.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "usuario o password inválidos", 1202)
+					httpx.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "usuario o password invÃ¡lidos", 1202)
 					return
 				}
 				// Provider gating remains: if FS had clientProviders and did not include password, block
@@ -582,10 +582,10 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 
 		log.Printf("DEBUG: passed guards, parsing request")
 
-		// Rate limiting específico para login (endpoint semántico)
+		// Rate limiting especÃ­fico para login (endpoint semÃ¡ntico)
 		log.Printf("DEBUG: checking rate limiting, MultiLimiter=%v", c.MultiLimiter != nil)
 		if c.MultiLimiter != nil {
-			// Parseamos la configuración específica para login
+			// Parseamos la configuraciÃ³n especÃ­fica para login
 			loginWindow, err := time.ParseDuration(cfg.Rate.Login.Window)
 			if err != nil {
 				log.Printf("DEBUG: rate limit window parse error: %v, using fallback", err)
@@ -603,14 +603,14 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			rateLimited := !helpers.EnforceLoginLimit(w, r, c.MultiLimiter, loginCfg, req.TenantID, req.Email)
 
 			if rateLimited {
-				// Rate limited - la función ya escribió la respuesta 429
+				// Rate limited - la funciÃ³n ya escribiÃ³ la respuesta 429
 				return
 			}
 		}
 
 		log.Printf("DEBUG: passed rate limiting")
 
-		// Si no teníamos client en FS, intentar lookup en DB solo ahora que repo está abierto
+		// Si no tenÃ­amos client en FS, intentar lookup en DB solo ahora que repo estÃ¡ abierto
 		if !haveFSClient {
 			// Fallback: try DB client lookup (works with global repo)
 			type clientGetter interface {
@@ -623,11 +623,11 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 					// synthesize minimal fsClient for downstream fields if needed
 					fsClient = helpers.FSClient{TenantSlug: tenantSlug, ClientID: cdb.ClientID}
 				} else {
-					httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1203)
+					httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client invÃ¡lido", 1203)
 					return
 				}
 			} else {
-				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client inválido", 1203)
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "client invÃ¡lido", 1203)
 				return
 			}
 		}
@@ -651,7 +651,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		// Debug: before repo call
 		log.Printf("DEBUG: calling GetUserByEmail with tenant_id=%s, email=%s", tenantUUID, util.MaskEmail(req.Email))
 
-		// ctx ya está definido con timeout arriba
+		// ctx ya estÃ¡ definido con timeout arriba
 		repo, _ := helpers.GetTenantRepo(ctx)
 		u, id, err := repo.GetUserByEmail(ctx, tenantUUID, req.Email)
 		if err != nil {
@@ -660,7 +660,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 				status = http.StatusUnauthorized
 			}
 			log.Printf("auth login: user not found or err: %v (tenant=%s email=%s)", err, req.TenantID, util.MaskEmail(req.Email))
-			httpx.WriteError(w, status, "invalid_credentials", "usuario o password inválidos", 1201)
+			httpx.WriteError(w, status, "invalid_credentials", "usuario o password invÃ¡lidos", 1201)
 			return
 		}
 
@@ -681,7 +681,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		}
 		if id == nil || id.PasswordHash == nil || *id.PasswordHash == "" || !repo.CheckPassword(id.PasswordHash, req.Password) {
 			log.Printf("auth login: verify=false (tenant=%s email=%s)", req.TenantID, util.MaskEmail(req.Email))
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "usuario o password inválidos", 1202)
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_credentials", "usuario o password invÃ¡lidos", 1202)
 			return
 		}
 		// Client already validated by FS; nothing else to load from DB here
@@ -691,14 +691,14 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			if clientCfg, err := cpctx.Provider.GetClient(ctx, tenantSlug, req.ClientID); err == nil && clientCfg != nil {
 				if clientCfg.RequireEmailVerification && !u.EmailVerified {
 					log.Printf(`{"level":"info","msg":"login_email_not_verified","tenant":"%s","email":"%s"}`, req.TenantID, util.MaskEmail(req.Email))
-					httpx.WriteError(w, http.StatusForbidden, "email_not_verified", "Debes verificar tu email para iniciar sesión", 1211)
+					httpx.WriteError(w, http.StatusForbidden, "email_not_verified", "Debes verificar tu email para iniciar sesiÃ³n", 1211)
 					return
 				}
 			}
 		}
 
 		// MFA (pre-issue) hook: si el usuario tiene MFA TOTP confirmada y no se detecta trusted device => bifurca flujo.
-		// Requiere métodos stub en Store: GetMFATOTP, IsTrustedDevice. Si no existen aún, este bloque no compilará hasta implementarlos.
+		// Requiere mÃ©todos stub en Store: GetMFATOTP, IsTrustedDevice. Si no existen aÃºn, este bloque no compilarÃ¡ hasta implementarlos.
 		type mfaGetter interface {
 			GetMFATOTP(ctx context.Context, userID string) (*core.MFATOTP, error)
 		}
@@ -761,7 +761,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 		// Hook opcional (CEL/webhook/etc.)
 		std, custom = applyAccessClaimsHook(ctx, c, tenantUUID, req.ClientID, u.ID, grantedScopes, amrSlice, std, custom)
 
-		// ── RBAC (Fase 2): roles/perms opcionales si el repo per-tenant los implementa
+		// â”€â”€ RBAC (Fase 2): roles/perms opcionales si el repo per-tenant los implementa
 		type rbacReader interface {
 			GetUserRoles(ctx context.Context, userID string) ([]string, error)
 			GetUserPermissions(ctx context.Context, userID string) ([]string, error)
@@ -771,13 +771,13 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			roles, _ = repoRR.GetUserRoles(ctx, u.ID)
 			perms, _ = repoRR.GetUserPermissions(ctx, u.ID)
 		}
-		// issuer se ajusta más abajo según tenant
+		// issuer se ajusta mÃ¡s abajo segÃºn tenant
 
 		// Resolver issuer efectivo por tenant y firmar con clave del tenant si existe
 		effIss := c.Issuer.Iss
 		if cpctx.Provider != nil {
 			if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil {
-				effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+				effIss = jwtx.ResolveIssuer(c.Issuer.Iss, string(ten.Settings.IssuerMode), ten.Slug, ten.Settings.IssuerOverride)
 			}
 		}
 		// Actualizar system claims con el issuer efectivo
@@ -790,7 +790,7 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			priv any
 			kerr error
 		)
-		// Elegir clave según modo del issuer: Path => por tenant; Global/Default => global
+		// Elegir clave segÃºn modo del issuer: Path => por tenant; Global/Default => global
 		if cpctx.Provider != nil {
 			if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil && ten.Settings.IssuerMode == controlplane.IssuerModePath {
 				kid, priv, _, kerr = c.Issuer.Keys.ActiveForTenant(tenantSlug)
@@ -827,12 +827,12 @@ func NewAuthLoginHandler(c *app.Container, cfg *config.Config, refreshTTL time.D
 			return
 		}
 
-		// Crear refresh token usando método TC
+		// Crear refresh token usando mÃ©todo TC
 		tcStore, ok := any(repo).(interface {
 			CreateRefreshTokenTC(ctx context.Context, tenantID, clientID, userID string, ttl time.Duration) (string, error)
 		})
 		if !ok {
-			httpx.WriteError(w, http.StatusInternalServerError, "store_not_supported", "store no soporta métodos TC", 1205)
+			httpx.WriteError(w, http.StatusInternalServerError, "store_not_supported", "store no soporta mÃ©todos TC", 1205)
 			return
 		}
 

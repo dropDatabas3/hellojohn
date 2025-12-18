@@ -182,7 +182,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dropDatabas3/hellojohn/internal/controlplane"
+	"github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
 	"github.com/dropDatabas3/hellojohn/internal/email"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"

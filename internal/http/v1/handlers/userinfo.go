@@ -1,7 +1,7 @@
-/*
-userinfo.go — review bien “a lo grande” (paths, capas, responsabilidades, qué separaría, y fixes concretos)
+﻿/*
+userinfo.go â€” review bien â€œa lo grandeâ€ (paths, capas, responsabilidades, quÃ© separarÃ­a, y fixes concretos)
 
-Qué es este handler
+QuÃ© es este handler
 -------------------
 Implementa el endpoint OIDC UserInfo:
   GET|POST /userinfo   (o el path que lo monte tu router)
@@ -10,16 +10,16 @@ que devuelve claims del usuario a partir de un Access Token (Bearer JWT).
 En tu caso:
 - exige Authorization: Bearer <jwt>
 - valida firma EdDSA con `c.Issuer.Keyfunc()`
-- (extra) verifica “issuer esperado” por tenant comparando `iss` vs issuer resuelto del tenant
+- (extra) verifica â€œissuer esperadoâ€ por tenant comparando `iss` vs issuer resuelto del tenant
 - resuelve store correcto por `tid` (tenant DB vs global)
 - busca user por `sub` y arma respuesta con:
-   - claims estándar (name, given_name, family_name, picture, locale)
+   - claims estÃ¡ndar (name, given_name, family_name, picture, locale)
    - email/email_verified solo si scope incluye "email"
-   - custom_fields siempre (merge de metadata + columnas dinámicas)
+   - custom_fields siempre (merge de metadata + columnas dinÃ¡micas)
 
 Rutas y formas
 --------------
-Métodos:
+MÃ©todos:
 - GET /userinfo
 - POST /userinfo
 Ambos requieren:
@@ -28,19 +28,19 @@ Respuestas:
 - 401 + WWW-Authenticate en casos invalid_token
 - 200 JSON con claims
 
-Capas (cómo debería estar separado)
+Capas (cÃ³mo deberÃ­a estar separado)
 -----------------------------------
-Ahora todo está en un solo handler. Funciona, pero está mezclando responsabilidades.
+Ahora todo estÃ¡ en un solo handler. Funciona, pero estÃ¡ mezclando responsabilidades.
 
-Yo lo separaría así (sin cambiar funcionalidad):
+Yo lo separarÃ­a asÃ­ (sin cambiar funcionalidad):
 
 1) transport/http (handlers)
-   - parsear método + auth header
+   - parsear mÃ©todo + auth header
    - llamar a un servicio `UserInfoService`
    - setear headers (cache-control, content-type, vary, www-auth si falla)
    - serializar JSON
 
-2) domain/service (lógica de negocio)
+2) domain/service (lÃ³gica de negocio)
    - ValidateAccessToken(rawToken) -> Claims (o un struct tipado)
    - ResolveTenantFromClaims(iss, tid) -> tenantSlug + expectedIssuer
    - ValidateIssuerMatch(expected, tokenIss)
@@ -54,76 +54,76 @@ Yo lo separaría así (sin cambiar funcionalidad):
 
 Esto te deja:
 - test unitarios al service sin HTTP
-- el handler se vuelve “finito”, no un monstruo
+- el handler se vuelve â€œfinitoâ€, no un monstruo
 
-Puntos fuertes del código actual
+Puntos fuertes del cÃ³digo actual
 --------------------------------
-✅ Aceptar GET y POST: ok (OIDC lo permite; muchas libs usan GET).
-✅ `Vary: Authorization` + `no-store/no-cache`: perfecto para tokens.
-✅ Scope gating de `email` está bien pensado.
-✅ custom_fields siempre: consistente con tu flujo de CompleteProfile.
-✅ Verificación de issuer per-tenant: está buena para evitar tokens “firmados ok” pero con iss incorrecto.
+âœ… Aceptar GET y POST: ok (OIDC lo permite; muchas libs usan GET).
+âœ… `Vary: Authorization` + `no-store/no-cache`: perfecto para tokens.
+âœ… Scope gating de `email` estÃ¡ bien pensado.
+âœ… custom_fields siempre: consistente con tu flujo de CompleteProfile.
+âœ… VerificaciÃ³n de issuer per-tenant: estÃ¡ buena para evitar tokens â€œfirmados okâ€ pero con iss incorrecto.
 
-Los “che, esto lo arreglaría YA”
+Los â€œche, esto lo arreglarÃ­a YAâ€
 --------------------------------
 
-1) LOG de token inválido (leak / ruido)
+1) LOG de token invÃ¡lido (leak / ruido)
    -----------------------------------
 Esto:
   log.Printf("userinfo_invalid_token_debug: err=%v raw_prefix=%s", err, rawPrefix)
 
-- aunque cortás a 20 chars, sigue siendo “material sensible” (y encima en logs).
-- además el error puede incluir cosas del parsing.
+- aunque cortÃ¡s a 20 chars, sigue siendo â€œmaterial sensibleâ€ (y encima en logs).
+- ademÃ¡s el error puede incluir cosas del parsing.
 
 Fix:
-- logueá solo `err` y un request-id, o un hash del token:
+- logueÃ¡ solo `err` y un request-id, o un hash del token:
     tokHash := tokens.SHA256Base64URL(raw)[:10]
 - y hacerlo solo bajo flag de debug.
 
-2) Keyfunc “global” vs Keyfunc “per-tenant”
+2) Keyfunc â€œglobalâ€ vs Keyfunc â€œper-tenantâ€
    -----------------------------------------
-Estás usando `c.Issuer.Keyfunc()` (lookup por KID en active/retiring keys). Bien.
-Pero ojo con multi-tenant + rotación:
+EstÃ¡s usando `c.Issuer.Keyfunc()` (lookup por KID en active/retiring keys). Bien.
+Pero ojo con multi-tenant + rotaciÃ³n:
 - si tu Keyfunc ya resuelve por KID global y eso incluye keys de varios tenants,
-  igual después chequeás issuer, así que ok.
-- si querés más duro: primero derivar tenant por `iss` sin confiar en firma...
-  (pero sin firma tampoco confías en `iss`). Entonces este orden es aceptable:
+  igual despuÃ©s chequeÃ¡s issuer, asÃ­ que ok.
+- si querÃ©s mÃ¡s duro: primero derivar tenant por `iss` sin confiar en firma...
+  (pero sin firma tampoco confÃ­as en `iss`). Entonces este orden es aceptable:
   - validar firma -> claims -> validar issuer per-tenant.
 
-3) Resolución de slug desde iss: fallback dudoso
+3) ResoluciÃ³n de slug desde iss: fallback dudoso
    --------------------------------------------
-Estás asumiendo que el slug está en el path o en el último segmento.
-Si el issuer override es algo tipo `https://id.acme.com/oidc`, tu fallback “último segmento”
-te va a inventar slug = "oidc" y podrías intentar buscar un tenant que no existe.
+EstÃ¡s asumiendo que el slug estÃ¡ en el path o en el Ãºltimo segmento.
+Si el issuer override es algo tipo `https://id.acme.com/oidc`, tu fallback â€œÃºltimo segmentoâ€
+te va a inventar slug = "oidc" y podrÃ­as intentar buscar un tenant que no existe.
 Hoy eso no falla duro (solo si encuentra tenant y mismatch), pero es raro.
 
 Mejor:
-- solo derivar slug si encontrás el patrón explícito `/t/{slug}`.
-- si no está, no intentes inferir slug. (O usar `tid` en claims para resolver tenant).
+- solo derivar slug si encontrÃ¡s el patrÃ³n explÃ­cito `/t/{slug}`.
+- si no estÃ¡, no intentes inferir slug. (O usar `tid` en claims para resolver tenant).
 
 4) Resolver tenant por tid hace ListTenants() (O(N))
    -------------------------------------------------
 Este bloque:
   if tenants, err := cpctx.Provider.ListTenants(...); err == nil { for ... }
 
-Para userinfo puede ser muy hot-path. Si tenés 1k tenants, es un bajón.
+Para userinfo puede ser muy hot-path. Si tenÃ©s 1k tenants, es un bajÃ³n.
 
 Fix:
-- agregar en provider un método `GetTenantByID(ctx, id)` (ideal)
+- agregar en provider un mÃ©todo `GetTenantByID(ctx, id)` (ideal)
 - o cachear un map id->slug (en memoria con TTL)
 - o guardar `tslug` directo en el token (tipo claim `tslug`) y listo.
 
 5) Scopes parsing: `scp` puede ser string en tu sistema
    ----------------------------------------------------
-En otros handlers vos manejás:
+En otros handlers vos manejÃ¡s:
 - scope string
 - scp string
 - scp []string
-Acá solo hacés:
+AcÃ¡ solo hacÃ©s:
 - scp []any
 - scope string
 Si tu access token emite `scp` como string (en oauth_token hiciste a veces string y a veces []),
-userinfo puede “no ver” scopes -> no devuelve email aunque debería.
+userinfo puede â€œno verâ€ scopes -> no devuelve email aunque deberÃ­a.
 
 Fix (robusto):
 - aceptar:
@@ -132,30 +132,30 @@ Fix (robusto):
   - scp string (space-separated)
   - scope string
 
-6) Validar exp/nbf explícito (opcional, pero recomendado)
+6) Validar exp/nbf explÃ­cito (opcional, pero recomendado)
    -----------------------------------------------------
-jwt.Parse con MapClaims por default suele validar exp/nbf si usás `jwt.WithLeeway` / options…
-pero depende de cómo lo uses. En v5, `Parse` valida “registered claims” si son tipo Claims correcto,
-con MapClaims a veces no es tan estricto como querés.
+jwt.Parse con MapClaims por default suele validar exp/nbf si usÃ¡s `jwt.WithLeeway` / optionsâ€¦
+pero depende de cÃ³mo lo uses. En v5, `Parse` valida â€œregistered claimsâ€ si son tipo Claims correcto,
+con MapClaims a veces no es tan estricto como querÃ©s.
 
-Para userinfo yo lo dejaría explícito:
+Para userinfo yo lo dejarÃ­a explÃ­cito:
 - check exp
 - check nbf si existe
-- y check aud (si querés) o al menos que token sea access token (por ejemplo `token_use=access`).
+- y check aud (si querÃ©s) o al menos que token sea access token (por ejemplo `token_use=access`).
 
-7) `sub` vacío / no string
+7) `sub` vacÃ­o / no string
    ------------------------
-Si sub no viene, respondés {"sub":""} y después intentás GetUserByID("").
+Si sub no viene, respondÃ©s {"sub":""} y despuÃ©s intentÃ¡s GetUserByID("").
 Mejor:
 - si sub == "" -> 401 invalid_token.
 
-8) GET|POST: soportás POST pero no leés body
+8) GET|POST: soportÃ¡s POST pero no leÃ©s body
    -----------------------------------------
-OIDC userinfo POST suele ser igual que GET (bearer token en header), así que no pasa nada.
-Pero si alguien manda token en form body (some implementations), vos no lo aceptás.
-Está ok si vos definís tu contrato así.
+OIDC userinfo POST suele ser igual que GET (bearer token en header), asÃ­ que no pasa nada.
+Pero si alguien manda token en form body (some implementations), vos no lo aceptÃ¡s.
+EstÃ¡ ok si vos definÃ­s tu contrato asÃ­.
 
-Cómo lo “partiría” (archivos y funciones)
+CÃ³mo lo â€œpartirÃ­aâ€ (archivos y funciones)
 -----------------------------------------
 Ejemplo de estructura:
 
@@ -178,25 +178,25 @@ internal/http/v1/handlers/userinfo.go
 
 Bonus: contratos/errores
 ------------------------
-En vez de repetir WriteError + WWW-Authenticate a mano, hacé helper:
+En vez de repetir WriteError + WWW-Authenticate a mano, hacÃ© helper:
 - httpx.WriteOIDCAuthError(w, realm, code, desc, status)
 
-Así te queda consistente con token/introspect/etc.
+AsÃ­ te queda consistente con token/introspect/etc.
 
-Mini lista de “cambios” que metería en este mismo archivo sin refactor
+Mini lista de â€œcambiosâ€ que meterÃ­a en este mismo archivo sin refactor
 ----------------------------------------------------------------------
 - No loguear raw_prefix.
 - Validar `sub != ""` -> 401.
 - Scope parsing robusto (scp string/list).
-- Derivar slug solo si path tiene `/t/{slug}` (sin fallback al último segmento).
-- Evitar ListTenants O(N): cache o método GetTenantByID.
+- Derivar slug solo si path tiene `/t/{slug}` (sin fallback al Ãºltimo segmento).
+- Evitar ListTenants O(N): cache o mÃ©todo GetTenantByID.
 
-Si querés, te lo reescribo “clean” (mismo comportamiento) ya con:
+Si querÃ©s, te lo reescribo â€œcleanâ€ (mismo comportamiento) ya con:
 - parse scopes robusto
 - check sub
 - safer issuer slug derivation
 - debug logging seguro
-y lo dejamos listo para después extraer a service.
+y lo dejamos listo para despuÃ©s extraer a service.
 
 */
 
@@ -213,7 +213,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 )
 
@@ -233,21 +233,21 @@ func NewUserInfoHandler(c *app.Container) http.HandlerFunc {
 		// Validar firma usando Keyfunc que busca por KID en active/retiring keys
 		tk, err := jwtv5.Parse(raw, c.Issuer.Keyfunc(), jwtv5.WithValidMethods([]string{"EdDSA"}))
 		if err != nil || !tk.Valid {
-			// DEBUG: Loguear razón del fallo
+			// DEBUG: Loguear razÃ³n del fallo
 			rawPrefix := raw
 			if len(rawPrefix) > 20 {
 				rawPrefix = rawPrefix[:20]
 			}
 			log.Printf("userinfo_invalid_token_debug: err=%v raw_prefix=%s", err, rawPrefix)
 
-			w.Header().Set("WWW-Authenticate", `Bearer realm="userinfo", error="invalid_token", error_description="token inválido o expirado"`)
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid_token", "token inválido o expirado", 2302)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="userinfo", error="invalid_token", error_description="token invÃ¡lido o expirado"`)
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_token", "token invÃ¡lido o expirado", 2302)
 			return
 		}
 		claims, ok := tk.Claims.(jwtv5.MapClaims)
 		if !ok {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="userinfo", error="invalid_token", error_description="claims inválidos"`)
-			httpx.WriteError(w, http.StatusUnauthorized, "invalid_token", "claims inválidos", 2303)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="userinfo", error="invalid_token", error_description="claims invÃ¡lidos"`)
+			httpx.WriteError(w, http.StatusUnauthorized, "invalid_token", "claims invÃ¡lidos", 2303)
 			return
 		}
 
@@ -269,7 +269,7 @@ func NewUserInfoHandler(c *app.Container) http.HandlerFunc {
 			}
 			if slug != "" {
 				if ten, err := cpctx.Provider.GetTenantBySlug(r.Context(), slug); err == nil && ten != nil {
-					expected := jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+					expected := jwtx.ResolveIssuer(c.Issuer.Iss, string(ten.Settings.IssuerMode), ten.Slug, ten.Settings.IssuerOverride)
 					if expected != issStr {
 						w.Header().Set("WWW-Authenticate", `Bearer realm="userinfo", error="invalid_token", error_description="issuer mismatch"`)
 						httpx.WriteError(w, http.StatusUnauthorized, "invalid_token", "issuer mismatch", 2304)
@@ -308,7 +308,7 @@ func NewUserInfoHandler(c *app.Container) http.HandlerFunc {
 		userStore := c.Store // Default Global
 		tid, _ := claims["tid"].(string)
 		if tid != "" && c.TenantSQLManager != nil {
-			// tid podría ser UUID o slug. Intentamos resolver a slug.
+			// tid podrÃ­a ser UUID o slug. Intentamos resolver a slug.
 			tenantSlug := tid
 			if cpctx.Provider != nil {
 				// Si es UUID, buscar el slug correspondiente

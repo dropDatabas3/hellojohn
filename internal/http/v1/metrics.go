@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
+	"github.com/dropDatabas3/hellojohn/internal/infra/v1/tenantsql"
 	appmetrics "github.com/dropDatabas3/hellojohn/internal/metrics"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"

@@ -1,0 +1,37 @@
+package cachefactory
+
+import (
+	"strings"
+	"time"
+
+	"github.com/dropDatabas3/hellojohn/internal/cache/v1"
+	cmem "github.com/dropDatabas3/hellojohn/internal/cache/v1/memory"
+	credis "github.com/dropDatabas3/hellojohn/internal/cache/v1/redis"
+)
+
+type Config struct {
+	Kind  string
+	Redis struct {
+		Addr   string
+		DB     int
+		Prefix string
+	}
+	Memory struct{ DefaultTTL string }
+}
+
+func Open(cfg Config) (cache.Cache, error) {
+	switch strings.ToLower(cfg.Kind) {
+	case "redis":
+		if c, err := credis.New(cfg.Redis.Addr, cfg.Redis.DB, cfg.Redis.Prefix); err == nil {
+			return c, nil
+		}
+		// Fallback silencioso a memoria si Redis no está disponible
+		fallthrough
+	default:
+		d, _ := time.ParseDuration(cfg.Memory.DefaultTTL)
+		if d == 0 {
+			d = 2 * time.Minute
+		}
+		return cmem.New(d), nil
+	}
+}

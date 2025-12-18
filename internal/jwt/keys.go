@@ -1,99 +1,31 @@
+// Package jwt provee utilidades para generación y validación de JWTs.
+// Las funciones de criptografía de claves (GenerateEd25519, EncryptPrivateKey, DecryptPrivateKey)
+// ahora son wrappers del paquete neutral internal/crypto/keycrypto.
 package jwt
 
 import (
-	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/hex"
-	"fmt"
-	"io"
+
+	"github.com/dropDatabas3/hellojohn/internal/security/keycrypto"
 )
 
 // GenerateEd25519 genera un par ed25519.
+// Wrapper de keycrypto.GenerateEd25519 para compatibilidad.
 func GenerateEd25519() (ed25519.PublicKey, ed25519.PrivateKey, error) {
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	return pub, priv, err
+	return keycrypto.GenerateEd25519()
 }
 
-// EncryptPrivateKey cifra una clave privada usando AES-GCM con una clave maestra
+// EncryptPrivateKey cifra una clave privada usando AES-GCM con una clave maestra.
+// Wrapper de keycrypto.EncryptPrivateKey para compatibilidad.
 func EncryptPrivateKey(privateKey []byte, masterKeyHex string) ([]byte, error) {
-	// Decodificar clave maestra desde hex
-	masterKey, err := hex.DecodeString(masterKeyHex)
-	if err != nil {
-		return nil, fmt.Errorf("invalid master key hex: %w", err)
-	}
-	if len(masterKey) != 32 {
-		return nil, fmt.Errorf("master key must be 32 bytes (64 hex chars), got %d", len(masterKey))
-	}
-
-	// Crear cipher AES
-	block, err := aes.NewCipher(masterKey)
-	if err != nil {
-		return nil, err
-	}
-
-	// Crear GCM mode
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-
-	// Generar nonce aleatorio
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, err
-	}
-
-	// Cifrar: nonce + ciphertext+tag
-	ciphertext := gcm.Seal(nonce, nonce, privateKey, nil)
-
-	// Prefija con magic header para identificación robusta
-	result := append([]byte("GCMV1"), ciphertext...)
-	return result, nil
+	return keycrypto.EncryptPrivateKey(privateKey, masterKeyHex)
 }
 
-// DecryptPrivateKey descifra una clave privada usando AES-GCM
+// DecryptPrivateKey descifra una clave privada usando AES-GCM.
+// Wrapper de keycrypto.DecryptPrivateKey para compatibilidad.
 func DecryptPrivateKey(encrypted []byte, masterKeyHex string) ([]byte, error) {
-	// Verificar magic header
-	magicHeader := []byte("GCMV1")
-	if len(encrypted) < len(magicHeader) || !bytes.Equal(encrypted[:len(magicHeader)], magicHeader) {
-		return nil, fmt.Errorf("invalid encrypted format: missing GCMV1 header")
-	}
-
-	// Extraer payload real sin el header
-	payload := encrypted[len(magicHeader):]
-
-	// Decodificar clave maestra
-	masterKey, err := hex.DecodeString(masterKeyHex)
-	if err != nil {
-		return nil, fmt.Errorf("invalid master key hex: %w", err)
-	}
-	if len(masterKey) != 32 {
-		return nil, fmt.Errorf("master key must be 32 bytes")
-	}
-
-	// Crear cipher
-	block, err := aes.NewCipher(masterKey)
-	if err != nil {
-		return nil, err
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-
-	nonceSize := gcm.NonceSize()
-	if len(payload) < nonceSize {
-		return nil, fmt.Errorf("encrypted data too short")
-	}
-
-	// Extraer nonce y ciphertext del payload
-	nonce, ciphertext := payload[:nonceSize], payload[nonceSize:]
-	return gcm.Open(nil, nonce, ciphertext, nil)
+	return keycrypto.DecryptPrivateKey(encrypted, masterKeyHex)
 }
 
 // EncodeBase64URL devuelve base64url sin padding.

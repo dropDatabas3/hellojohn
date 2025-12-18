@@ -1,43 +1,43 @@
-/*
-oauth_token.go — Token Endpoint OAuth2/OIDC “todo-en-uno”: auth_code(PKCE)+refresh(rotación)+client_credentials(M2M)
+﻿/*
+oauth_token.go â€” Token Endpoint OAuth2/OIDC â€œtodo-en-unoâ€: auth_code(PKCE)+refresh(rotaciÃ³n)+client_credentials(M2M)
 
-Qué es este archivo (la posta)
+QuÃ© es este archivo (la posta)
 ------------------------------
 Este archivo implementa el endpoint `/token` (OAuth2 Token Endpoint) en un solo handler gigantesco:
 - Multiplexa por `grant_type`:
   1) `authorization_code` (con PKCE S256) -> emite access + refresh + id_token
-  2) `refresh_token` (rotación)            -> emite access + refresh nuevo (y revoca el viejo)
+  2) `refresh_token` (rotaciÃ³n)            -> emite access + refresh nuevo (y revoca el viejo)
   3) `client_credentials` (M2M)           -> emite access (sin refresh)
-- Resuelve “store activo” con precedencia `tenantDB > globalDB` porque:
-  - los refresh tokens están en DB (y en multi-tenant cada tenant tiene su propio schema/DB)
-  - además lee user metadata + RBAC desde el store para armar claims “SYS namespace”
+- Resuelve â€œstore activoâ€ con precedencia `tenantDB > globalDB` porque:
+  - los refresh tokens estÃ¡n en DB (y en multi-tenant cada tenant tiene su propio schema/DB)
+  - ademÃ¡s lee user metadata + RBAC desde el store para armar claims â€œSYS namespaceâ€
 - Resuelve issuer efectivo por tenant (issuerMode: global/path/domain + override) para:
   - firmar con issuer correcto
   - poner system claims en namespace correcto (claimsNS.SystemNamespace)
 
-Este archivo ES el core del login OIDC: si acá falla, se cae todo.
+Este archivo ES el core del login OIDC: si acÃ¡ falla, se cae todo.
 
 Entradas / Formatos admitidos
 -----------------------------
 - Solo POST.
-- Content-Type esperado: `application/x-www-form-urlencoded` (OAuth2 estándar).
+- Content-Type esperado: `application/x-www-form-urlencoded` (OAuth2 estÃ¡ndar).
 - Lee `grant_type` y el resto de campos desde `r.PostForm`.
 - Limita body a 64KB con `http.MaxBytesReader`.
 - Timeout hard: 3s para todo el handler (context.WithTimeout).
 
-⚠️ Nota: con 3s, cualquier lookup lento (DB, provider, cache) te puede pegar timeout y devolver errores 500/timeout.
+âš ï¸ Nota: con 3s, cualquier lookup lento (DB, provider, cache) te puede pegar timeout y devolver errores 500/timeout.
 
-Pieza clave: “Active Store” y por qué importa tanto
+Pieza clave: â€œActive Storeâ€ y por quÃ© importa tanto
 ---------------------------------------------------
-El handler elige `activeStore` así:
+El handler elige `activeStore` asÃ­:
 1) Si hay `TenantSQLManager`, intenta `GetPG(ctx, cpctx.ResolveTenant(r))`.
 2) Si no, cae a `c.Store` global.
 
 Pero OJO: en `authorization_code` y `refresh_token`, **luego vuelve a re-seleccionar store**
 basado en el `tenantSlug` real obtenido al resolver el client (`helpers.LookupClient`).
-Eso es CRÍTICO porque:
-- el código/consent pueden estar en cache “global”, pero el refresh token va a DB del tenant
-- si usás el store equivocado, te explota por FK / “token not found” / escribir en el tenant incorrecto.
+Eso es CRÃTICO porque:
+- el cÃ³digo/consent pueden estar en cache â€œglobalâ€, pero el refresh token va a DB del tenant
+- si usÃ¡s el store equivocado, te explota por FK / â€œtoken not foundâ€ / escribir en el tenant incorrecto.
 
 Caminos principales (por grant_type)
 ====================================
@@ -52,13 +52,13 @@ Entrada esperada (form):
 - code_verifier=...  (PKCE S256)
 
 Pasos:
-1) Validación de campos obligatorios.
+1) ValidaciÃ³n de campos obligatorios.
 2) Resolve client + tenantSlug:
    - `client, tenantSlug := helpers.LookupClient(ctx, r, clientID)`
-   - Valida existencia del client. (Acá NO valida secret todavía; está comentado.)
-3) Re-selección del store por tenantSlug:
+   - Valida existencia del client. (AcÃ¡ NO valida secret todavÃ­a; estÃ¡ comentado.)
+3) Re-selecciÃ³n del store por tenantSlug:
    - `TenantSQLManager.GetPG(ctx, tenantSlug)` si existe.
-4) “Compat layer” a core.Client legacy:
+4) â€œCompat layerâ€ a core.Client legacy:
    - cl.ID = client.ClientID
    - cl.TenantID = tenantSlug
    - cl.RedirectURIs = client.RedirectURIs
@@ -74,13 +74,13 @@ Pasos:
    - PKCE: compara challenge S256:
        verifierHash := tokens.SHA256Base64URL(code_verifier)
        ac.CodeChallenge debe == verifierHash
-7) Construcción de claims para Access Token:
+7) ConstrucciÃ³n de claims para Access Token:
    - scopes: strings.Fields(ac.Scope)
    - amr: ac.AMR
    - acr: loa1 o loa2 si amr incluye "mfa"
    - std claims incluye:
        tid, amr, acr, scope, scp
-   - custom claims inicial vacío
+   - custom claims inicial vacÃ­o
    - hook: `applyAccessClaimsHook(...)` (puede modificar std/custom)
 8) Resolver issuer efectivo del tenant:
    - effIss = jwtx.ResolveIssuer(baseIss, issuerMode, slug, override)
@@ -90,17 +90,17 @@ Pasos:
    - helpers.PutSystemClaimsV2(custom, effIss, metadata, roles, perms)
 10) Emitir access token:
    - c.Issuer.IssueAccessForTenant(tenantSlug, effIss, userID, clientID, std, custom)
-11) Emitir refresh token (rotación):
+11) Emitir refresh token (rotaciÃ³n):
    - requiere hasStore=true (DB disponible)
    - si store soporta `CreateRefreshTokenTC(tenantID, clientID, userID, ttl)`:
        - intenta resolver realTenantID (UUID) via Provider.GetTenantBySlug
-       - crea refresh “TC” (token crudo lo genera el store)
+       - crea refresh â€œTCâ€ (token crudo lo genera el store)
    - else legacy:
        - genera rawRT (opaque)
        - guarda hash en DB usando:
          a) CreateRefreshTokenTC(...) legacy raro (hash hex) o
-         b) CreateRefreshToken(...) clásico (hash base64url)
-       - acá hay mezcla de hashes/formats: es una fuente de bugs
+         b) CreateRefreshToken(...) clÃ¡sico (hash base64url)
+       - acÃ¡ hay mezcla de hashes/formats: es una fuente de bugs
 12) Emitir ID Token (OIDC):
    - idStd: tid, at_hash(access), azp, acr, amr
    - idExtra: nonce si existe
@@ -110,11 +110,11 @@ Pasos:
    - access_token, refresh_token, id_token, expires_in, scope
 
 Puntos sensibles / donde se rompe:
-- Si authorize guardó code en otro prefijo => invalid_grant.
-- Si PKCE hash no coincide (ojo, acá usa SHA256Base64URL del verifier, no la fórmula exacta base64url(SHA256(verifier)) “sin hex”; asumimos que SHA256Base64URL hace eso).
+- Si authorize guardÃ³ code en otro prefijo => invalid_grant.
+- Si PKCE hash no coincide (ojo, acÃ¡ usa SHA256Base64URL del verifier, no la fÃ³rmula exacta base64url(SHA256(verifier)) â€œsin hexâ€; asumimos que SHA256Base64URL hace eso).
 - Si tenantSlug y tenantID real se confunden: refresh token TC pide tenant UUID; code trae tid como slug.
 
-B) grant_type = refresh_token (rotación)
+B) grant_type = refresh_token (rotaciÃ³n)
 ----------------------------------------
 Entrada esperada:
 - grant_type=refresh_token
@@ -122,32 +122,32 @@ Entrada esperada:
 - refresh_token=...
 
 Pasos:
-1) Validación: requiere DB (hasStore).
+1) ValidaciÃ³n: requiere DB (hasStore).
 2) Resolve client + tenantSlug con LookupClient.
-3) Re-selección del store por tenantSlug (CRÍTICO).
-4) “Compat layer” core.Client legacy (igual que arriba).
+3) Re-selecciÃ³n del store por tenantSlug (CRÃTICO).
+4) â€œCompat layerâ€ core.Client legacy (igual que arriba).
 5) Lookup refresh token:
    - Si store soporta tcRefresh:
        - hash := tokens.SHA256Base64URL(refresh_token)
        - GetRefreshTokenByHashTC(ctx, tenantSlug, client.ClientID, hash)
-       - OJO: acá tenantSlug se pasa como tenantID: si la implementación espera UUID, cagaste.
+       - OJO: acÃ¡ tenantSlug se pasa como tenantID: si la implementaciÃ³n espera UUID, cagaste.
    - else legacy:
        - GetRefreshTokenByHash(ctx, hash)
 6) Validaciones del refresh:
    - no revocado
    - no expirado
    - rt.ClientIDText == client.ClientID (mismatch => invalid_grant)
-7) Construcción claims access:
-   - amr=["refresh"], acr loa1, tid=tenantSlug, scp vacío
+7) ConstrucciÃ³n claims access:
+   - amr=["refresh"], acr loa1, tid=tenantSlug, scp vacÃ­o
    - hook applyAccessClaimsHook
    - SYS claims igual (GetUserByID + roles/perms) con issuer efectivo
 8) Emitir access:
    - IssueAccessForTenant(tenantSlug, effIss, rt.UserID, clientID, std, custom)
-9) Rotación refresh:
+9) RotaciÃ³n refresh:
    - Si tcRefresh:
        - RevokeRefreshTokensByUserClientTC(tenantSlug, client.ClientID, rt.UserID)
        - CreateRefreshTokenTC(tenantSlug, client.ClientID, rt.UserID, ttl)
-       - (revoca “todos” del user+client; agresivo pero simple)
+       - (revoca â€œtodosâ€ del user+client; agresivo pero simple)
    - else legacy:
        - genera newRT y guarda CreateRefreshToken(... parentID=&rt.ID)
        - revoca el viejo rt
@@ -155,9 +155,9 @@ Pasos:
    - access_token + refresh_token nuevo + expires_in
 
 Puntos sensibles:
-- Inconsistencia de “tenant identifier”: a veces slug, a veces UUID.
+- Inconsistencia de â€œtenant identifierâ€: a veces slug, a veces UUID.
 - Hashing: TC vs legacy usan funciones distintas (base64url vs hex) en el mismo archivo.
-- Rotación por “revoke all user+client” te puede romper multi-device (depende del producto).
+- RotaciÃ³n por â€œrevoke all user+clientâ€ te puede romper multi-device (depende del producto).
 
 C) grant_type = client_credentials (M2M)
 ----------------------------------------
@@ -174,7 +174,7 @@ Pasos:
    - ValidateClientSecret(...) debe pasar
 3) Validar scopes:
    - requested scopes debe ser subset de client scopes (DefaultIsScopeAllowed)
-4) Construcción claims:
+4) ConstrucciÃ³n claims:
    - amr=["client"], acr loa1
    - tid=tenantSlug
    - scopeOut: si viene scope en req => ese; sino default client.Scopes
@@ -182,28 +182,28 @@ Pasos:
    - hook applyAccessClaimsHook
 5) Resolver issuer efectivo por tenant
 6) Emitir access:
-   - sub = clientID (emite “on behalf of client”)
+   - sub = clientID (emite â€œon behalf of clientâ€)
 7) Respuesta JSON:
    - access_token + scope + expires_in (sin refresh)
 
 Puntos sensibles:
 - Si ValidateClientSecret depende de provider/secret storage lento -> timeout 3s.
-- “tid” en M2M: hoy es slug; si más adelante querés UUID, esto cambia claim contract.
+- â€œtidâ€ en M2M: hoy es slug; si mÃ¡s adelante querÃ©s UUID, esto cambia claim contract.
 
-Problemas gordos detectables (de diseño, no de estilo)
+Problemas gordos detectables (de diseÃ±o, no de estilo)
 ------------------------------------------------------
 1) Mezcla de responsabilidades a lo pavote:
-   - parsing + validación oauth
+   - parsing + validaciÃ³n oauth
    - lookup client / tenant
    - cache (code)
    - store selection + persist refresh
    - issuer resolution + firma
    - RBAC/metadata -> custom claims
    - hooks
-   Todo en una función.
+   Todo en una funciÃ³n.
 
 2) Identidad de tenant inconsistente (slug vs UUID):
-   - authCode.TenantID a veces es slug (según authorize)
+   - authCode.TenantID a veces es slug (segÃºn authorize)
    - CreateRefreshTokenTC a veces exige UUID (por FK)
    - refresh_token flow usa tenantSlug en calls TC
    => esto es bug waiting to happen.
@@ -211,22 +211,22 @@ Problemas gordos detectables (de diseño, no de estilo)
 3) Hash formats inconsistentes:
    - SHA256Base64URL vs SHA256Hex (aparece en legacy TC path)
    - y encima el introspect/revoke usan SHA256Base64URL
-   => si guardás con hex y buscás con base64url, no lo encontrás nunca.
+   => si guardÃ¡s con hex y buscÃ¡s con base64url, no lo encontrÃ¡s nunca.
 
 4) Cache key inconsistente entre handlers:
-   - acá usa "code:"+code
+   - acÃ¡ usa "code:"+code
    - consent handler usa "oidc:code:"+SHA256Base64URL(code)
-   => hay dos “familias” de codes. Si mezclás flows, invalid_grant.
+   => hay dos â€œfamiliasâ€ de codes. Si mezclÃ¡s flows, invalid_grant.
 
 5) Timeout fijo 3s para TODO:
    - en prod con DB medio lenta o provider remoto, te va a cortar piernas.
 
-Cómo separarlo bien (V2) — por capas y por caminos (bien concreto)
+CÃ³mo separarlo bien (V2) â€” por capas y por caminos (bien concreto)
 ==================================================================
 
 Objetivo
 --------
-Que el handler quede como “controller” finito:
+Que el handler quede como â€œcontrollerâ€ finito:
 - parsea request
 - llama a un service por grant_type
 - traduce errores a OAuth JSON
@@ -239,7 +239,7 @@ Carpeta sugerida
   token_dtos.go                // request/response structs + validation
   token_errors.go              // mapping a {error, error_description}
   services/
-    token_service.go           // interface + orchestración general
+    token_service.go           // interface + orchestraciÃ³n general
     auth_code_service.go       // GrantAuthorizationCode
     refresh_service.go         // GrantRefreshToken
     client_credentials_service.go // GrantClientCredentials
@@ -263,8 +263,8 @@ Carpeta sugerida
 Responsabilidad:
 - Enforce POST
 - Parse form (64KB)
-- Crear “request context” (timeout configurable)
-- Construir DTO según grant_type
+- Crear â€œrequest contextâ€ (timeout configurable)
+- Construir DTO segÃºn grant_type
 - Llamar `TokenService.Exchange(ctx, dto)`
 - Responder JSON no-store
 
@@ -274,7 +274,7 @@ DTOs (ejemplo mental):
 - ClientCredentialsRequest { clientID, clientSecret, scope }
 
 Errores:
-- Mapear a OAuth estándar:
+- Mapear a OAuth estÃ¡ndar:
   - invalid_request
   - invalid_client
   - invalid_grant
@@ -283,7 +283,7 @@ Errores:
   - server_error
 Y siempre setear no-store.
 
-2) Service por grant (negocio/orquestación)
+2) Service por grant (negocio/orquestaciÃ³n)
 -------------------------------------------
 Cada grant en su servicio con un flujo claro y testeable.
 
@@ -320,7 +320,7 @@ C) ClientCredentialsService.Exchange(...)
   5) issue access sub=clientID
   6) return response
 
-3) Ports (interfaces) — donde se corta lo feo
+3) Ports (interfaces) â€” donde se corta lo feo
 ---------------------------------------------
 A) TenantResolver / ClientRegistry
 - ClientRegistry:
@@ -333,7 +333,7 @@ A) TenantResolver / ClientRegistry
 
 B) CodeStore (cache)
 - Consume(code string) (*AuthCodePayload, error)
-- Store(payload) (si el authorize lo hace acá también)
+- Store(payload) (si el authorize lo hace acÃ¡ tambiÃ©n)
 Regla: UN SOLO esquema de key:
 - "oidc:code:"+code (raw) o hash, pero **uno**.
 Yo prefiero hash:
@@ -341,14 +341,14 @@ Yo prefiero hash:
 porque te evita keys enormes y logs con token crudo.
 
 C) RefreshTokensRepository (UNIFICAR)
-Este es EL punto más importante.
-Definí una interfaz única:
+Este es EL punto mÃ¡s importante.
+DefinÃ­ una interfaz Ãºnica:
 - Create(ctx, tenantUUID, clientIDText, userID, ttl) (rawToken string, err)
 - GetByRaw(ctx, tenantUUID, clientIDText, rawToken) (*RefreshToken, err)
 - Revoke(ctx, tenantUUID, tokenID)
 - Rotate(ctx, tenantUUID, clientIDText, rawToken, ttl) (newRaw string, err)
 
-Y adentro decidís:
+Y adentro decidÃ­s:
 - siempre persistir hash con el MISMO algoritmo (ej SHA256Base64URL)
 - nunca mezclar hex/base64url
 
@@ -367,16 +367,16 @@ F) HooksPort
 - ApplyIDClaimsHook(...)
 Como un decorator que modifica maps.
 
-4) Qué queda en cada capa (resumen ultra claro)
+4) QuÃ© queda en cada capa (resumen ultra claro)
 -----------------------------------------------
 HTTP Controller:
-- parse + validate “shape” de request
+- parse + validate â€œshapeâ€ de request
 - mapping errores oauth
 - no-store headers
 
 Services:
-- orquestación del grant
-- decisiones (rotación, scopes, acr/amr)
+- orquestaciÃ³n del grant
+- decisiones (rotaciÃ³n, scopes, acr/amr)
 - llama a ports
 
 Adapters:
@@ -394,14 +394,14 @@ Contrato interno recomendado (para no repetir bugs)
 - Hash de refresh token SIEMPRE:
   - `tokens.SHA256Base64URL(raw)` (y listo)
 - Key de auth code SIEMPRE:
-  - prefijo único + hash (no raw) o raw consistente en TODO el sistema
-  - y “consume” siempre borra
+  - prefijo Ãºnico + hash (no raw) o raw consistente en TODO el sistema
+  - y â€œconsumeâ€ siempre borra
 
-Chequeos extra que yo metería (sin cambiar tu producto)
+Chequeos extra que yo meterÃ­a (sin cambiar tu producto)
 --------------------------------------------------------
 - Client auth en authorization_code (confidential):
-  - hoy está TODO commented: cualquiera con code+verifier puede canjear si roba code.
-  - mínimo: si client.Type == confidential => exigir secret o private_key_jwt.
+  - hoy estÃ¡ TODO commented: cualquiera con code+verifier puede canjear si roba code.
+  - mÃ­nimo: si client.Type == confidential => exigir secret o private_key_jwt.
 - Rate limit por IP/client_id en /token (especial refresh).
 - Observabilidad:
   - loggear request_id + tenantSlug + clientID + grant_type (sin tokens)
@@ -412,7 +412,6 @@ Chequeos extra que yo metería (sin cambiar tu producto)
     - 50ms para cache
   con context sub-timeouts adentro del service.
 
-Si querés, el próximo paso te lo dejo como “skeleton” de archivos (nombres + interfaces + firmas) para que lo empieces a cortar sin dolor, y te marco exactamente qué pedacitos de este handler van a cada service/adapter.
 */
 
 package handlers
@@ -429,12 +428,12 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/app/v1"
 	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
-	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane"
+	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
 	"github.com/dropDatabas3/hellojohn/internal/http/v1/helpers"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
 )
 
 // compute at_hash = base64url( left-most 128 bits of SHA-256(access_token) )
@@ -445,7 +444,7 @@ func atHash(accessToken string) string {
 
 func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Timeout de 3s para endpoint crítico
+		// Timeout de 3s para endpoint crÃ­tico
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		defer cancel()
 		r = r.WithContext(ctx)
@@ -475,14 +474,14 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 		// OAuth2: application/x-www-form-urlencoded
 		r.Body = http.MaxBytesReader(w, r.Body, 64<<10) // 64KB
 		if err := r.ParseForm(); err != nil {
-			httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "form inválido", 2201)
+			httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "form invÃ¡lido", 2201)
 			return
 		}
 		grantType := strings.TrimSpace(r.PostForm.Get("grant_type"))
 
 		switch grantType {
 
-		// ───────────────── authorization_code + PKCE ─────────────────
+		// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ authorization_code + PKCE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		case "authorization_code":
 			code := strings.TrimSpace(r.PostForm.Get("code"))
 			redirectURI := strings.TrimSpace(r.PostForm.Get("redirect_uri"))
@@ -490,7 +489,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			codeVerifier := strings.TrimSpace(r.PostForm.Get("code_verifier"))
 
 			if code == "" || redirectURI == "" || clientID == "" || codeVerifier == "" {
-				httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "faltan parámetros", 2203)
+				httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "faltan parÃ¡metros", 2203)
 				return
 			}
 
@@ -530,7 +529,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			log.Printf("DEBUG: oauth_token attempting to retrieve key: %s", key)
 			data, ok := c.Cache.Get(key)
 			if !ok {
-				httpx.WriteError(w, http.StatusBadRequest, "invalid_grant", "authorization code inválido", 2205)
+				httpx.WriteError(w, http.StatusBadRequest, "invalid_grant", "authorization code invÃ¡lido", 2205)
 				return
 			}
 			c.Cache.Delete(key)
@@ -546,7 +545,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				return
 			}
 			// Validar contra el UUID interno del client (ac.ClientID contiene cl.ID desde authorize)
-			// Aceptamos que en el form venga el client_id "público": lo resolvemos y comparamos con cl.ID
+			// Aceptamos que en el form venga el client_id "pÃºblico": lo resolvemos y comparamos con cl.ID
 			if ac.ClientID != cl.ID || ac.RedirectURI != redirectURI {
 				httpx.WriteError(w, http.StatusBadRequest, "invalid_grant", "client/redirect_uri no coinciden", 2208)
 				return
@@ -554,7 +553,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			// PKCE S256
 			verifierHash := tokens.SHA256Base64URL(codeVerifier)
 			if !strings.EqualFold(ac.ChallengeMethod, "S256") || !strings.EqualFold(ac.CodeChallenge, verifierHash) {
-				httpx.WriteError(w, http.StatusBadRequest, "invalid_grant", "PKCE inválido", 2209)
+				httpx.WriteError(w, http.StatusBadRequest, "invalid_grant", "PKCE invÃ¡lido", 2209)
 				return
 			}
 
@@ -583,7 +582,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			effIss := c.Issuer.Iss
 			if cpctx.Provider != nil {
 				if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil {
-					effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+					effIss = jwtx.ResolveIssuer(c.Issuer.Iss, string(ten.Settings.IssuerMode), ten.Slug, ten.Settings.IssuerOverride)
 				}
 			}
 
@@ -607,7 +606,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				return
 			}
 
-			// Refresh (rotación igual que en /v1/auth/*)
+			// Refresh (rotaciÃ³n igual que en /v1/auth/*)
 			var rawRT string
 			if !hasStore {
 				httpx.WriteError(w, http.StatusServiceUnavailable, "db_not_configured", "no hay base de datos configurada para emitir refresh tokens", 2212)
@@ -626,7 +625,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 					}
 				}
 				if realTenantID == "" {
-					// Fallback: si no pudimos resolver (raro), asumimos que el store aceptará el slug o fallará
+					// Fallback: si no pudimos resolver (raro), asumimos que el store aceptarÃ¡ el slug o fallarÃ¡
 					realTenantID = ac.TenantID
 				}
 
@@ -674,7 +673,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				"at_hash": atHash(access),
 				"azp":     clientID,
 				"acr":     acrVal,
-				"amr":     accessAMR, // añadir AMR al ID Token para interoperabilidad
+				"amr":     accessAMR, // aÃ±adir AMR al ID Token para interoperabilidad
 			}
 			idExtra := map[string]any{}
 			if ac.Nonce != "" {
@@ -703,7 +702,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			}
 			httpx.WriteJSON(w, http.StatusOK, resp)
 
-		// ───────────────── refresh_token (rotación) ─────────────────
+		// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ refresh_token (rotaciÃ³n) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		case "refresh_token":
 			clientID := strings.TrimSpace(r.PostForm.Get("client_id"))
 			refreshToken := strings.TrimSpace(r.PostForm.Get("refresh_token"))
@@ -751,7 +750,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 
 			var rt *core.RefreshToken
 			if tcr, ok := activeStore.(tcRefresh); ok {
-				// Usar método TC con tenant+client
+				// Usar mÃ©todo TC con tenant+client
 				hash := tokens.SHA256Base64URL(refreshToken)
 				rt, err = tcr.GetRefreshTokenByHashTC(ctx, tenantSlug, client.ClientID, hash)
 				if err != nil {
@@ -759,7 +758,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 					if err == core.ErrNotFound {
 						status = http.StatusBadRequest
 					}
-					httpx.WriteError(w, status, "invalid_grant", "refresh inválido", 2222)
+					httpx.WriteError(w, status, "invalid_grant", "refresh invÃ¡lido", 2222)
 					return
 				}
 			} else if lg, ok := activeStore.(legacyGet); ok {
@@ -771,7 +770,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 					if err == core.ErrNotFound {
 						status = http.StatusBadRequest
 					}
-					httpx.WriteError(w, status, "invalid_grant", "refresh inválido", 2222)
+					httpx.WriteError(w, status, "invalid_grant", "refresh invÃ¡lido", 2222)
 					return
 				}
 			} else {
@@ -788,7 +787,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				"tid": cl.TenantID,
 				"amr": []string{"refresh"},
 				"acr": "urn:hellojohn:loa:1",
-				"scp": []string{}, // refresh flow: sin scopes explícitos aquí
+				"scp": []string{}, // refresh flow: sin scopes explÃ­citos aquÃ­
 			}
 			custom := map[string]any{}
 
@@ -807,7 +806,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				effIss := c.Issuer.Iss
 				if cpctx.Provider != nil {
 					if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil {
-						effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+						effIss = jwtx.ResolveIssuer(c.Issuer.Iss, string(ten.Settings.IssuerMode), ten.Slug, ten.Settings.IssuerOverride)
 					}
 				}
 				custom = helpers.PutSystemClaimsV2(custom, effIss, u.Metadata, roles, perms)
@@ -817,7 +816,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			effIss := c.Issuer.Iss
 			if cpctx.Provider != nil {
 				if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil {
-					effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+					effIss = jwtx.ResolveIssuer(c.Issuer.Iss, string(ten.Settings.IssuerMode), ten.Slug, ten.Settings.IssuerOverride)
 				}
 			}
 			access, exp, err := c.Issuer.IssueAccessForTenant(tenantSlug, effIss, rt.UserID, clientID, std, custom)
@@ -862,7 +861,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				"refresh_token": newRT,
 			})
 
-		// ───────────────── client_credentials (M2M) ─────────────────
+		// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ client_credentials (M2M) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 		case "client_credentials":
 			clientID := strings.TrimSpace(r.PostForm.Get("client_id"))
 			clientSecret := strings.TrimSpace(r.PostForm.Get("client_secret"))
@@ -886,7 +885,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 				return
 			}
 			if err := helpers.ValidateClientSecret(ctx, r, tenantSlug, client, clientSecret); err != nil {
-				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "credenciales inválidas", 2233)
+				httpx.WriteError(w, http.StatusUnauthorized, "invalid_client", "credenciales invÃ¡lidas", 2233)
 				return
 			}
 
@@ -932,7 +931,7 @@ func NewOAuthTokenHandler(c *app.Container, refreshTTL time.Duration) http.Handl
 			effIss := c.Issuer.Iss
 			if cpctx.Provider != nil {
 				if ten, errTen := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug); errTen == nil && ten != nil {
-					effIss = jwtx.ResolveIssuer(c.Issuer.Iss, ten.Settings.IssuerMode, ten.Slug, ten.Settings.IssuerOverride)
+					effIss = jwtx.ResolveIssuer(c.Issuer.Iss, string(ten.Settings.IssuerMode), ten.Slug, ten.Settings.IssuerOverride)
 				}
 			}
 

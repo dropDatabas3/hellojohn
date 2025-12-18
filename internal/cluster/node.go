@@ -11,12 +11,16 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	appmetrics "github.com/dropDatabas3/hellojohn/internal/metrics"
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
 )
+
+// membershipTimeout es el timeout por defecto para operaciones de membership (AddVoter, RemoveServer).
+const membershipTimeout = 10 * time.Second
 
 // Node es un wrapper liviano alrededor de *raft.Raft
 // que provee helpers de Apply/Leader/Close y un constructor
@@ -27,6 +31,7 @@ type Node struct {
 	id           raft.ServerID
 	addr         raft.ServerAddress
 	peers        map[string]string // nodeID -> raftAddr
+	membershipMu sync.Mutex        // protege operaciones de membership (AddVoter, RemoveServer)
 }
 
 type NodeOptions struct {
@@ -38,6 +43,10 @@ type NodeOptions struct {
 	// BootstrapPreferred: si true, este nodo intentará ser el bootstrapper inicial cuando no hay estado.
 	// Úsese solo en un nodo. Si es false, se elige el de menor NodeID.
 	BootstrapPreferred bool
+
+	// DisableBootstrap: si true, este nodo NO hará bootstrap aunque no tenga estado previo.
+	// Útil para nodos que van a unirse dinámicamente a un cluster existente ("join-only" mode).
+	DisableBootstrap bool
 
 	// TLS (optional). If enabled, create a TLS stream layer with mTLS.
 	RaftTLSEnable     bool
@@ -117,43 +126,49 @@ func NewNode(opts NodeOptions) (*Node, error) {
 		return nil, fmt.Errorf("check state: %w", err)
 	}
 	if !hasState {
-		peerCount := len(opts.Peers)
-		if peerCount <= 1 {
-			// Single node default bootstrap
-			conf := raft.Configuration{Servers: []raft.Server{{ID: cfg.LocalID, Address: trans.LocalAddr()}}}
-			if err := r.BootstrapCluster(conf).Error(); err != nil {
-				return nil, fmt.Errorf("bootstrap: %w", err)
-			}
-			log.Printf("[cluster] bootstrapped single-node cluster: id=%s addr=%s", opts.NodeID, opts.RaftAddr)
+		// Join-only mode: si DisableBootstrap está activo, no hacemos bootstrap.
+		// El nodo esperará a ser agregado dinámicamente al cluster por el leader.
+		if opts.DisableBootstrap {
+			log.Printf("[cluster] join-only mode: skipping bootstrap id=%s addr=%s", opts.NodeID, opts.RaftAddr)
 		} else {
-			// Static bootstrap on a single, deterministic node (smallest NodeID)
-			smallest := opts.NodeID
-			for k := range opts.Peers {
-				if k < smallest {
-					smallest = k
-				}
-			}
-			// Decide bootstrapper: prefer explicit flag if set; else pick smallest
-			shouldBootstrap := false
-			if opts.BootstrapPreferred {
-				shouldBootstrap = true
-			} else if opts.NodeID == smallest {
-				shouldBootstrap = true
-			}
-			if shouldBootstrap {
-				// Build full server list from peers
-				var servers []raft.Server
-				for id, addr := range opts.Peers {
-					servers = append(servers, raft.Server{ID: raft.ServerID(id), Address: raft.ServerAddress(addr)})
-				}
-				conf := raft.Configuration{Servers: servers}
+			peerCount := len(opts.Peers)
+			if peerCount <= 1 {
+				// Single node default bootstrap
+				conf := raft.Configuration{Servers: []raft.Server{{ID: cfg.LocalID, Address: trans.LocalAddr()}}}
 				if err := r.BootstrapCluster(conf).Error(); err != nil {
-					return nil, fmt.Errorf("bootstrap(static): %w", err)
+					return nil, fmt.Errorf("bootstrap: %w", err)
 				}
-				log.Printf("[cluster] bootstrapped static cluster(%d). leader-candidate id=%s addr=%s", len(servers), opts.NodeID, opts.RaftAddr)
+				log.Printf("[cluster] bootstrapped single-node cluster: id=%s addr=%s", opts.NodeID, opts.RaftAddr)
 			} else {
-				log.Printf("[cluster] waiting to join static cluster. local id=%s addr=%s bootstrap=%s", opts.NodeID, opts.RaftAddr, smallest)
-				// No bootstrap here; leader will contact us using transport as we are in the config
+				// Static bootstrap on a single, deterministic node (smallest NodeID)
+				smallest := opts.NodeID
+				for k := range opts.Peers {
+					if k < smallest {
+						smallest = k
+					}
+				}
+				// Decide bootstrapper: prefer explicit flag if set; else pick smallest
+				shouldBootstrap := false
+				if opts.BootstrapPreferred {
+					shouldBootstrap = true
+				} else if opts.NodeID == smallest {
+					shouldBootstrap = true
+				}
+				if shouldBootstrap {
+					// Build full server list from peers
+					var servers []raft.Server
+					for id, addr := range opts.Peers {
+						servers = append(servers, raft.Server{ID: raft.ServerID(id), Address: raft.ServerAddress(addr)})
+					}
+					conf := raft.Configuration{Servers: servers}
+					if err := r.BootstrapCluster(conf).Error(); err != nil {
+						return nil, fmt.Errorf("bootstrap(static): %w", err)
+					}
+					log.Printf("[cluster] bootstrapped static cluster(%d). leader-candidate id=%s addr=%s", len(servers), opts.NodeID, opts.RaftAddr)
+				} else {
+					log.Printf("[cluster] waiting to join static cluster. local id=%s addr=%s bootstrap=%s", opts.NodeID, opts.RaftAddr, smallest)
+					// No bootstrap here; leader will contact us using transport as we are in the config
+				}
 			}
 		}
 	}
@@ -181,8 +196,17 @@ func (n *Node) Apply(ctx context.Context, m Mutation) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
+	return n.ApplyBytes(ctx, buf)
+}
+
+// ApplyBytes envía bytes raw al Raft log (sin re-serializar).
+// Use esto cuando ya tenés JSON pre-serializado.
+func (n *Node) ApplyBytes(ctx context.Context, data []byte) (uint64, error) {
+	if n == nil || n.r == nil {
+		return 0, errors.New("raft not initialized")
+	}
 	start := time.Now()
-	fut := n.r.Apply(buf, n.applyTimeout)
+	fut := n.r.Apply(data, n.applyTimeout)
 
 	// Respetar cancelación de ctx mientras esperamos el futuro.
 	done := make(chan struct{})
@@ -312,4 +336,150 @@ func (n *Node) Stats() map[string]string {
 		return map[string]string{}
 	}
 	return n.r.Stats()
+}
+
+// ─── Membership helpers ───
+
+// GetConfiguration devuelve la configuración actual del cluster Raft.
+// Respeta ctx.Done() mientras espera el future.
+func (n *Node) GetConfiguration(ctx context.Context) (raft.Configuration, error) {
+	if n == nil || n.r == nil {
+		return raft.Configuration{}, errors.New("raft not initialized")
+	}
+	fut := n.r.GetConfiguration()
+
+	done := make(chan struct{})
+	var err error
+	go func() {
+		err = fut.Error()
+		close(done)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return raft.Configuration{}, ctx.Err()
+	case <-done:
+		if err != nil {
+			return raft.Configuration{}, err
+		}
+		return fut.Configuration(), nil
+	}
+}
+
+// AddVoter agrega un nodo votante al cluster.
+// Comportamiento idempotente:
+//   - Si el server ya existe con la misma dirección, retorna nil.
+//   - Si el server existe con dirección distinta, primero se remueve y luego se agrega con la nueva dirección.
+//     (Esto maneja el caso de un nodo que cambió de IP/puerto, ej. reinicio con nueva dirección.)
+func (n *Node) AddVoter(ctx context.Context, id, addr string) error {
+	if n == nil || n.r == nil {
+		return errors.New("raft not initialized")
+	}
+	if id == "" {
+		return errors.New("id cannot be empty")
+	}
+	if addr == "" {
+		return errors.New("addr cannot be empty")
+	}
+
+	n.membershipMu.Lock()
+	defer n.membershipMu.Unlock()
+
+	// Leer configuración actual para verificar idempotencia
+	config, err := n.GetConfiguration(ctx)
+	if err != nil {
+		return fmt.Errorf("get configuration: %w", err)
+	}
+
+	serverID := raft.ServerID(id)
+	serverAddr := raft.ServerAddress(addr)
+
+	// Buscar si el server ya existe
+	for _, srv := range config.Servers {
+		if srv.ID == serverID {
+			if srv.Address == serverAddr {
+				// Idempotente: ya existe con la misma dirección
+				return nil
+			}
+			// Existe pero con dirección diferente: removemos primero y agregamos con nueva dirección.
+			// Estrategia documentada: esto permite que un nodo cambie de dirección sin errores de duplicado.
+			if err := n.removeServerLocked(ctx, id); err != nil {
+				return fmt.Errorf("remove server before re-add: %w", err)
+			}
+			break
+		}
+	}
+
+	// Agregar nuevo voter
+	fut := n.r.AddVoter(serverID, serverAddr, 0, membershipTimeout)
+
+	done := make(chan struct{})
+	var addErr error
+	go func() {
+		addErr = fut.Error()
+		close(done)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-done:
+		return addErr
+	}
+}
+
+// RemoveServer remueve un nodo del cluster.
+// Idempotente: si el server no existe, retorna nil.
+func (n *Node) RemoveServer(ctx context.Context, id string) error {
+	if n == nil || n.r == nil {
+		return errors.New("raft not initialized")
+	}
+	if id == "" {
+		return errors.New("id cannot be empty")
+	}
+
+	n.membershipMu.Lock()
+	defer n.membershipMu.Unlock()
+
+	return n.removeServerLocked(ctx, id)
+}
+
+// removeServerLocked es la implementación interna que asume que membershipMu ya está bloqueado.
+func (n *Node) removeServerLocked(ctx context.Context, id string) error {
+	// Leer configuración actual para verificar idempotencia
+	config, err := n.GetConfiguration(ctx)
+	if err != nil {
+		return fmt.Errorf("get configuration: %w", err)
+	}
+
+	serverID := raft.ServerID(id)
+
+	// Verificar si el server existe
+	found := false
+	for _, srv := range config.Servers {
+		if srv.ID == serverID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		// Idempotente: no existe, nada que hacer
+		return nil
+	}
+
+	fut := n.r.RemoveServer(serverID, 0, membershipTimeout)
+
+	done := make(chan struct{})
+	var removeErr error
+	go func() {
+		removeErr = fut.Error()
+		close(done)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-done:
+		return removeErr
+	}
 }

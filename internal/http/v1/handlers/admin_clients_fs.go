@@ -154,8 +154,8 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/app/v1"
 	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
-	"github.com/dropDatabas3/hellojohn/internal/cluster"
-	cp "github.com/dropDatabas3/hellojohn/internal/controlplane"
+	clusterv1 "github.com/dropDatabas3/hellojohn/internal/cluster/v1"
+	cp "github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
 	"github.com/google/uuid"
 )
@@ -235,7 +235,7 @@ func (h *adminClientsFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if h.container != nil && h.container.ClusterNode != nil {
-				dto := cluster.UpsertClientDTO{
+				dto := clusterv1.UpsertClientDTO{
 					Name:                     in.Name,
 					ClientID:                 in.ClientID,
 					Type:                     in.Type,
@@ -249,8 +249,8 @@ func (h *adminClientsFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					VerifyEmailURL:           in.VerifyEmailURL,
 				}
 				payload, _ := json.Marshal(dto)
-				m := cluster.Mutation{
-					Type:       cluster.MutationUpsertClient,
+				m := clusterv1.Mutation{
+					Type:       clusterv1.MutationUpsertClient,
 					TenantSlug: slug,
 					TsUnix:     time.Now().Unix(),
 					Payload:    payload,
@@ -299,7 +299,7 @@ func (h *adminClientsFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// forzamos el clientId del path si no vino en body (o lo pisamos)
 			in.ClientID = clientID
 			if h.container != nil && h.container.ClusterNode != nil {
-				dto := cluster.UpsertClientDTO{
+				dto := clusterv1.UpsertClientDTO{
 					Name:                     in.Name,
 					ClientID:                 in.ClientID,
 					Type:                     in.Type,
@@ -313,8 +313,8 @@ func (h *adminClientsFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					VerifyEmailURL:           in.VerifyEmailURL,
 				}
 				payload, _ := json.Marshal(dto)
-				m := cluster.Mutation{
-					Type:       cluster.MutationUpsertClient,
+				m := clusterv1.Mutation{
+					Type:       clusterv1.MutationUpsertClient,
 					TenantSlug: slug,
 					TsUnix:     time.Now().Unix(),
 					Payload:    payload,
@@ -344,8 +344,8 @@ func (h *adminClientsFS) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case http.MethodDelete:
 			// If cluster is present, apply mutation; otherwise direct delete
 			if h.container != nil && h.container.ClusterNode != nil {
-				payload, _ := json.Marshal(cluster.DeleteClientDTO{ClientID: clientID})
-				m := cluster.Mutation{Type: cluster.MutationDeleteClient, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
+				payload, _ := json.Marshal(clusterv1.DeleteClientDTO{ClientID: clientID})
+				m := clusterv1.Mutation{Type: clusterv1.MutationDeleteClient, TenantSlug: slug, TsUnix: time.Now().Unix(), Payload: payload}
 				if _, err := h.container.ClusterNode.Apply(r.Context(), m); err != nil {
 					httpx.WriteError(w, http.StatusServiceUnavailable, "apply_failed", err.Error(), 4002)
 					return
