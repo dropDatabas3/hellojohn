@@ -9,24 +9,24 @@ ControlPlane V2 es la **capa de servicio** para operaciones del Control Plane (c
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         HANDLERS                                │
-│  AdminHandler.CreateClient(w, r)                               │
+│  AdminHandler.CreateClient(w, r)                                │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                   CONTROLPLANE SERVICE                          │
-│  cp := controlplane.NewService(storeMgr)                       │
-│  cp.CreateClient(ctx, slug, input)                             │
-│    1. Validar ClientID, RedirectURIs                           │
-│    2. Cifrar Secret (confidential clients)                     │
-│    3. Delegar a Store V2                                       │
+│  cp := controlplane.NewService(storeMgr)                        │
+│  cp.CreateClient(ctx, slug, input)                              │
+│    1. Validar ClientID, RedirectURIs                            │
+│    2. Cifrar Secret (confidential clients)                      │
+│    3. Delegar a Store V2                                        │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                       STORE V2                                  │
-│  store.ConfigAccess().Clients(slug).Create(...)                │
-│    → Escribe clients.yaml (FS adapter)                         │
+│  store.ConfigAccess().Clients(slug).Create(...)                 │
+│    → Escribe clients.yaml (FS adapter)                          │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

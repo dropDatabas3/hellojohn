@@ -1,3 +1,30 @@
+// Package tenantcache manages per-tenant cache connections with a pool.
+//
+// Deprecated: This package is superseded by internal/store/v2 (Factory).
+// For V2 refactoring, use TenantDataAccess.Cache() which automatically resolves
+// the tenant's cache configuration from repository.TenantSettings.Cache.
+//
+// Migration guide:
+//
+//	// BEFORE (V1):
+//	import "github.com/dropDatabas3/hellojohn/internal/infra/v1/tenantcache"
+//	mgr, _ := tenantcache.New(tenantcache.Config{})
+//	client, _ := mgr.Get(ctx, "acme")
+//	client.Set(ctx, "key", "value", 5*time.Minute)
+//
+//	// AFTER (V2 - via Store V2):
+//	import storev2 "github.com/dropDatabas3/hellojohn/internal/store/v2"
+//	dal, _ := storev2.NewFactory(ctx, storev2.FactoryConfig{FSRoot: "./data"})
+//	tda, _ := dal.ForTenant(ctx, "acme")
+//	tda.Cache().Set(ctx, "key", "value", 5*time.Minute)
+//
+//	// Or via CacheRepository interface:
+//	tda.CacheRepo().Set(ctx, "key", []byte("value"), 5*time.Minute)
+//
+// The Factory automatically:
+//   - Reads cache config from tenant.Settings.Cache (FS-based)
+//   - Falls back to in-memory cache if no config or Redis unavailable
+//   - Pools connections per tenant with lazy initialization
 package tenantcache
 
 import (
