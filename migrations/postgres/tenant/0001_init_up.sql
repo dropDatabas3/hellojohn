@@ -33,6 +33,7 @@ ALTER TABLE app_user ADD COLUMN IF NOT EXISTS picture TEXT;
 ALTER TABLE app_user ADD COLUMN IF NOT EXISTS locale TEXT;
 ALTER TABLE app_user ADD COLUMN IF NOT EXISTS disabled_until TIMESTAMPTZ;
 ALTER TABLE app_user ADD COLUMN IF NOT EXISTS source_client_id TEXT;
+ALTER TABLE app_user ADD COLUMN IF NOT EXISTS language TEXT DEFAULT '';
 
 -- 2. Identities (Auth Providers)
 CREATE TABLE IF NOT EXISTS identity (

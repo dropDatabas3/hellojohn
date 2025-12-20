@@ -11,6 +11,7 @@ type Tenant struct {
 	Slug        string
 	Name        string
 	DisplayName string
+	Language    string // Idioma por defecto del tenant ("es", "en")
 	Settings    TenantSettings
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
@@ -84,7 +85,9 @@ type UserFieldDefinition struct {
 
 // MailingSettings configuración de templates de email.
 type MailingSettings struct {
-	Templates map[string]EmailTemplate
+	// Templates organizados por idioma: map[lang]map[templateID]EmailTemplate
+	// Ejemplo: Templates["es"]["verify_email"] = EmailTemplate{...}
+	Templates map[string]map[string]EmailTemplate
 }
 
 // EmailTemplate un template de email.

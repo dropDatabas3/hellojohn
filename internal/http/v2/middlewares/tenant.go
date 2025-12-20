@@ -5,38 +5,102 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/dropDatabas3/hellojohn/internal/http/v2/helpers"
-	"github.com/dropDatabas3/hellojohn/internal/store/v2"
+	"github.com/dropDatabas3/hellojohn/internal/http/v2/errors"
+	storev2 "github.com/dropDatabas3/hellojohn/internal/store/v2"
 )
+
+// =================================================================================
+// TENANT RESOLVER
+// =================================================================================
 
 // TenantResolver define cómo obtener el tenant slug de un request.
 type TenantResolver func(r *http.Request) string
 
-// HeaderTenantResolver resuelve usando el header X-Tenant-ID.
+// HeaderTenantResolver resuelve usando un header específico.
 func HeaderTenantResolver(headerName string) TenantResolver {
 	if headerName == "" {
 		headerName = "X-Tenant-ID"
 	}
 	return func(r *http.Request) string {
-		return r.Header.Get(headerName)
+		return strings.TrimSpace(r.Header.Get(headerName))
 	}
 }
+
+// QueryTenantResolver resuelve usando un query parameter.
+func QueryTenantResolver(paramName string) TenantResolver {
+	if paramName == "" {
+		paramName = "tenant"
+	}
+	return func(r *http.Request) string {
+		return strings.TrimSpace(r.URL.Query().Get(paramName))
+	}
+}
+
+// SubdomainTenantResolver resuelve desde el subdominio.
+// Ej: acme.hellojohn.com -> "acme"
+func SubdomainTenantResolver() TenantResolver {
+	return func(r *http.Request) string {
+		host := r.Host
+		// Remover puerto si existe
+		if i := strings.Index(host, ":"); i > 0 {
+			host = host[:i]
+		}
+		// Si hay más de un punto, el primer segmento es el subdominio
+		if strings.Count(host, ".") > 1 {
+			parts := strings.Split(host, ".")
+			return parts[0]
+		}
+		return ""
+	}
+}
+
+// ChainResolvers combina múltiples resolvers, retornando el primer resultado no vacío.
+func ChainResolvers(resolvers ...TenantResolver) TenantResolver {
+	return func(r *http.Request) string {
+		for _, resolver := range resolvers {
+			if slug := resolver(r); slug != "" {
+				return slug
+			}
+		}
+		return ""
+	}
+}
+
+// =================================================================================
+// TENANT MIDDLEWARE
+// =================================================================================
 
 // TenantMiddleware inyecta el TenantDataAccess en el contexto.
 type TenantMiddleware struct {
-	manager  *store.Manager
+	manager  storev2.DataAccessLayer
 	resolver TenantResolver
+	optional bool // Si es true, no falla si no hay tenant
+}
+
+// TenantMiddlewareConfig configura el middleware de tenant.
+type TenantMiddlewareConfig struct {
+	Manager  storev2.DataAccessLayer
+	Resolver TenantResolver
+	Optional bool // Si es true, no falla si no hay tenant
 }
 
 // NewTenantMiddleware crea un nuevo middleware de tenant.
-// Si resolver es nil, usa HeaderTenantResolver("X-Tenant-ID").
-func NewTenantMiddleware(mgr *store.Manager, resolver TenantResolver) *TenantMiddleware {
+// Si resolver es nil, usa la cadena: Header -> Query -> Subdomain
+func NewTenantMiddleware(cfg TenantMiddlewareConfig) *TenantMiddleware {
+	resolver := cfg.Resolver
 	if resolver == nil {
-		resolver = HeaderTenantResolver("")
+		resolver = ChainResolvers(
+			HeaderTenantResolver("X-Tenant-ID"),
+			HeaderTenantResolver("X-Tenant-Slug"),
+			QueryTenantResolver("tenant"),
+			QueryTenantResolver("tenant_id"),
+			SubdomainTenantResolver(),
+		)
 	}
 	return &TenantMiddleware{
-		manager:  mgr,
+		manager:  cfg.Manager,
 		resolver: resolver,
+		optional: cfg.Optional,
 	}
 }
 
@@ -44,37 +108,78 @@ func NewTenantMiddleware(mgr *store.Manager, resolver TenantResolver) *TenantMid
 func (m *TenantMiddleware) Handle(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		slug := m.resolver(r)
-		if slug == "" {
-			// Intento fallback: Subdominio (ej: acme.hellojohn.com)
-			host := r.Host
-			if strings.Count(host, ".") > 1 {
-				parts := strings.Split(host, ".")
-				slug = parts[0]
-			}
-		}
 
 		if slug == "" {
-			helpers.WriteErrorJSON(w, http.StatusBadRequest, "missing tenant identifier")
+			if m.optional {
+				next.ServeHTTP(w, r)
+				return
+			}
+			errors.WriteError(w, errors.ErrBadRequest.WithDetail("missing tenant identifier"))
 			return
 		}
 
-		// Obtener Data Access desde Store V2 Manager
-		// El Manager ya tiene cache interno, por lo que esta llamada es rápida.
+		// Obtener Data Access desde Store V2
+		// El DAL tiene cache interno, por lo que esta llamada es rápida.
 		tda, err := m.manager.ForTenant(r.Context(), slug)
 		if err != nil {
-			log.Printf("TenantMiddleware: error loading tenant %q: %v", slug, err)
-			// Asumimos que si hay error es porque el tenant no existe o no se puede cargar
-			// Podríamos diferenciar errores del store en el futuro.
-			helpers.WriteErrorJSON(w, http.StatusNotFound, "tenant not found")
+			log.Printf(`{"level":"warn","msg":"tenant_load_error","slug":"%s","err":"%v"}`, slug, err)
+			if m.optional {
+				next.ServeHTTP(w, r)
+				return
+			}
+			errors.WriteError(w, errors.ErrTenantNotFound.WithDetail(slug))
 			return
 		}
 
-		// Inyectar en contexto
-		ctx := helpers.WithTenantDataAccess(r.Context(), tda)
-
-		// También inyectar logger con prefijo tenant si es necesario
-		// ...
+		// Inyectar en contexto usando el helper unificado
+		ctx := WithTenant(r.Context(), tda)
 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// =================================================================================
+// HELPER MIDDLEWARE FUNCTION
+// =================================================================================
+
+// WithTenantResolution crea un middleware funcional para resolución de tenant.
+// Más simple que TenantMiddleware para casos básicos.
+func WithTenantResolution(dal storev2.DataAccessLayer, optional bool) Middleware {
+	mw := NewTenantMiddleware(TenantMiddlewareConfig{
+		Manager:  dal,
+		Optional: optional,
+	})
+	return mw.Handle
+}
+
+// RequireTenant verifica que haya un tenant en el contexto.
+// Debe usarse después de WithTenantResolution.
+func RequireTenant() Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if GetTenant(r.Context()) == nil {
+				errors.WriteError(w, errors.ErrBadRequest.WithDetail("tenant required"))
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequireTenantDB verifica que el tenant tenga base de datos configurada.
+func RequireTenantDB() Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			tda := GetTenant(r.Context())
+			if tda == nil {
+				errors.WriteError(w, errors.ErrBadRequest.WithDetail("tenant required"))
+				return
+			}
+			if !tda.HasDB() {
+				errors.WriteError(w, errors.ErrServiceUnavailable.WithDetail("tenant has no database configured"))
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

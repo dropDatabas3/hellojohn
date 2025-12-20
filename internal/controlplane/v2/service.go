@@ -85,7 +85,7 @@ type Service interface {
 	ListTenants(ctx context.Context) ([]repository.Tenant, error)
 	GetTenant(ctx context.Context, slug string) (*repository.Tenant, error)
 	GetTenantByID(ctx context.Context, id string) (*repository.Tenant, error)
-	CreateTenant(ctx context.Context, name, slug string) (*repository.Tenant, error)
+	CreateTenant(ctx context.Context, name, slug string, language string) (*repository.Tenant, error)
 	UpdateTenant(ctx context.Context, tenant *repository.Tenant) error
 	DeleteTenant(ctx context.Context, slug string) error
 	UpdateTenantSettings(ctx context.Context, slug string, settings *repository.TenantSettings) error
@@ -165,7 +165,7 @@ func (s *service) GetTenantByID(ctx context.Context, id string) (*repository.Ten
 	return tenant, nil
 }
 
-func (s *service) CreateTenant(ctx context.Context, name, slug string) (*repository.Tenant, error) {
+func (s *service) CreateTenant(ctx context.Context, name, slug string, language string) (*repository.Tenant, error) {
 	// Validaciones
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("%w: name required", ErrBadInput)
@@ -177,14 +177,23 @@ func (s *service) CreateTenant(ctx context.Context, name, slug string) (*reposit
 	if !isValidSlug(slug) {
 		return nil, fmt.Errorf("%w: invalid slug format", ErrBadInput)
 	}
+	if language == "" {
+		language = DefaultLanguage // Idioma por defecto
+	}
 
 	now := time.Now().UTC()
 	tenant := &repository.Tenant{
 		ID:        uuid.NewString(),
 		Slug:      slug,
 		Name:      name,
+		Language:  language,
 		CreatedAt: now,
 		UpdatedAt: now,
+		Settings: repository.TenantSettings{
+			Mailing: &repository.MailingSettings{
+				Templates: DefaultEmailTemplates(),
+			},
+		},
 	}
 
 	if err := s.store.ConfigAccess().Tenants().Create(ctx, tenant); err != nil {

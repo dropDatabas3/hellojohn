@@ -37,7 +37,7 @@ type Service interface {
     // Tenants
     ListTenants(ctx) ([]Tenant, error)
     GetTenant(ctx, slug) (*Tenant, error)
-    CreateTenant(ctx, name, slug) (*Tenant, error)
+    CreateTenant(ctx, name, slug, language) (*Tenant, error)
     UpdateTenantSettings(ctx, slug, settings) error
     DeleteTenant(ctx, slug) error
 

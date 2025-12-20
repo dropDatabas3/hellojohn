@@ -176,7 +176,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/app/v1"
 	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/config"
-	"github.com/dropDatabas3/hellojohn/internal/email"
+	"github.com/dropDatabas3/hellojohn/internal/email/v1"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
 	"github.com/dropDatabas3/hellojohn/internal/http/v1/helpers"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"

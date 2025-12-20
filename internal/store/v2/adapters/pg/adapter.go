@@ -99,7 +99,7 @@ type userRepo struct{ pool *pgxpool.Pool }
 func (r *userRepo) GetByEmail(ctx context.Context, tenantID, email string) (*repository.User, *repository.Identity, error) {
 	const query = `
 		SELECT u.id, u.tenant_id, u.email, u.email_verified, u.name, u.given_name, u.family_name,
-		       u.picture, u.locale, u.created_at, u.metadata, u.custom_fields,
+		       u.picture, u.locale, u.language, u.source_client_id, u.created_at, u.metadata, u.custom_fields,
 		       u.disabled_at, u.disabled_until, u.disabled_reason,
 		       i.id, i.provider, i.provider_user_id, i.email, i.email_verified, i.password_hash, i.created_at
 		FROM app_user u
@@ -115,7 +115,7 @@ func (r *userRepo) GetByEmail(ctx context.Context, tenantID, email string) (*rep
 
 	err := r.pool.QueryRow(ctx, query, tenantID, email).Scan(
 		&user.ID, &user.TenantID, &user.Email, &user.EmailVerified,
-		&user.Name, &user.GivenName, &user.FamilyName, &user.Picture, &user.Locale,
+		&user.Name, &user.GivenName, &user.FamilyName, &user.Picture, &user.Locale, &user.Language, &user.SourceClientID,
 		&user.CreatedAt, &metadata, &customFields,
 		&user.DisabledAt, &user.DisabledUntil, &user.DisabledReason,
 		&identity.ID, &identity.Provider, &identity.ProviderUserID,
@@ -137,14 +137,14 @@ func (r *userRepo) GetByEmail(ctx context.Context, tenantID, email string) (*rep
 func (r *userRepo) GetByID(ctx context.Context, userID string) (*repository.User, error) {
 	const query = `
 		SELECT id, tenant_id, email, email_verified, name, given_name, family_name,
-		       picture, locale, created_at, disabled_at, disabled_until, disabled_reason
+		       picture, locale, language, source_client_id, created_at, disabled_at, disabled_until, disabled_reason
 		FROM app_user WHERE id = $1
 	`
 
 	var user repository.User
 	err := r.pool.QueryRow(ctx, query, userID).Scan(
 		&user.ID, &user.TenantID, &user.Email, &user.EmailVerified,
-		&user.Name, &user.GivenName, &user.FamilyName, &user.Picture, &user.Locale,
+		&user.Name, &user.GivenName, &user.FamilyName, &user.Picture, &user.Locale, &user.Language, &user.SourceClientID,
 		&user.CreatedAt, &user.DisabledAt, &user.DisabledUntil, &user.DisabledReason,
 	)
 	if err == pgx.ErrNoRows {
@@ -170,13 +170,16 @@ func (r *userRepo) Create(ctx context.Context, input repository.CreateUserInput)
 		Email:     input.Email,
 		CreatedAt: time.Now(),
 	}
+	if input.SourceClientID != "" {
+		user.SourceClientID = &input.SourceClientID
+	}
 
 	const insertUser = `
-		INSERT INTO app_user (tenant_id, email, email_verified, created_at)
-		VALUES ($1, $2, false, $3)
+		INSERT INTO app_user (tenant_id, email, email_verified, source_client_id, created_at)
+		VALUES ($1, $2, false, $3, $4)
 		RETURNING id
 	`
-	err = tx.QueryRow(ctx, insertUser, user.TenantID, user.Email, user.CreatedAt).Scan(&user.ID)
+	err = tx.QueryRow(ctx, insertUser, user.TenantID, user.Email, user.SourceClientID, user.CreatedAt).Scan(&user.ID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("pg: insert user: %w", err)
 	}
@@ -291,7 +294,7 @@ func (r *userRepo) List(ctx context.Context, tenantID string, filter repository.
 	// Query base con orden estable
 	baseQuery := `
 		SELECT id, tenant_id, email, email_verified, name, given_name, family_name,
-		       picture, locale, created_at, disabled_at, disabled_until, disabled_reason
+		       picture, locale, language, source_client_id, created_at, disabled_at, disabled_until, disabled_reason
 		FROM app_user
 		WHERE tenant_id = $1
 	`
@@ -321,7 +324,7 @@ func (r *userRepo) List(ctx context.Context, tenantID string, filter repository.
 		var u repository.User
 		if err := rows.Scan(
 			&u.ID, &u.TenantID, &u.Email, &u.EmailVerified,
-			&u.Name, &u.GivenName, &u.FamilyName, &u.Picture, &u.Locale,
+			&u.Name, &u.GivenName, &u.FamilyName, &u.Picture, &u.Locale, &u.Language, &u.SourceClientID,
 			&u.CreatedAt, &u.DisabledAt, &u.DisabledUntil, &u.DisabledReason,
 		); err != nil {
 			return nil, fmt.Errorf("pg: scan user: %w", err)

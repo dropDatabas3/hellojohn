@@ -293,7 +293,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/app/v1"
 	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/audit"
-	"github.com/dropDatabas3/hellojohn/internal/email"
+	"github.com/dropDatabas3/hellojohn/internal/email/v1"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
 	storelib "github.com/dropDatabas3/hellojohn/internal/store/v1"
 	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"

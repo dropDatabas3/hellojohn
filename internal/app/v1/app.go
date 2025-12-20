@@ -6,7 +6,7 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/cache/v1"
 	clusterv1 "github.com/dropDatabas3/hellojohn/internal/cluster/v1"
-	"github.com/dropDatabas3/hellojohn/internal/email"
+	"github.com/dropDatabas3/hellojohn/internal/email/v1"
 	"github.com/dropDatabas3/hellojohn/internal/http/v1/helpers"
 	"github.com/dropDatabas3/hellojohn/internal/infra/v1/tenantcache"
 	"github.com/dropDatabas3/hellojohn/internal/infra/v1/tenantsql"

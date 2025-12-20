@@ -23,7 +23,7 @@ import (
 	clusterv1 "github.com/dropDatabas3/hellojohn/internal/cluster/v1"
 	"github.com/dropDatabas3/hellojohn/internal/config"
 	cpfs "github.com/dropDatabas3/hellojohn/internal/controlplane/v1/fs"
-	"github.com/dropDatabas3/hellojohn/internal/email"
+	"github.com/dropDatabas3/hellojohn/internal/email/v1"
 	httpserver "github.com/dropDatabas3/hellojohn/internal/http/v1"
 	"github.com/dropDatabas3/hellojohn/internal/http/v1/handlers"
 	"github.com/dropDatabas3/hellojohn/internal/http/v1/helpers"

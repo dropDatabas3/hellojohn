@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/infra/v1/tenantsql"
-	appmetrics "github.com/dropDatabas3/hellojohn/internal/metrics"
+	appmetrics "github.com/dropDatabas3/hellojohn/internal/observability/raft"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"

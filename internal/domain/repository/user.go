@@ -16,6 +16,7 @@ type User struct {
 	FamilyName     string
 	Picture        string
 	Locale         string
+	Language       string // Idioma preferido del usuario ("es", "en"), vacío = usar default del tenant
 	Metadata       map[string]any
 	CustomFields   map[string]any
 	CreatedAt      time.Time

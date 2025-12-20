@@ -183,7 +183,7 @@ import (
 	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
-	"github.com/dropDatabas3/hellojohn/internal/email"
+	"github.com/dropDatabas3/hellojohn/internal/email/v1"
 	httpx "github.com/dropDatabas3/hellojohn/internal/http/v1"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 )

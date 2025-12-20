@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
-	appmetrics "github.com/dropDatabas3/hellojohn/internal/metrics"
+	appmetrics "github.com/dropDatabas3/hellojohn/internal/observability/raft"
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
 )
