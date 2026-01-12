@@ -55,6 +55,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/http/v2/services/auth"
 	"github.com/dropDatabas3/hellojohn/internal/http/v2/services/health"
 	"github.com/dropDatabas3/hellojohn/internal/http/v2/services/oidc"
+	"github.com/dropDatabas3/hellojohn/internal/http/v2/services/social"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	store "github.com/dropDatabas3/hellojohn/internal/store/v2"
 )
@@ -75,6 +76,13 @@ type Deps struct {
 
 	// ─── Health Check ───
 	HealthDeps health.Deps // Dependencias específicas para health probes
+
+	// ─── Social V2 ───
+	SocialCache        social.CacheWriter // Cache con write capabilities para social
+	SocialDebugPeek    bool               // Debug peek mode para result viewer
+	SocialOIDCFactory  social.OIDCFactory // Factory para OIDC clients (Google, etc.)
+	SocialStateSigner  social.StateSigner // Signer para state JWTs
+	SocialLoginCodeTTL time.Duration      // TTL para login codes (default 60s)
 }
 
 // Services agrupa todos los sub-services por dominio.
@@ -84,6 +92,7 @@ type Services struct {
 	Auth   auth.Services   // Autenticación (login, refresh, register)
 	OIDC   oidc.Services   // OIDC (jwks, discovery, userinfo)
 	Health health.Services // Health checks (readyz)
+	Social social.Services // Social login (start, callback, exchange)
 }
 
 // New crea el agregador de services con todas las dependencias inyectadas.
@@ -108,5 +117,16 @@ func New(d Deps) *Services {
 			DAL:          d.DAL,
 		}),
 		Health: health.NewServices(d.HealthDeps),
+		Social: social.NewServices(social.Deps{
+			Cache:          d.SocialCache,
+			DebugPeek:      d.SocialDebugPeek,
+			OIDCFactory:    d.SocialOIDCFactory,
+			StateSigner:    d.SocialStateSigner,
+			LoginCodeTTL:   d.SocialLoginCodeTTL,
+			Issuer:         d.Issuer,
+			BaseURL:        d.BaseIssuer,
+			RefreshTTL:     d.RefreshTTL,
+			TenantProvider: social.NewTenantProviderFromCpctx(), // Uses cpctx.Provider
+		}),
 	}
 }

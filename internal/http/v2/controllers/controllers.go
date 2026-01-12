@@ -77,6 +77,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/http/v2/controllers/auth"
 	"github.com/dropDatabas3/hellojohn/internal/http/v2/controllers/health"
 	"github.com/dropDatabas3/hellojohn/internal/http/v2/controllers/oidc"
+	"github.com/dropDatabas3/hellojohn/internal/http/v2/controllers/social"
 	"github.com/dropDatabas3/hellojohn/internal/http/v2/services"
 )
 
@@ -87,6 +88,7 @@ type Controllers struct {
 	Auth   *auth.Controllers   // Autenticación (login, refresh, register)
 	OIDC   *oidc.Controllers   // OIDC (jwks, discovery, userinfo)
 	Health *health.Controllers // Health checks (readyz)
+	Social *social.Controllers // Social login (start, callback, exchange)
 }
 
 // New crea el agregador de controllers con todos los services inyectados.
@@ -99,5 +101,6 @@ func New(svc *services.Services) *Controllers {
 		Auth:   auth.NewControllers(svc.Auth),
 		OIDC:   oidc.NewControllers(svc.OIDC),
 		Health: health.NewControllers(svc.Health),
+		Social: social.NewControllers(svc.Social),
 	}
 }
