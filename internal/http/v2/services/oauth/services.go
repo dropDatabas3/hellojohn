@@ -48,10 +48,11 @@ func NewServices(d Deps) Services {
 			AllowBearer:  d.AllowBearer,
 		}),
 		Token: NewTokenService(TokenDeps{
-			DAL:        d.DAL,
-			Issuer:     d.Issuer,
-			Cache:      d.Cache,
-			RefreshTTL: d.RefreshTTL,
+			DAL:          d.DAL,
+			Issuer:       d.Issuer,
+			Cache:        d.Cache,
+			ControlPlane: d.ControlPlane,
+			RefreshTTL:   d.RefreshTTL,
 		}),
 		Consent: NewConsentService(ConsentDeps{
 			DAL:   d.DAL,

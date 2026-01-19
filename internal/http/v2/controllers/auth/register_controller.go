@@ -2,6 +2,8 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 
 	dto "github.com/dropDatabas3/hellojohn/internal/http/v2/dto/auth"
@@ -39,7 +41,15 @@ func (c *RegisterController) Register(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	var req dto.RegisterRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+
+	if err := dec.Decode(&req); err != nil {
+		httperrors.WriteError(w, httperrors.ErrInvalidJSON)
+		return
+	}
+	// Check for extraneous data
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
 		httperrors.WriteError(w, httperrors.ErrInvalidJSON)
 		return
 	}
@@ -59,10 +69,6 @@ func (c *RegisterController) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	if result.AccessToken != "" {
 		resp.TokenType = "Bearer"
-	}
-
-	// Security headers for token responses
-	if result.AccessToken != "" {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Pragma", "no-cache")
 	}
@@ -76,20 +82,22 @@ func (c *RegisterController) Register(w http.ResponseWriter, r *http.Request) {
 
 // handleError maps service errors to HTTP responses.
 func (c *RegisterController) handleError(w http.ResponseWriter, err error, log *zap.Logger) {
-	switch err {
-	case svc.ErrRegisterMissingFields:
+	switch {
+	case errors.Is(err, svc.ErrRegisterMissingFields):
 		httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("email, password, tenant_id and client_id are required"))
-	case svc.ErrRegisterInvalidClient:
+	case errors.Is(err, svc.ErrRegisterInvalidClient):
 		httperrors.WriteError(w, httperrors.ErrUnauthorized.WithDetail("invalid tenant or client"))
-	case svc.ErrRegisterPasswordNotAllowed:
+	case errors.Is(err, svc.ErrRegisterPasswordNotAllowed):
 		httperrors.WriteError(w, httperrors.ErrUnauthorized.WithDetail("password registration disabled for this client"))
-	case svc.ErrRegisterEmailTaken:
+	case errors.Is(err, svc.ErrRegisterEmailTaken):
 		httperrors.WriteError(w, httperrors.ErrConflict.WithDetail("email already registered"))
-	case svc.ErrRegisterPolicyViolation:
+	case errors.Is(err, svc.ErrRegisterPolicyViolation):
 		httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("password does not meet policy requirements"))
-	case svc.ErrNoDatabase:
+	case errors.Is(err, svc.ErrNoDatabase):
 		httperrors.WriteError(w, httperrors.ErrServiceUnavailable.WithDetail("database not available for this tenant"))
-	case svc.ErrRegisterHashFailed, svc.ErrRegisterCreateFailed, svc.ErrRegisterTokenFailed:
+	case errors.Is(err, svc.ErrRegisterFSAdminNotAvailable):
+		httperrors.WriteError(w, httperrors.ErrServiceUnavailable.WithDetail("FS-admin registration not available in V2 yet"))
+	case errors.Is(err, svc.ErrRegisterHashFailed), errors.Is(err, svc.ErrRegisterCreateFailed), errors.Is(err, svc.ErrRegisterTokenFailed):
 		log.Error("registration error", logger.Err(err))
 		httperrors.WriteError(w, httperrors.ErrInternalServerError)
 	default:

@@ -281,6 +281,24 @@ var (
 )
 
 // ---------------------------------------------------------------------------------
+// 412 Precondition Failed & 428 Precondition Required - Concurrency Control
+// ---------------------------------------------------------------------------------
+
+var (
+	ErrPreconditionFailed = &AppError{
+		Code:       "PRECONDITION_FAILED",
+		Message:    "La condición previa de solicitud falló (e.g. ETag no coincide).",
+		HTTPStatus: http.StatusPreconditionFailed,
+	}
+
+	ErrPreconditionRequired = &AppError{
+		Code:       "PRECONDITION_REQUIRED",
+		Message:    "Se requiere una condición previa (e.g. If-Match).",
+		HTTPStatus: http.StatusPreconditionRequired,
+	}
+)
+
+// ---------------------------------------------------------------------------------
 // 429 Too Many Requests - Rate Limiting
 // ---------------------------------------------------------------------------------
 

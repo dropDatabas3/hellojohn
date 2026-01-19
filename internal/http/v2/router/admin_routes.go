@@ -45,6 +45,9 @@ func RegisterAdminRoutes(mux *http.ServeMux, deps AdminRouterDeps) {
 
 	// Admin RBAC (Data Plane - requiere DB)
 	mux.Handle("/v2/admin/rbac/", adminRBACHandler(dal, issuer, limiter, c.RBAC, true))
+
+	// Admin Tenants (Control Plane - System Admin)
+	RegisterTenantAdminRoutes(mux, deps)
 }
 
 // ─── Helpers para crear handlers con middleware chain ───

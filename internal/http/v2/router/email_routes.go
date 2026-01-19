@@ -49,9 +49,14 @@ func emailHandler(deps EmailRouterDeps, handler http.Handler) http.Handler {
 		}))
 	}
 
-	// Tenant resolution (optional - from request body tenant_id)
+	// Tenant resolution
 	if deps.DAL != nil {
-		chain = append(chain, mw.WithTenantResolution(deps.DAL, true))
+		chain = append(chain,
+			mw.WithTenantFromJSONBody(),              // 1. Try body if needed
+			mw.WithTenantResolution(deps.DAL, false), // 2. Resolve (strict=false here, enforced later)
+			mw.RequireTenant(),                       // 3. Enforce tenant present
+			mw.RequireTenantDB(),                     // 4. Enforce DB available
+		)
 	}
 
 	// Logging al final

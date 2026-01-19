@@ -23,12 +23,6 @@ func RegisterSocialRoutes(mux *http.ServeMux, deps SocialRouterDeps) {
 	// GET /v2/auth/social/result - View social login code result (debug/viewer)
 	mux.Handle("/v2/auth/social/result", socialHandler(deps.RateLimiter, http.HandlerFunc(c.Result.GetResult)))
 
-	// GET /v2/auth/providers - List available social providers
-	mux.Handle("/v2/auth/providers", socialHandler(deps.RateLimiter, http.HandlerFunc(c.Providers.GetProviders)))
-
-	// GET /v2/providers/status - Alias for providers list (V1 compatibility)
-	mux.Handle("/v2/providers/status", socialHandler(deps.RateLimiter, http.HandlerFunc(c.Providers.GetProviders)))
-
 	// GET /v2/auth/social/{provider}/start - Start social login flow (Go 1.22+ path params)
 	mux.Handle("GET /v2/auth/social/{provider}/start", socialHandler(deps.RateLimiter, http.HandlerFunc(c.Start.Start)))
 

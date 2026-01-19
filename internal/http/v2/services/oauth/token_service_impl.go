@@ -9,8 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
-	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
+	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane/v2"
 	"github.com/dropDatabas3/hellojohn/internal/domain/repository"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/observability/logger"
@@ -20,10 +19,11 @@ import (
 
 // TokenDeps contains dependencies for token service.
 type TokenDeps struct {
-	DAL        store.DataAccessLayer
-	Issuer     *jwtx.Issuer
-	Cache      CacheClient
-	RefreshTTL time.Duration
+	DAL          store.DataAccessLayer
+	Issuer       *jwtx.Issuer
+	Cache        CacheClient
+	ControlPlane controlplane.Service
+	RefreshTTL   time.Duration
 }
 
 // tokenService implements TokenService.
@@ -31,6 +31,7 @@ type tokenService struct {
 	dal        store.DataAccessLayer
 	issuer     *jwtx.Issuer
 	cache      CacheClient
+	cp         controlplane.Service
 	refreshTTL time.Duration
 }
 
@@ -44,6 +45,7 @@ func NewTokenService(d TokenDeps) TokenService {
 		dal:        d.DAL,
 		issuer:     d.Issuer,
 		cache:      d.Cache,
+		cp:         d.ControlPlane,
 		refreshTTL: ttl,
 	}
 }
@@ -209,6 +211,7 @@ func (s *tokenService) ExchangeRefreshToken(ctx context.Context, req RefreshToke
 
 	// Validate refresh token
 	now := time.Now()
+	// NOTE: Checking clientID match if stored token has one
 	if rt.RevokedAt != nil || !now.Before(rt.ExpiresAt) || (rt.ClientID != "" && rt.ClientID != client.ClientID) {
 		log.Warn("refresh token revoked/expired/mismatched")
 		return nil, ErrTokenInvalidGrant
@@ -271,7 +274,7 @@ func (s *tokenService) ExchangeClientCredentials(ctx context.Context, req Client
 	}
 
 	// Must be confidential
-	if client.Type != controlplane.ClientTypeConfidential {
+	if client.Type != repository.ClientTypeConfidential {
 		log.Warn("client_credentials requires confidential client")
 		return nil, ErrTokenUnauthorizedClient
 	}
@@ -284,11 +287,12 @@ func (s *tokenService) ExchangeClientCredentials(ctx context.Context, req Client
 
 	// Validate requested scopes
 	reqScopes := []string{}
+	// NOTE: default logic if empty?
 	if req.Scope != "" {
 		reqScopes = strings.Fields(req.Scope)
 	}
 	for _, scope := range reqScopes {
-		if !controlplane.DefaultIsScopeAllowed(client, scope) {
+		if !s.cp.IsScopeAllowed(client, scope) {
 			log.Warn("scope not allowed", logger.String("scope", scope))
 			return nil, ErrTokenInvalidScope
 		}
@@ -337,21 +341,21 @@ func (s *tokenService) ExchangeClientCredentials(ctx context.Context, req Client
 
 // --- Helper methods ---
 
-func (s *tokenService) lookupClient(ctx context.Context, tenantSlug, clientID string) (*controlplane.OIDCClient, string, error) {
-	if cpctx.Provider == nil {
+func (s *tokenService) lookupClient(ctx context.Context, tenantSlug, clientID string) (*repository.Client, string, error) {
+	if s.cp == nil {
 		return nil, "", fmt.Errorf("control plane not initialized")
 	}
 
 	// Try the provided tenant slug first
 	if tenantSlug != "" {
-		c, err := cpctx.Provider.GetClient(ctx, tenantSlug, clientID)
-		if err == nil {
+		c, err := s.cp.GetClient(ctx, tenantSlug, clientID)
+		if err == nil && c != nil {
 			return c, tenantSlug, nil
 		}
 	}
 
 	// Search across all tenants
-	tenants, err := cpctx.Provider.ListTenants(ctx)
+	tenants, err := s.cp.ListTenants(ctx)
 	if err != nil {
 		return nil, "", err
 	}
@@ -359,8 +363,8 @@ func (s *tokenService) lookupClient(ctx context.Context, tenantSlug, clientID st
 		if t.Slug == tenantSlug {
 			continue
 		}
-		c, err := cpctx.Provider.GetClient(ctx, t.Slug, clientID)
-		if err == nil {
+		c, err := s.cp.GetClient(ctx, t.Slug, clientID)
+		if err == nil && c != nil {
 			return c, t.Slug, nil
 		}
 	}
@@ -368,21 +372,24 @@ func (s *tokenService) lookupClient(ctx context.Context, tenantSlug, clientID st
 }
 
 func (s *tokenService) resolveEffectiveIssuer(ctx context.Context, tenantSlug string) string {
-	if cpctx.Provider == nil || s.issuer == nil {
-		return s.issuer.Iss
+	if s.cp == nil || s.issuer == nil {
+		if s.issuer != nil {
+			return s.issuer.Iss
+		}
+		return ""
 	}
-	ten, err := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug)
+	ten, err := s.cp.GetTenant(ctx, tenantSlug)
 	if err != nil || ten == nil {
 		return s.issuer.Iss
 	}
 	return jwtx.ResolveIssuer(s.issuer.Iss, string(ten.Settings.IssuerMode), ten.Slug, ten.Settings.IssuerOverride)
 }
 
-func (s *tokenService) validateClientSecret(ctx context.Context, tenantSlug string, client *controlplane.OIDCClient, providedSecret string) error {
-	if client.Type != controlplane.ClientTypeConfidential {
-		return nil // public clients don't require secret
+func (s *tokenService) validateClientSecret(ctx context.Context, tenantSlug string, client *repository.Client, providedSecret string) error {
+	if client.Type != repository.ClientTypeConfidential {
+		return nil // only confidential clients have secrets
 	}
-	dec, err := cpctx.Provider.DecryptClientSecret(ctx, tenantSlug, client.ClientID)
+	dec, err := s.cp.DecryptClientSecret(ctx, tenantSlug, client.ClientID)
 	if err != nil {
 		return err
 	}
@@ -409,6 +416,7 @@ func (s *tokenService) createRefreshToken(ctx context.Context, tenantSlug, clien
 	tokenHash := tokens.SHA256Base64URL(rawRT)
 	ttlSeconds := int(s.refreshTTL.Seconds())
 
+	// Create refresh token in repo
 	_, err = tenantData.Tokens().Create(ctx, repository.CreateRefreshTokenInput{
 		TenantID:   tenantSlug,
 		ClientID:   clientID,

@@ -3,10 +3,11 @@ package auth
 
 // LoginRequest representa la solicitud de login por password.
 type LoginRequest struct {
-	TenantID string `json:"tenant_id"`
-	ClientID string `json:"client_id"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	TenantID           string `json:"tenant_id"`
+	ClientID           string `json:"client_id"`
+	Email              string `json:"email"`
+	Password           string `json:"password"`
+	TrustedDeviceToken string `json:"-"` // From cookie
 }
 
 // LoginResponse representa la respuesta exitosa de login.

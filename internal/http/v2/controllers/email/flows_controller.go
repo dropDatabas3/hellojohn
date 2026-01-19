@@ -3,6 +3,9 @@ package email
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
+
+	"go.uber.org/zap"
 
 	dto "github.com/dropDatabas3/hellojohn/internal/http/v2/dto/email"
 	httperrors "github.com/dropDatabas3/hellojohn/internal/http/v2/errors"
@@ -55,7 +58,7 @@ func (c *FlowsController) VerifyEmailStart(w http.ResponseWriter, r *http.Reques
 	err := c.service.VerifyEmailStart(ctx, tda, req, userIDPtr)
 	if err != nil {
 		switch err {
-		case svc.ErrFlowsMissingTenant, svc.ErrFlowsMissingClient, svc.ErrFlowsMissingEmail:
+		case svc.ErrFlowsMissingTenant, svc.ErrFlowsMissingClient, svc.ErrFlowsMissingEmail, svc.ErrFlowsTenantMismatch:
 			httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail(err.Error()))
 		case svc.ErrFlowsNoDatabase:
 			httperrors.WriteError(w, httperrors.ErrServiceUnavailable.WithDetail("database not available"))
@@ -106,7 +109,7 @@ func (c *FlowsController) VerifyEmailConfirm(w http.ResponseWriter, r *http.Requ
 	result, err := c.service.VerifyEmailConfirm(ctx, tda, req)
 	if err != nil {
 		switch err {
-		case svc.ErrFlowsMissingToken, svc.ErrFlowsInvalidToken:
+		case svc.ErrFlowsMissingToken, svc.ErrFlowsInvalidToken, svc.ErrFlowsTenantMismatch:
 			httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail(err.Error()))
 		case svc.ErrFlowsNoDatabase:
 			httperrors.WriteError(w, httperrors.ErrServiceUnavailable.WithDetail("database not available"))
@@ -119,8 +122,16 @@ func (c *FlowsController) VerifyEmailConfirm(w http.ResponseWriter, r *http.Requ
 
 	// Redirect if redirect_uri provided
 	if result.Redirect != "" {
-		http.Redirect(w, r, result.Redirect+"?status=verified", http.StatusFound)
-		return
+		// Validar y mergear query
+		if u, err := url.Parse(result.Redirect); err == nil {
+			q := u.Query()
+			q.Set("status", "verified")
+			u.RawQuery = q.Encode()
+			http.Redirect(w, r, u.String(), http.StatusFound)
+			return
+		}
+		// Fallback si falla parse -> NO REDIRECT (Security hardening)
+		log.Warn("failed to parse redirect uri, defaulting to json response", zap.String("uri", result.Redirect))
 	}
 
 	// Return JSON
@@ -159,7 +170,7 @@ func (c *FlowsController) ForgotPassword(w http.ResponseWriter, r *http.Request)
 	err := c.service.ForgotPassword(ctx, tda, req)
 	if err != nil {
 		switch err {
-		case svc.ErrFlowsMissingTenant, svc.ErrFlowsMissingClient, svc.ErrFlowsMissingEmail:
+		case svc.ErrFlowsMissingTenant, svc.ErrFlowsMissingClient, svc.ErrFlowsMissingEmail, svc.ErrFlowsTenantMismatch:
 			httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail(err.Error()))
 		case svc.ErrFlowsNoDatabase:
 			httperrors.WriteError(w, httperrors.ErrServiceUnavailable.WithDetail("database not available"))
@@ -206,7 +217,7 @@ func (c *FlowsController) ResetPassword(w http.ResponseWriter, r *http.Request) 
 	result, err := c.service.ResetPassword(ctx, tda, req)
 	if err != nil {
 		switch err {
-		case svc.ErrFlowsMissingTenant, svc.ErrFlowsMissingClient, svc.ErrFlowsMissingToken, svc.ErrFlowsMissingPassword:
+		case svc.ErrFlowsMissingTenant, svc.ErrFlowsMissingClient, svc.ErrFlowsMissingToken, svc.ErrFlowsMissingPassword, svc.ErrFlowsTenantMismatch:
 			httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail(err.Error()))
 		case svc.ErrFlowsInvalidToken:
 			httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("token invalid or expired"))

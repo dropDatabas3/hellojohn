@@ -5,39 +5,25 @@ import (
 	"strings"
 )
 
-// ResolveTenantSlug extracts tenant identifier from request.
-// Priority order:
-// 1. X-Tenant-Slug header
-// 2. X-Tenant-ID header
-// 3. tenant query parameter
-// 4. tenant_id query parameter
-func ResolveTenantSlug(r *http.Request) string {
-	// Headers first (most explicit)
-	if slug := r.Header.Get("X-Tenant-Slug"); slug != "" {
-		return strings.TrimSpace(slug)
+// GetBearerToken extracts the Bearer token from the Authorization header.
+func GetBearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if len(auth) > 7 && strings.EqualFold(auth[0:7], "Bearer ") {
+		return auth[7:]
 	}
-	if id := r.Header.Get("X-Tenant-ID"); id != "" {
-		return strings.TrimSpace(id)
-	}
-
-	// Query params as fallback
-	if slug := r.URL.Query().Get("tenant"); slug != "" {
-		return strings.TrimSpace(slug)
-	}
-	if id := r.URL.Query().Get("tenant_id"); id != "" {
-		return strings.TrimSpace(id)
-	}
-
 	return ""
 }
 
-// ResolveTenantSlugFromContext returns the tenant ID from context if it was
-// set by middleware. Falls back to request resolution if not found.
-func ResolveTenantSlugFromContext(r *http.Request) string {
-	// First try from context (middleware may have set it)
-	if slug := GetTenantID(r.Context()); slug != "" {
-		return slug
+// ResolveTenantSlug attempts to resolve the tenant slug from various sources.
+// Priority: Header (X-Tenant-ID) > Query (tenant_id) > Path (if applicable, handled by router)
+func ResolveTenantSlug(r *http.Request) string {
+	// 1. Header
+	if s := r.Header.Get("X-Tenant-ID"); s != "" {
+		return s
 	}
-	// Fall back to request resolution
-	return ResolveTenantSlug(r)
+	// 2. Query param
+	if s := r.URL.Query().Get("tenant_id"); s != "" {
+		return s
+	}
+	return ""
 }

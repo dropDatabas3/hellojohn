@@ -10,6 +10,7 @@ type Controllers struct {
 	Users    *UsersController
 	Scopes   *ScopesController
 	RBAC     *RBACController
+	Tenants  *TenantsController
 }
 
 // NewControllers crea el agregador de controllers admin.
@@ -20,5 +21,6 @@ func NewControllers(s svc.Services) *Controllers {
 		Users:    NewUsersController(s.Users),
 		Scopes:   NewScopesController(s.Scopes),
 		RBAC:     NewRBACController(s.RBAC),
+		Tenants:  NewTenantsController(s.Tenants),
 	}
 }

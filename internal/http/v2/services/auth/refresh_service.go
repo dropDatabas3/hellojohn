@@ -2,8 +2,7 @@ package auth
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -47,12 +46,12 @@ func NewRefreshService(deps RefreshDeps) RefreshService {
 
 // Refresh errors
 var (
-	ErrMissingRefreshFields = fmt.Errorf("missing required fields")
-	ErrInvalidRefreshToken  = fmt.Errorf("invalid or expired refresh token")
-	ErrRefreshTokenRevoked  = fmt.Errorf("refresh token revoked")
-	ErrClientMismatch       = fmt.Errorf("client_id mismatch")
-	ErrRefreshUserDisabled  = fmt.Errorf("user disabled")
-	ErrRefreshIssueFailed   = fmt.Errorf("failed to issue tokens")
+	ErrMissingRefreshFields = errors.New("missing required fields")
+	ErrInvalidRefreshToken  = errors.New("invalid or expired refresh token")
+	ErrRefreshTokenRevoked  = errors.New("refresh token revoked")
+	ErrClientMismatch       = errors.New("client_id mismatch")
+	ErrRefreshUserDisabled  = errors.New("user disabled")
+	ErrRefreshIssueFailed   = errors.New("failed to issue tokens")
 )
 
 func (s *refreshService) Refresh(ctx context.Context, in dto.RefreshRequest, tenantSlug string) (*dto.RefreshResult, error) {
@@ -97,6 +96,11 @@ func (s *refreshService) Refresh(ctx context.Context, in dto.RefreshRequest, ten
 func (s *refreshService) refreshAdminJWT(ctx context.Context, tokenStr string, log *zap.Logger) (*dto.RefreshResult, error) {
 	// Parse and verify JWT
 	token, err := jwtv5.Parse(tokenStr, func(token *jwtv5.Token) (interface{}, error) {
+		// 1. Validate Algorithm
+		if token.Method.Alg() != jwtv5.SigningMethodEdDSA.Alg() {
+			return nil, jwtv5.ErrTokenSignatureInvalid
+		}
+
 		kid, ok := token.Header["kid"].(string)
 		if !ok {
 			return nil, jwtv5.ErrTokenUnverifiable
@@ -113,10 +117,30 @@ func (s *refreshService) refreshAdminJWT(ctx context.Context, tokenStr string, l
 		return nil, fmt.Errorf("invalid claims format")
 	}
 
-	// Must be a refresh token
+	// 2. Validate Token Use
 	use, _ := claims["token_use"].(string)
 	if use != "refresh" {
 		return nil, fmt.Errorf("not a refresh token")
+	}
+
+	// 3. Validate Issuer
+	iss, _ := claims.GetIssuer()
+	if iss != s.deps.Issuer.Iss {
+		return nil, fmt.Errorf("issuer mismatch")
+	}
+
+	// 4. Validate Audience
+	aud, _ := claims.GetAudience()
+	// Using "admin" as expected audience for FS-admin tokens per user request context
+	foundAud := false
+	for _, a := range aud {
+		if a == "admin" {
+			foundAud = true
+			break
+		}
+	}
+	if !foundAud {
+		return nil, fmt.Errorf("aud mismatch")
 	}
 
 	userID, _ := claims.GetSubject()
@@ -201,9 +225,8 @@ func (s *refreshService) refreshAdminJWT(ctx context.Context, tokenStr string, l
 
 // refreshFromDB handles stateful DB-based refresh for regular users.
 func (s *refreshService) refreshFromDB(ctx context.Context, in dto.RefreshRequest, tenantSlug string, log *zap.Logger) (*dto.RefreshResult, error) {
-	// Hash the refresh token (hex encoding, aligned with store)
-	sum := sha256.Sum256([]byte(in.RefreshToken))
-	hashHex := hex.EncodeToString(sum[:])
+	// Hash the refresh token (Base64URL encoding, aligned with login)
+	hash := tokens.SHA256Base64URL(in.RefreshToken)
 
 	// Get TDA for tenant
 	tda, err := s.deps.DAL.ForTenant(ctx, tenantSlug)
@@ -221,7 +244,7 @@ func (s *refreshService) refreshFromDB(ctx context.Context, in dto.RefreshReques
 	log = log.With(logger.TenantSlug(tda.Slug()))
 
 	// Find refresh token by hash
-	rt, err := tda.Tokens().GetByHash(ctx, hashHex)
+	rt, err := tda.Tokens().GetByHash(ctx, hash)
 	if err != nil || rt == nil {
 		log.Debug("refresh token not found")
 		return nil, ErrInvalidRefreshToken
@@ -240,17 +263,13 @@ func (s *refreshService) refreshFromDB(ctx context.Context, in dto.RefreshReques
 		return nil, ErrClientMismatch
 	}
 
-	// Re-open TDA if token belongs to different tenant
+	// Prevent cross-tenant refresh (security hardening)
 	if rt.TenantID != "" && rt.TenantID != tenantID {
-		tda2, err := s.deps.DAL.ForTenant(ctx, rt.TenantID)
-		if err != nil {
-			return nil, ErrNoDatabase
-		}
-		if err := tda2.RequireDB(); err != nil {
-			return nil, ErrNoDatabase
-		}
-		tda = tda2
-		tenantID = tda.ID()
+		log.Warn("refresh token tenant mismatch",
+			zap.String("req_tid", tenantID),
+			zap.String("tok_tid", rt.TenantID),
+		)
+		return nil, ErrInvalidRefreshToken
 	}
 
 	// Check user is not disabled
@@ -340,7 +359,7 @@ func (s *refreshService) refreshFromDB(ctx context.Context, in dto.RefreshReques
 		return nil, ErrRefreshIssueFailed
 	}
 
-	newHash := tokens.SHA256Hex(rawRefresh)
+	newHash := tokens.SHA256Base64URL(rawRefresh)
 	ttlSeconds := int(s.deps.RefreshTTL.Seconds())
 
 	tokenInput := repository.CreateRefreshTokenInput{

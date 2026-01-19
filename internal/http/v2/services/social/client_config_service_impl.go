@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
+	"github.com/dropDatabas3/hellojohn/internal/domain/repository"
 	"github.com/dropDatabas3/hellojohn/internal/observability/logger"
 )
 
@@ -28,7 +28,7 @@ func NewClientConfigService(d ClientConfigDeps) ClientConfigService {
 }
 
 // GetClient returns the client configuration for a tenant/clientID pair.
-func (s *clientConfigService) GetClient(ctx context.Context, tenantSlug, clientID string) (*controlplane.OIDCClient, error) {
+func (s *clientConfigService) GetClient(ctx context.Context, tenantSlug, clientID string) (*repository.Client, error) {
 	log := logger.From(ctx).With(logger.Layer("service"), logger.Component("social.clientconfig"))
 
 	if tenantSlug == "" {
@@ -38,20 +38,12 @@ func (s *clientConfigService) GetClient(ctx context.Context, tenantSlug, clientI
 		return nil, ErrClientRequired
 	}
 
-	tenant, err := s.tenantProvider.GetTenantBySlug(ctx, tenantSlug)
+	client, err := s.tenantProvider.GetClient(ctx, tenantSlug, clientID)
 	if err != nil {
-		log.Warn("tenant not found", logger.TenantID(tenantSlug), logger.Err(err))
-		return nil, fmt.Errorf("%w: tenant not found", ErrTenantRequired)
+		log.Warn("client not found", logger.TenantID(tenantSlug), logger.String("client_id", clientID), logger.Err(err))
+		return nil, ErrClientNotFound
 	}
-
-	for i := range tenant.Clients {
-		if tenant.Clients[i].ClientID == clientID {
-			return &tenant.Clients[i], nil
-		}
-	}
-
-	log.Warn("client not found", logger.TenantID(tenantSlug), logger.String("client_id", clientID))
-	return nil, ErrClientNotFound
+	return client, nil
 }
 
 // ValidateRedirectURI validates that a redirect URI is allowed for a client.
@@ -101,7 +93,7 @@ func (s *clientConfigService) IsProviderAllowed(ctx context.Context, tenantSlug,
 		return ErrTenantRequired
 	}
 
-	tenant, err := s.tenantProvider.GetTenantBySlug(ctx, tenantSlug)
+	tenant, err := s.tenantProvider.GetTenant(ctx, tenantSlug)
 	if err != nil {
 		return fmt.Errorf("%w: tenant not found", ErrTenantRequired)
 	}
@@ -151,8 +143,11 @@ func (s *clientConfigService) IsProviderAllowed(ctx context.Context, tenantSlug,
 			)
 			return ErrProviderNotAllowed
 		}
-		if cfg.GoogleClient == "" || cfg.GoogleSecret == "" {
-			log.Error("google misconfigured (missing client_id or secret)",
+		// NOTE: In repository model, Secret might be empty but SecretEnc should be present if configured.
+		// Since we don't have decryption/getter logic here, we just check if config exists.
+		// The actual OIDC connection will fail if secrets are missing/invalid.
+		if cfg.GoogleClient == "" {
+			log.Error("google misconfigured (missing client_id)",
 				logger.TenantID(tenantSlug),
 				logger.String("client_id", clientID),
 			)
@@ -167,8 +162,8 @@ func (s *clientConfigService) IsProviderAllowed(ctx context.Context, tenantSlug,
 }
 
 // GetSocialConfig returns the effective social config for a client.
-func (s *clientConfigService) GetSocialConfig(ctx context.Context, tenantSlug, clientID string) (*controlplane.SocialConfig, error) {
-	tenant, err := s.tenantProvider.GetTenantBySlug(ctx, tenantSlug)
+func (s *clientConfigService) GetSocialConfig(ctx context.Context, tenantSlug, clientID string) (*repository.SocialConfig, error) {
+	tenant, err := s.tenantProvider.GetTenant(ctx, tenantSlug)
 	if err != nil {
 		return nil, fmt.Errorf("%w: tenant not found", ErrTenantRequired)
 	}

@@ -2,8 +2,8 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -25,6 +25,11 @@ type RegisterService interface {
 	Register(ctx context.Context, in dto.RegisterRequest) (*dto.RegisterResult, error)
 }
 
+// VerificationSender defines operation to send verification emails.
+type VerificationSender interface {
+	SendVerification(ctx context.Context, tenantSlugOrID, clientID, userID, email, redirect string) error
+}
+
 // RegisterDeps contains dependencies for the register service.
 type RegisterDeps struct {
 	DAL           store.DataAccessLayer
@@ -35,6 +40,9 @@ type RegisterDeps struct {
 	AutoLogin     bool
 	// FSAdminEnabled allows registration without tenant/client (FS-admin mode).
 	FSAdminEnabled bool
+
+	// VerificationSender sends validation emails (soft fail)
+	VerificationSender VerificationSender
 }
 
 type registerService struct {
@@ -50,15 +58,17 @@ func NewRegisterService(deps RegisterDeps) RegisterService {
 }
 
 // Register errors
+// Register errors (sentinel)
 var (
-	ErrRegisterMissingFields      = fmt.Errorf("missing required fields")
-	ErrRegisterInvalidClient      = fmt.Errorf("invalid client")
-	ErrRegisterPasswordNotAllowed = fmt.Errorf("password registration not allowed for this client")
-	ErrRegisterEmailTaken         = fmt.Errorf("email already registered")
-	ErrRegisterPolicyViolation    = fmt.Errorf("password policy violation")
-	ErrRegisterHashFailed         = fmt.Errorf("failed to hash password")
-	ErrRegisterCreateFailed       = fmt.Errorf("failed to create user")
-	ErrRegisterTokenFailed        = fmt.Errorf("failed to issue tokens")
+	ErrRegisterMissingFields       = errors.New("missing required fields")
+	ErrRegisterInvalidClient       = errors.New("invalid client")
+	ErrRegisterPasswordNotAllowed  = errors.New("password registration not allowed for this client")
+	ErrRegisterEmailTaken          = errors.New("email already registered")
+	ErrRegisterPolicyViolation     = errors.New("password policy violation")
+	ErrRegisterHashFailed          = errors.New("failed to hash password")
+	ErrRegisterCreateFailed        = errors.New("failed to create user")
+	ErrRegisterTokenFailed         = errors.New("failed to issue tokens")
+	ErrRegisterFSAdminNotAvailable = errors.New("fs-admin registration not available in v2")
 )
 
 func (s *registerService) Register(ctx context.Context, in dto.RegisterRequest) (*dto.RegisterResult, error) {
@@ -78,11 +88,16 @@ func (s *registerService) Register(ctx context.Context, in dto.RegisterRequest) 
 		return nil, ErrRegisterMissingFields
 	}
 
-	// Check for FS-admin mode (no tenant/client)
-	if in.TenantID == "" || in.ClientID == "" {
+	// Check for FS-admin mode (only if BOTH are missing)
+	if in.TenantID == "" && in.ClientID == "" {
 		if s.deps.FSAdminEnabled {
 			return s.registerFSAdmin(ctx, in, log)
 		}
+		return nil, ErrRegisterFSAdminNotAvailable
+	}
+
+	// If only one missing, it's an inconsistent request
+	if in.TenantID == "" || in.ClientID == "" {
 		return nil, ErrRegisterMissingFields
 	}
 
@@ -96,7 +111,7 @@ func (s *registerService) registerFSAdmin(ctx context.Context, in dto.RegisterRe
 	log.Debug("FS-admin registration mode - not yet implemented in V2")
 	// FS-admin mode requires helpers.FSAdminRegister from V1 to be migrated.
 	// For now, return error indicating this mode is not available in V2.
-	return nil, fmt.Errorf("FS-admin registration not available in V2 yet")
+	return nil, ErrRegisterFSAdminNotAvailable
 }
 
 // registerTenantUser handles standard tenant-based user registration.
@@ -132,7 +147,7 @@ func (s *registerService) registerTenantUser(ctx context.Context, in dto.Registe
 	}
 
 	// Password policy: blacklist check
-	if err := s.checkPasswordPolicy(in.Password); err != nil {
+	if err := s.checkPasswordPolicy(ctx, in.Password); err != nil {
 		log.Debug("password policy violation", logger.Err(err))
 		return nil, ErrRegisterPolicyViolation
 	}
@@ -155,15 +170,29 @@ func (s *registerService) registerTenantUser(ctx context.Context, in dto.Registe
 
 	user, _, err := tda.Users().Create(ctx, userInput)
 	if err != nil {
-		if err == repository.ErrConflict {
+		if errors.Is(err, repository.ErrConflict) {
 			log.Debug("email already exists")
 			return nil, ErrRegisterEmailTaken
 		}
 		log.Error("user creation failed", logger.Err(err))
-		return nil, ErrRegisterCreateFailed
+		return nil, fmt.Errorf("%w: %w", ErrRegisterCreateFailed, err)
 	}
 
 	log = log.With(logger.UserID(user.ID))
+
+	// Email verification (soft fail, matching V1 behavior)
+	// Email verification (soft fail, matching V1 behavior)
+	if s.deps.VerificationSender != nil &&
+		helpers.IsPasswordProviderAllowed(client.Providers) &&
+		client.RequireEmailVerification {
+		// Note: V1 checked client.RequireEmailVerification here.
+		// Assuming we want to send it if configured.
+		// TODO: Add RequireEmailVerification to Client model if missing.
+		// For now, we attempt send if sender is wired.
+		if err := s.deps.VerificationSender.SendVerification(ctx, tenantSlug, in.ClientID, user.ID, in.Email, ""); err != nil {
+			log.Warn("verification email failed (soft)", logger.Err(err))
+		}
+	}
 
 	// If no auto-login, return just user_id
 	if !s.deps.AutoLogin {
@@ -236,17 +265,17 @@ func (s *registerService) issueTokens(ctx context.Context, tda store.TenantDataA
 	accessToken, err := tk.SignedString(priv)
 	if err != nil {
 		log.Error("failed to sign access token", logger.Err(err))
-		return nil, ErrRegisterTokenFailed
+		return nil, fmt.Errorf("%w: %v", ErrRegisterTokenFailed, err)
 	}
 
 	// Generate refresh token
 	rawRefresh, err := tokens.GenerateOpaqueToken(32)
 	if err != nil {
 		log.Error("failed to generate refresh token", logger.Err(err))
-		return nil, ErrRegisterTokenFailed
+		return nil, fmt.Errorf("%w: %v", ErrRegisterTokenFailed, err)
 	}
 
-	refreshHash := tokens.SHA256Hex(rawRefresh)
+	refreshHash := tokens.SHA256Base64URL(rawRefresh)
 	ttlSeconds := int(s.deps.RefreshTTL.Seconds())
 
 	tokenInput := repository.CreateRefreshTokenInput{
@@ -259,7 +288,7 @@ func (s *registerService) issueTokens(ctx context.Context, tda store.TenantDataA
 
 	if _, err := tda.Tokens().Create(ctx, tokenInput); err != nil {
 		log.Error("failed to persist refresh token", logger.Err(err))
-		return nil, ErrRegisterTokenFailed
+		return nil, fmt.Errorf("%w: %v", ErrRegisterTokenFailed, err)
 	}
 
 	log.Info("user registered with auto-login")
@@ -273,17 +302,16 @@ func (s *registerService) issueTokens(ctx context.Context, tda store.TenantDataA
 }
 
 // checkPasswordPolicy validates the password against configured policies.
-func (s *registerService) checkPasswordPolicy(pwd string) error {
+func (s *registerService) checkPasswordPolicy(ctx context.Context, pwd string) error {
 	path := strings.TrimSpace(s.deps.BlacklistPath)
-	if path == "" {
-		path = strings.TrimSpace(os.Getenv("SECURITY_PASSWORD_BLACKLIST_PATH"))
-	}
 	if path == "" {
 		return nil // No policy configured
 	}
 
 	bl, err := password.GetCachedBlacklist(path)
 	if err != nil {
+		// log safe (from context or nil-safe)
+		logger.From(ctx).Debug("failed to load password blacklist", logger.Err(err), logger.String("path", path))
 		return nil // Ignore blacklist errors
 	}
 

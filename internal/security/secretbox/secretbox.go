@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -89,6 +90,77 @@ func Encrypt(plainText string) (string, error) {
 	nonceB64 := base64.StdEncoding.EncodeToString(nonce)
 	ctB64 := base64.StdEncoding.EncodeToString(ct)
 	return nonceB64 + sep + ctB64, nil
+}
+
+// DecryptWithKey descifra con una clave explícita (base64, hex o raw 32 bytes).
+func DecryptWithKey(key string, cipherText string) (string, error) {
+	key = strings.TrimSpace(key)
+	var kBytes []byte
+	decoded := false
+
+	// 1. Intentar Base64 (Std)
+	if b, err := base64.StdEncoding.DecodeString(key); err == nil && len(b) == requiredKeyLength {
+		kBytes = b
+		decoded = true
+	}
+	// 1.5. Intentar Base64 (Raw/NoPadding)
+	if !decoded {
+		if b, err := base64.RawStdEncoding.DecodeString(key); err == nil && len(b) == requiredKeyLength {
+			kBytes = b
+			decoded = true
+		}
+	}
+
+	// 2. Si no es base64 válido (o no da 32 bytes), intentar Hex
+	if !decoded {
+		// Chequeo rápido de longitud hex (64 chars = 32 bytes)
+		if len(key) == 64 {
+			if h, err := hex.DecodeString(key); err == nil && len(h) == requiredKeyLength {
+				kBytes = h
+				decoded = true
+			}
+		}
+	}
+
+	// 3. Fallback a Raw (si no fue decoded antes)
+	if !decoded {
+		kBytes = []byte(key)
+	}
+
+	if len(kBytes) != requiredKeyLength {
+		return "", fmt.Errorf("clave inválida: %d bytes (requiere %d)", len(kBytes), requiredKeyLength)
+	}
+
+	parts := strings.Split(cipherText, sep)
+	if len(parts) != 2 {
+		return "", errors.New("formato inválido: esperado base64(nonce)|base64(ciphertext)")
+	}
+	nonce, err := base64.StdEncoding.DecodeString(parts[0])
+	if err != nil {
+		return "", fmt.Errorf("decode nonce: %w", err)
+	}
+	ct, err := base64.StdEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("decode ciphertext: %w", err)
+	}
+	if len(nonce) != nonceSizeGCM {
+		return "", fmt.Errorf("nonce inválido: esperado %d bytes, obtuvo %d", nonceSizeGCM, len(nonce))
+	}
+
+	block, err := aes.NewCipher(kBytes)
+	if err != nil {
+		return "", fmt.Errorf("aes.NewCipher: %w", err)
+	}
+	aesgcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("cipher.NewGCM: %w", err)
+	}
+
+	pt, err := aesgcm.Open(nil, nonce, ct, nil)
+	if err != nil {
+		return "", fmt.Errorf("gcm auth/decrypt: %w", err)
+	}
+	return string(pt), nil
 }
 
 // Decrypt recibe base64(nonce)|base64(ciphertext) y devuelve el texto plano.

@@ -32,8 +32,9 @@ type TenantSettings struct {
 	UserFields                  []UserFieldDefinition
 	Mailing                     *MailingSettings
 	// IssuerMode configura cómo se construye el issuer/JWKS por tenant.
-	IssuerMode     string
-	IssuerOverride string
+	IssuerMode      string
+	IssuerOverride  string
+	SocialProviders *SocialConfig
 }
 
 // SMTPSettings configuración de email.
@@ -121,4 +122,12 @@ type TenantRepository interface {
 	// UpdateSettings actualiza solo los settings de un tenant.
 	// Cifra automáticamente campos sensibles.
 	UpdateSettings(ctx context.Context, slug string, settings *TenantSettings) error
+}
+
+// SocialConfig: habilitación/config de IdPs sociales.
+type SocialConfig struct {
+	GoogleEnabled   bool
+	GoogleClient    string
+	GoogleSecret    string // Plain (input)
+	GoogleSecretEnc string // Encrypted (persisted)
 }

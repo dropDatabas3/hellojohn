@@ -51,10 +51,15 @@ import (
 
 	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane/v2"
 	emailv2 "github.com/dropDatabas3/hellojohn/internal/email/v2"
+	dto "github.com/dropDatabas3/hellojohn/internal/http/v2/dto/session"
 	"github.com/dropDatabas3/hellojohn/internal/http/v2/services/admin"
 	"github.com/dropDatabas3/hellojohn/internal/http/v2/services/auth"
+	"github.com/dropDatabas3/hellojohn/internal/http/v2/services/email"
 	"github.com/dropDatabas3/hellojohn/internal/http/v2/services/health"
+	"github.com/dropDatabas3/hellojohn/internal/http/v2/services/oauth"
 	"github.com/dropDatabas3/hellojohn/internal/http/v2/services/oidc"
+	"github.com/dropDatabas3/hellojohn/internal/http/v2/services/security"
+	"github.com/dropDatabas3/hellojohn/internal/http/v2/services/session"
 	"github.com/dropDatabas3/hellojohn/internal/http/v2/services/social"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	store "github.com/dropDatabas3/hellojohn/internal/store/v2"
@@ -76,6 +81,7 @@ type Deps struct {
 
 	// ─── Health Check ───
 	HealthDeps health.Deps // Dependencias específicas para health probes
+	MasterKey  string      // Master key hex para cifrado
 
 	// ─── Social V2 ───
 	SocialCache        social.CacheWriter // Cache con write capabilities para social
@@ -83,16 +89,30 @@ type Deps struct {
 	SocialOIDCFactory  social.OIDCFactory // Factory para OIDC clients (Google, etc.)
 	SocialStateSigner  social.StateSigner // Signer para state JWTs
 	SocialLoginCodeTTL time.Duration      // TTL para login codes (default 60s)
+	Social             social.Services    // Social services
+
+	// ─── Auth Feature Flags ───
+	AutoLogin      bool // Auto-login after registration
+	FSAdminEnabled bool // Allow FS-admin registration
+
+	// ─── OAuth V2 ───
+	OAuthCache       oauth.CacheClient
+	OAuthCookieName  string
+	OAuthAllowBearer bool
 }
 
 // Services agrupa todos los sub-services por dominio.
 // Cada dominio tiene su propio aggregator en su sub-paquete.
 type Services struct {
-	Admin  admin.Services  // Operaciones admin (clients, users, scopes, rbac, consents)
-	Auth   auth.Services   // Autenticación (login, refresh, register)
-	OIDC   oidc.Services   // OIDC (jwks, discovery, userinfo)
-	Health health.Services // Health checks (readyz)
-	Social social.Services // Social login (start, callback, exchange)
+	Admin    admin.Services   // Operaciones admin
+	Auth     auth.Services    // Autenticación
+	OIDC     oidc.Services    // OIDC
+	OAuth    oauth.Services   // OAuth2 (authorize, token)
+	Session  session.Services // Session management
+	Email    email.Services   // Email flows
+	Security security.Services
+	Health   health.Services
+	Social   social.Services
 }
 
 // New crea el agregador de services con todas las dependencias inyectadas.
@@ -100,14 +120,21 @@ type Services struct {
 func New(d Deps) *Services {
 	return &Services{
 		Admin: admin.NewServices(admin.Deps{
+			DAL:          d.DAL,
 			ControlPlane: d.ControlPlane,
 			Email:        d.Email,
+			MasterKey:    d.MasterKey,
+			Issuer:       d.Issuer,
 		}),
 		Auth: auth.NewServices(auth.Deps{
-			DAL:        d.DAL,
-			Issuer:     d.Issuer,
-			RefreshTTL: d.RefreshTTL,
-			ClaimsHook: nil, // NoOp por defecto, inyectar si se necesita
+			DAL:            d.DAL,
+			Issuer:         d.Issuer,
+			RefreshTTL:     d.RefreshTTL,
+			ClaimsHook:     nil, // NoOp por defecto, inyectar si se necesita
+			AutoLogin:      d.AutoLogin,
+			FSAdminEnabled: d.FSAdminEnabled,
+			Email:          d.Email,
+			Social:         d.Social,
 		}),
 		OIDC: oidc.NewServices(oidc.Deps{
 			JWKSCache:    d.JWKSCache,
@@ -117,16 +144,32 @@ func New(d Deps) *Services {
 			DAL:          d.DAL,
 		}),
 		Health: health.NewServices(d.HealthDeps),
-		Social: social.NewServices(social.Deps{
-			Cache:          d.SocialCache,
-			DebugPeek:      d.SocialDebugPeek,
-			OIDCFactory:    d.SocialOIDCFactory,
-			StateSigner:    d.SocialStateSigner,
-			LoginCodeTTL:   d.SocialLoginCodeTTL,
-			Issuer:         d.Issuer,
-			BaseURL:        d.BaseIssuer,
-			RefreshTTL:     d.RefreshTTL,
-			TenantProvider: social.NewTenantProviderFromCpctx(), // Uses cpctx.Provider
+		Social: d.Social,
+		OAuth: oauth.NewServices(oauth.Deps{
+			DAL:          d.DAL,
+			Issuer:       d.Issuer,
+			RefreshTTL:   d.RefreshTTL,
+			Cache:        d.OAuthCache,
+			ControlPlane: d.ControlPlane,
+			CookieName:   d.OAuthCookieName,
+			AllowBearer:  d.OAuthAllowBearer,
+		}),
+		Session: session.NewServices(session.Deps{
+			Cache:        nil,
+			LogoutConfig: dto.SessionLogoutConfig{},
+			LoginConfig:  dto.LoginConfig{},
+		}),
+		Email: email.NewServices(email.Deps{
+			Email:          d.Email,
+			ControlPlane:   d.ControlPlane,
+			VerifyTTL:      48 * time.Hour,
+			ResetTTL:       1 * time.Hour,
+			AutoLoginReset: d.AutoLogin,
+			Policy:         nil, // Generar policy real si configuración lo requiere
+			Issuer:         nil, // Implementar TokenIssuer adapter para soporte AutoLogin
+		}),
+		Security: security.NewServices(security.Deps{
+			// Add security deps if any
 		}),
 	}
 }

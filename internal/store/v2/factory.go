@@ -346,6 +346,10 @@ func (c *factoryConfigAccess) Scopes(tenantSlug string) repository.ScopeReposito
 	return c.fs.Scopes()
 }
 
+func (c *factoryConfigAccess) Keys() repository.KeyRepository {
+	return c.fs.Keys()
+}
+
 // ─── TenantDataAccess Implementation ───
 
 type tenantAccess struct {

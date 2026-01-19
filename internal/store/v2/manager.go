@@ -75,6 +75,7 @@ type ConfigAccess interface {
 	Tenants() repository.TenantRepository
 	Clients(tenantSlug string) repository.ClientRepository
 	Scopes(tenantSlug string) repository.ScopeRepository
+	Keys() repository.KeyRepository
 }
 
 // MailSender interface para envío de emails.

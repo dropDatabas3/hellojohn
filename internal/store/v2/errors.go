@@ -12,6 +12,9 @@ var (
 
 	// ErrNotLeader indica que la operación requiere ser leader del cluster.
 	ErrNotLeader = errors.New("operation requires cluster leader")
+
+	// ErrPreconditionFailed indica fallo de control de concurrencia optimista.
+	ErrPreconditionFailed = errors.New("store: precondition failed")
 )
 
 // IsNoDBForTenant helper para verificar si el error es por falta de DB.

@@ -2,13 +2,12 @@ package auth
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"strings"
 
 	dto "github.com/dropDatabas3/hellojohn/internal/http/v2/dto/auth"
 	"github.com/dropDatabas3/hellojohn/internal/observability/logger"
+	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
 	store "github.com/dropDatabas3/hellojohn/internal/store/v2"
 )
 
@@ -69,8 +68,8 @@ func (s *logoutService) Logout(ctx context.Context, in dto.LogoutRequest, tenant
 	}
 
 	// Hash the refresh token (hex encoding)
-	sum := sha256.Sum256([]byte(in.RefreshToken))
-	hashHex := hex.EncodeToString(sum[:])
+	// Hash the refresh token (base64url encoding)
+	hash := tokens.SHA256Base64URL(in.RefreshToken)
 
 	// Get TDA for tenant
 	tda, err := s.deps.DAL.ForTenant(ctx, tenantSlug)
@@ -87,7 +86,7 @@ func (s *logoutService) Logout(ctx context.Context, in dto.LogoutRequest, tenant
 	log = log.With(logger.TenantSlug(tda.Slug()))
 
 	// Find refresh token by hash
-	rt, err := tda.Tokens().GetByHash(ctx, hashHex)
+	rt, err := tda.Tokens().GetByHash(ctx, hash)
 	if err != nil || rt == nil {
 		// Idempotent: if not found, consider it already revoked
 		log.Debug("refresh token not found, treating as already revoked")

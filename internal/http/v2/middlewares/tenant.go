@@ -118,6 +118,15 @@ func (m *TenantMiddleware) Handle(next http.Handler) http.Handler {
 			return
 		}
 
+		if m.manager == nil {
+			if m.optional {
+				next.ServeHTTP(w, r)
+				return
+			}
+			errors.WriteError(w, errors.ErrServiceUnavailable.WithDetail("tenant DAL not configured"))
+			return
+		}
+
 		// Obtener Data Access desde Store V2
 		// El DAL tiene cache interno, por lo que esta llamada es rápida.
 		tda, err := m.manager.ForTenant(r.Context(), slug)

@@ -1,10 +1,22 @@
-// Package email contiene los services del dominio email flows.
 package email
+
+import (
+	"time"
+
+	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane/v2"
+	emailv2 "github.com/dropDatabas3/hellojohn/internal/email/v2"
+	"github.com/dropDatabas3/hellojohn/internal/security/password"
+)
 
 // Deps contiene las dependencias para crear los services email.
 type Deps struct {
-	Sender SenderProvider
-	Config FlowsConfig
+	Email          emailv2.Service
+	ControlPlane   controlplane.Service
+	VerifyTTL      time.Duration
+	ResetTTL       time.Duration
+	AutoLoginReset bool
+	Policy         *password.Policy
+	Issuer         TokenIssuer
 }
 
 // Services agrupa todos los services del dominio email.
@@ -16,8 +28,13 @@ type Services struct {
 func NewServices(d Deps) Services {
 	return Services{
 		Flows: NewFlowsService(FlowsDeps{
-			Sender: d.Sender,
-			Config: d.Config,
+			Email:          d.Email,
+			ControlPlane:   d.ControlPlane,
+			VerifyTTL:      d.VerifyTTL,
+			ResetTTL:       d.ResetTTL,
+			AutoLoginReset: d.AutoLoginReset,
+			Policy:         d.Policy,
+			Issuer:         d.Issuer,
 		}),
 	}
 }

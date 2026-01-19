@@ -19,6 +19,7 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/cache/v2"
 	"github.com/dropDatabas3/hellojohn/internal/domain/repository"
+	"github.com/dropDatabas3/hellojohn/internal/domain/types"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/observability/logger"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
@@ -145,15 +146,26 @@ func (s *mfaTOTPService) Challenge(ctx context.Context, tenantSlug string, req C
 	}
 
 	// Resolve Issuer (Key selection)
-	// V2 Services usually have the issuer configured via s.issuer
-	// We use s.issuer defaults. V1 does complex resolution based on tenant settings.
-	// For V2 MVP, we stick to s.issuer.Iss and active keys.
-	// Note: If we need per-tenant keys, we need access to TenantSettings.
-	// tda.Settings() gives ussettings.
-	// Let's perform simple issuance first.
-	kid, priv, _, err := s.issuer.Keys.Active()
-	if err != nil {
-		log.Error("failed to get active key", logger.Err(err))
+	settings := tda.Settings()
+	effIss := jwtx.ResolveIssuer(
+		s.issuer.Iss,
+		string(settings.IssuerMode),
+		tda.Slug(),
+		settings.IssuerOverride,
+	)
+
+	var kid string
+	var priv any
+	var errKey error
+
+	if types.IssuerMode(settings.IssuerMode) == types.IssuerModePath {
+		kid, priv, _, errKey = s.issuer.Keys.ActiveForTenant(tda.Slug())
+	} else {
+		kid, priv, _, errKey = s.issuer.Keys.Active()
+	}
+
+	if errKey != nil {
+		log.Error("failed to get active key", logger.Err(errKey))
 		return nil, ErrMFACryptoFailed
 	}
 
@@ -161,7 +173,7 @@ func (s *mfaTOTPService) Challenge(ctx context.Context, tenantSlug string, req C
 	exp := now.Add(s.issuer.AccessTTL)
 
 	claims := jwtv5.MapClaims{
-		"iss": s.issuer.Iss,
+		"iss": effIss,
 		"sub": userID,
 		"aud": ch.ClientID,
 		"iat": now.Unix(),
@@ -198,7 +210,7 @@ func (s *mfaTOTPService) Challenge(ctx context.Context, tenantSlug string, req C
 		return nil, ErrMFANotSupported
 	}
 
-	rtHash := tokens.SHA256Hex(rawRT)
+	rtHash := tokens.SHA256Base64URL(rawRT)
 
 	_, err = tokenRepo.Create(ctx, repository.CreateRefreshTokenInput{
 		TenantID:   ch.TenantID,
@@ -288,6 +300,7 @@ type MFATOTPDeps struct {
 	Cache      cache.Client
 	RefreshTTL time.Duration
 	ClaimsHook ClaimsHook
+	MasterKey  string
 }
 
 // mfaTOTPService implements MFATOTPService.
@@ -297,6 +310,7 @@ type mfaTOTPService struct {
 	cache      cache.Client
 	refreshTTL time.Duration
 	claimsHook ClaimsHook
+	masterKey  string
 }
 
 // NewMFATOTPService creates a new MFATOTPService.
@@ -307,6 +321,7 @@ func NewMFATOTPService(d MFATOTPDeps) MFATOTPService {
 		cache:      d.Cache,
 		refreshTTL: d.RefreshTTL,
 		claimsHook: d.ClaimsHook,
+		masterKey:  d.MasterKey,
 	}
 }
 
@@ -335,7 +350,7 @@ func (s *mfaTOTPService) Enroll(ctx context.Context, tenantSlug, userID, email s
 	}
 
 	// Encrypt secret
-	enc, err := aesgcmEncryptMFA([]byte(b32))
+	enc, err := s.aesgcmEncryptMFA([]byte(b32))
 	if err != nil {
 		log.Error("failed to encrypt TOTP secret", logger.Err(err))
 		return nil, ErrMFACryptoFailed
@@ -392,7 +407,7 @@ func (s *mfaTOTPService) Verify(ctx context.Context, tenantSlug, userID, code st
 	}
 
 	// Decrypt secret
-	plain, err := aesgcmDecryptMFA(mfaCfg.SecretEncrypted)
+	plain, err := s.aesgcmDecryptMFA(mfaCfg.SecretEncrypted)
 	if err != nil {
 		log.Error("failed to decrypt TOTP secret", logger.Err(err))
 		return nil, ErrMFACryptoFailed
@@ -608,7 +623,7 @@ func (s *mfaTOTPService) validate2FA(ctx context.Context, mfaRepo mfaRepository,
 		return ErrMFANotInitialized
 	}
 
-	plain, err := aesgcmDecryptMFA(mfaCfg.SecretEncrypted)
+	plain, err := s.aesgcmDecryptMFA(mfaCfg.SecretEncrypted)
 	if err != nil {
 		return ErrMFACryptoFailed
 	}
@@ -651,13 +666,12 @@ type mfaRepository interface {
 
 const gcmPrefixMFA = "GCMV1-MFA:"
 
-func aesgcmEncryptMFA(plain []byte) (string, error) {
-	key := []byte(os.Getenv("SIGNING_MASTER_KEY"))
-	if len(key) < 32 {
-		return "", errors.New("missing or short SIGNING_MASTER_KEY (need 32 bytes)")
+func (s *mfaTOTPService) aesgcmEncryptMFA(plain []byte) (string, error) {
+	if len(s.masterKey) < 32 {
+		return "", errors.New("missing or short MasterKey (need 32 bytes)")
 	}
 
-	block, err := aes.NewCipher(key[:32])
+	block, err := aes.NewCipher([]byte(s.masterKey)[:32])
 	if err != nil {
 		return "", err
 	}
@@ -677,7 +691,7 @@ func aesgcmEncryptMFA(plain []byte) (string, error) {
 	return gcmPrefixMFA + hex.EncodeToString(out), nil
 }
 
-func aesgcmDecryptMFA(enc string) ([]byte, error) {
+func (s *mfaTOTPService) aesgcmDecryptMFA(enc string) ([]byte, error) {
 	if !strings.HasPrefix(enc, gcmPrefixMFA) {
 		return nil, errors.New("bad prefix")
 	}
@@ -687,12 +701,11 @@ func aesgcmDecryptMFA(enc string) ([]byte, error) {
 		return nil, err
 	}
 
-	key := []byte(os.Getenv("SIGNING_MASTER_KEY"))
-	if len(key) < 32 {
-		return nil, errors.New("missing or short SIGNING_MASTER_KEY (need 32 bytes)")
+	if len(s.masterKey) < 32 {
+		return nil, errors.New("missing or short MasterKey (need 32 bytes)")
 	}
 
-	block, err := aes.NewCipher(key[:32])
+	block, err := aes.NewCipher([]byte(s.masterKey)[:32])
 	if err != nil {
 		return nil, err
 	}

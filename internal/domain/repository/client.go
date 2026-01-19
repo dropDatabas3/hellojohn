@@ -4,6 +4,11 @@ import (
 	"context"
 )
 
+const (
+	ClientTypePublic       = "public"
+	ClientTypeConfidential = "confidential"
+)
+
 // Client representa un cliente OIDC/OAuth.
 type Client struct {
 	ID                       string
@@ -21,6 +26,7 @@ type Client struct {
 	VerifyEmailURL           string
 	ClaimSchema              map[string]any
 	ClaimMapping             map[string]any
+	SocialProviders          *SocialConfig // Override de configuración social por cliente
 }
 
 // ClientVersion representa una versión de configuración de un client.

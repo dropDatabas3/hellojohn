@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/cache/v2"
+	emailv2 "github.com/dropDatabas3/hellojohn/internal/email/v2"
+	socialsvc "github.com/dropDatabas3/hellojohn/internal/http/v2/services/social"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	store "github.com/dropDatabas3/hellojohn/internal/store/v2"
 )
@@ -15,12 +17,14 @@ type Deps struct {
 	Issuer         *jwtx.Issuer
 	Cache          cache.Client
 	RefreshTTL     time.Duration
-	ClaimsHook     ClaimsHook     // nil = NoOp
-	BlacklistPath  string         // Password blacklist path (optional)
-	AutoLogin      bool           // Auto-login after registration
-	FSAdminEnabled bool           // Allow FS-admin registration
-	DataRoot       string         // Data root for logo file reading
-	Providers      ProviderConfig // Global provider configuration
+	ClaimsHook     ClaimsHook      // nil = NoOp
+	BlacklistPath  string          // Password blacklist path (optional)
+	AutoLogin      bool            // Auto-login after registration
+	FSAdminEnabled bool            // Allow FS-admin registration
+	DataRoot       string          // Data root for logo file reading
+	Providers      ProviderConfig  // Global provider configuration
+	Email          emailv2.Service // Email service for verification
+	Social         socialsvc.Services
 }
 
 // Services agrupa todos los services del dominio auth.
@@ -34,6 +38,7 @@ type Services struct {
 	CompleteProfile CompleteProfileService
 	Profile         ProfileService
 	MFATOTP         MFATOTPService
+	Social          socialsvc.Services
 }
 
 // NewServices crea el agregador de services auth.
@@ -55,13 +60,14 @@ func NewServices(d Deps) Services {
 			DAL: d.DAL,
 		}),
 		Register: NewRegisterService(RegisterDeps{
-			DAL:            d.DAL,
-			Issuer:         d.Issuer,
-			RefreshTTL:     d.RefreshTTL,
-			ClaimsHook:     d.ClaimsHook,
-			BlacklistPath:  d.BlacklistPath,
-			AutoLogin:      d.AutoLogin,
-			FSAdminEnabled: d.FSAdminEnabled,
+			DAL:                d.DAL,
+			Issuer:             d.Issuer,
+			RefreshTTL:         d.RefreshTTL,
+			ClaimsHook:         d.ClaimsHook,
+			BlacklistPath:      d.BlacklistPath,
+			AutoLogin:          d.AutoLogin,
+			FSAdminEnabled:     d.FSAdminEnabled,
+			VerificationSender: EmailVerificationSender{Email: d.Email},
 		}),
 		Config: NewConfigService(ConfigDeps{
 			DAL:      d.DAL,
@@ -84,5 +90,6 @@ func NewServices(d Deps) Services {
 			RefreshTTL: d.RefreshTTL,
 			ClaimsHook: d.ClaimsHook,
 		}),
+		Social: d.Social,
 	}
 }

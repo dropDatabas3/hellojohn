@@ -112,8 +112,8 @@ func (p *senderProvider) resolveTenant(ctx context.Context, tenantSlugOrID strin
 // decryptPassword descifra una password encriptada con secretbox.
 // El formato esperado es base64(nonce)|base64(ciphertext).
 func (p *senderProvider) decryptPassword(encrypted string) (string, error) {
-	// sec.Decrypt usa la masterkey desde SECRETBOX_MASTER_KEY env internamente
-	decrypted, err := sec.Decrypt(encrypted)
+	// Usar la masterKey inyectada explícitamente (evita depender de env vars ocultas)
+	decrypted, err := sec.DecryptWithKey(p.masterKey, encrypted)
 	if err != nil {
 		return "", fmt.Errorf("decrypt: %w", err)
 	}

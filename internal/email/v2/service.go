@@ -423,7 +423,7 @@ func (s *service) resolveTenant(ctx context.Context, tenantSlugOrID string) (*re
 
 func (s *service) buildVerifyLink(token, redirect, clientID, tenantID string) string {
 	u, _ := url.Parse(s.baseURL)
-	u.Path = "/v1/auth/verify-email"
+	u.Path = "/v2/auth/verify-email"
 	q := u.Query()
 	q.Set("token", token)
 	if redirect != "" {
@@ -441,7 +441,7 @@ func (s *service) buildVerifyLink(token, redirect, clientID, tenantID string) st
 
 func (s *service) buildResetLink(token, redirect, clientID, tenantID string) string {
 	u, _ := url.Parse(s.baseURL)
-	u.Path = "/v1/auth/reset"
+	u.Path = "/v2/auth/reset"
 	q := u.Query()
 	q.Set("token", token)
 	if redirect != "" {

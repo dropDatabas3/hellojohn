@@ -34,6 +34,9 @@ func RegisterAuthRoutes(mux *http.ServeMux, deps AuthRouterDeps) {
 	// GET /v2/auth/providers
 	mux.Handle("/v2/auth/providers", authHandler(deps.RateLimiter, http.HandlerFunc(c.Providers.GetProviders)))
 
+	// GET /v2/providers/status (alias compat / monitoreo) -> mismo handler que /v2/auth/providers
+	mux.Handle("/v2/providers/status", authHandler(deps.RateLimiter, http.HandlerFunc(c.Providers.GetProviders)))
+
 	// POST /v2/auth/complete-profile (requires auth)
 	mux.Handle("/v2/auth/complete-profile", authedHandler(deps.RateLimiter, deps.Issuer, http.HandlerFunc(c.CompleteProfile.CompleteProfile)))
 
@@ -48,6 +51,12 @@ func RegisterAuthRoutes(mux *http.ServeMux, deps AuthRouterDeps) {
 
 	// POST /v2/auth/logout-all
 	mux.Handle("/v2/auth/logout-all", authHandler(deps.RateLimiter, http.HandlerFunc(c.Logout.LogoutAll)))
+
+	// POST /v2/auth/social/exchange
+	mux.Handle("/v2/auth/social/exchange", authHandler(deps.RateLimiter, http.HandlerFunc(c.Social.Exchange.Exchange)))
+
+	// GET /v2/auth/social/result
+	mux.Handle("/v2/auth/social/result", authHandler(deps.RateLimiter, http.HandlerFunc(c.Social.Result.GetResult)))
 }
 
 // authHandler crea el middleware chain para endpoints de auth públicos.
@@ -64,7 +73,7 @@ func authHandler(limiter mw.RateLimiter, handler http.Handler) http.Handler {
 	if limiter != nil {
 		chain = append(chain, mw.WithRateLimit(mw.RateLimitConfig{
 			Limiter: limiter,
-			KeyFunc: mw.IPOnlyRateKey,
+			KeyFunc: mw.IPPathRateKey,
 		}))
 	}
 
@@ -87,7 +96,7 @@ func authedHandler(limiter mw.RateLimiter, issuer *jwtx.Issuer, handler http.Han
 	if limiter != nil {
 		chain = append(chain, mw.WithRateLimit(mw.RateLimitConfig{
 			Limiter: limiter,
-			KeyFunc: mw.IPOnlyRateKey,
+			KeyFunc: mw.IPPathRateKey,
 		}))
 	}
 
@@ -113,7 +122,7 @@ func scopedHandler(limiter mw.RateLimiter, issuer *jwtx.Issuer, scope string, ha
 	if limiter != nil {
 		chain = append(chain, mw.WithRateLimit(mw.RateLimitConfig{
 			Limiter: limiter,
-			KeyFunc: mw.IPOnlyRateKey,
+			KeyFunc: mw.IPPathRateKey,
 		}))
 	}
 

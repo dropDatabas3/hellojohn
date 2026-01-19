@@ -68,6 +68,11 @@ func (c *LoginController) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Read trusted device cookie
+	if cookie, err := r.Cookie("mfa_trust"); err == nil && cookie.Value != "" {
+		req.TrustedDeviceToken = cookie.Value
+	}
+
 	// Llamar al service
 	result, err := c.service.LoginPassword(ctx, req)
 	if err != nil {
