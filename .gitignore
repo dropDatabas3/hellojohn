@@ -10,6 +10,7 @@ configs/config.yaml
 # ───────── Local utility scripts (keep out of repo) ─────────
 codeprinter.bat
 dump_code.ps1
+print_list.bat
 project_tree.ps1
 dump_code_*.txt
 code_dump_*.txt
@@ -48,7 +49,6 @@ contar_estructura.ps1
 /ui/build.log
 
 # Context docs
-
 roadmap.md
 roadmap_v2.md
 
@@ -73,3 +73,6 @@ roadmap_v2.md
 /bananacorp/.next/
 /deployments/docker-compose-storage.yaml
 /deployments/run-3nodes.ps1
+
+
+#handlers_description.md

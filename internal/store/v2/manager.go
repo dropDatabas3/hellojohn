@@ -1,0 +1,187 @@
+package store
+
+import (
+	"context"
+	"embed"
+	"log"
+	"sync"
+
+	"github.com/dropDatabas3/hellojohn/internal/cache/v2"
+	"github.com/dropDatabas3/hellojohn/internal/domain/repository"
+)
+
+// DataAccessLayer es el punto de entrada principal para acceso a datos.
+// Implementado por Factory.
+type DataAccessLayer interface {
+	// ForTenant retorna acceso a datos para un tenant específico.
+	ForTenant(ctx context.Context, slugOrID string) (TenantDataAccess, error)
+
+	// ConfigAccess retorna acceso al control plane (siempre disponible).
+	ConfigAccess() ConfigAccess
+
+	// Mode retorna el modo operacional actual.
+	Mode() OperationalMode
+
+	// Capabilities retorna las capacidades del modo actual.
+	Capabilities() ModeCapabilities
+
+	// Stats retorna estadísticas de conexiones.
+	Stats() FactoryStats
+
+	// MigrateTenant ejecuta migraciones para un tenant específico.
+	MigrateTenant(ctx context.Context, slugOrID string) (*MigrationResult, error)
+
+	// Close cierra todas las conexiones.
+	Close() error
+}
+
+// TenantDataAccess agrupa todos los repositorios para un tenant específico.
+type TenantDataAccess interface {
+	// Identificación
+	Slug() string
+	ID() string
+	Settings() *repository.TenantSettings
+	Driver() string
+
+	// Data plane (requieren DB)
+	Users() repository.UserRepository
+	Tokens() repository.TokenRepository
+	MFA() repository.MFARepository
+	Consents() repository.ConsentRepository
+	RBAC() repository.RBACRepository
+	Schema() repository.SchemaRepository
+	EmailTokens() repository.EmailTokenRepository
+	Identities() repository.IdentityRepository
+
+	// Control plane (siempre disponibles vía FS)
+	Clients() repository.ClientRepository
+	Scopes() repository.ScopeRepository
+
+	// Infraestructura
+	Cache() cache.Client
+	CacheRepo() repository.CacheRepository
+	Mailer() MailSender
+
+	// Operations
+	InfraStats(ctx context.Context) (*TenantInfraStats, error)
+
+	// Helpers
+	HasDB() bool
+	RequireDB() error
+}
+
+// ConfigAccess provee acceso al control plane (configuración global).
+type ConfigAccess interface {
+	Tenants() repository.TenantRepository
+	Clients(tenantSlug string) repository.ClientRepository
+	Scopes(tenantSlug string) repository.ScopeRepository
+	Keys() repository.KeyRepository
+}
+
+// MailSender interface para envío de emails.
+type MailSender interface {
+	Send(ctx context.Context, to, subject, body string) error
+}
+
+// ─── Manager (wrapper simplificado sobre Factory) ───
+
+// Manager es un wrapper thread-safe sobre Factory que cachea TenantDataAccess.
+// Útil cuando se quiere reutilizar TenantDataAccess entre requests.
+type Manager struct {
+	factory *Factory
+
+	// Cache de TenantDataAccess
+	tenants sync.Map // map[slug]TenantDataAccess
+}
+
+// ManagerConfig configuración para crear un Manager.
+type ManagerConfig struct {
+	FSRoot          string
+	GlobalDB        *DBConfig
+	DefaultTenantDB *DBConfig
+	MigrationsFS    embed.FS
+	MigrationsDir   string
+	Logger          *log.Logger
+}
+
+// NewManager crea un nuevo Manager.
+func NewManager(ctx context.Context, cfg ManagerConfig) (*Manager, error) {
+	factory, err := NewFactory(ctx, FactoryConfig{
+		FSRoot:          cfg.FSRoot,
+		GlobalDB:        cfg.GlobalDB,
+		DefaultTenantDB: cfg.DefaultTenantDB,
+		MigrationsFS:    cfg.MigrationsFS,
+		MigrationsDir:   cfg.MigrationsDir,
+		Logger:          cfg.Logger,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &Manager{factory: factory}, nil
+}
+
+// ForTenant retorna TenantDataAccess, cacheando el resultado.
+func (m *Manager) ForTenant(ctx context.Context, slugOrID string) (TenantDataAccess, error) {
+	// Verificar cache
+	if val, ok := m.tenants.Load(slugOrID); ok {
+		return val.(TenantDataAccess), nil
+	}
+
+	// Crear nuevo
+	tda, err := m.factory.ForTenant(ctx, slugOrID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cachear por slug
+	m.tenants.Store(tda.Slug(), tda)
+	if tda.ID() != tda.Slug() {
+		m.tenants.Store(tda.ID(), tda)
+	}
+
+	return tda, nil
+}
+
+// ConfigAccess retorna acceso al control plane.
+func (m *Manager) ConfigAccess() ConfigAccess {
+	return m.factory.ConfigAccess()
+}
+
+// Mode retorna el modo operacional.
+func (m *Manager) Mode() OperationalMode {
+	return m.factory.Mode()
+}
+
+// Capabilities retorna las capacidades del modo.
+func (m *Manager) Capabilities() ModeCapabilities {
+	return m.factory.Capabilities()
+}
+
+// Stats retorna estadísticas.
+func (m *Manager) Stats() FactoryStats {
+	return m.factory.Stats()
+}
+
+// ClearCache limpia el cache de TenantDataAccess.
+func (m *Manager) ClearCache() {
+	m.tenants = sync.Map{}
+}
+
+// ClearTenant limpia el cache para un tenant específico.
+func (m *Manager) ClearTenant(slug string) {
+	m.tenants.Delete(slug)
+}
+
+// MigrateTenant ejecuta migraciones para un tenant específico.
+func (m *Manager) MigrateTenant(ctx context.Context, slugOrID string) (*MigrationResult, error) {
+	return m.factory.MigrateTenant(ctx, slugOrID)
+}
+
+// Close cierra el manager y todas sus conexiones.
+func (m *Manager) Close() error {
+	return m.factory.Close()
+}
+
+// Ensure Manager implements DataAccessLayer
+var _ DataAccessLayer = (*Manager)(nil)

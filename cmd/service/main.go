@@ -18,23 +18,23 @@ import (
 
 	"encoding/json"
 
-	"github.com/dropDatabas3/hellojohn/internal/app"
-	"github.com/dropDatabas3/hellojohn/internal/app/cpctx"
-	"github.com/dropDatabas3/hellojohn/internal/cluster"
+	"github.com/dropDatabas3/hellojohn/internal/app/v1"
+	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
+	clusterv1 "github.com/dropDatabas3/hellojohn/internal/cluster/v1"
 	"github.com/dropDatabas3/hellojohn/internal/config"
-	cpfs "github.com/dropDatabas3/hellojohn/internal/controlplane/fs"
-	"github.com/dropDatabas3/hellojohn/internal/email"
-	httpmetrics "github.com/dropDatabas3/hellojohn/internal/http"
-	httpserver "github.com/dropDatabas3/hellojohn/internal/http"
-	"github.com/dropDatabas3/hellojohn/internal/http/handlers"
-	"github.com/dropDatabas3/hellojohn/internal/http/helpers"
-	"github.com/dropDatabas3/hellojohn/internal/infra/cachefactory"
-	"github.com/dropDatabas3/hellojohn/internal/infra/tenantsql"
+	cpfs "github.com/dropDatabas3/hellojohn/internal/controlplane/v1/fs"
+	"github.com/dropDatabas3/hellojohn/internal/email/v1"
+	httpserver "github.com/dropDatabas3/hellojohn/internal/http/v1"
+	"github.com/dropDatabas3/hellojohn/internal/http/v1/handlers"
+	"github.com/dropDatabas3/hellojohn/internal/http/v1/helpers"
+	"github.com/dropDatabas3/hellojohn/internal/infra/v1/cachefactory"
+	"github.com/dropDatabas3/hellojohn/internal/infra/v1/tenantsql"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/rate"
-	"github.com/dropDatabas3/hellojohn/internal/store"
-	"github.com/dropDatabas3/hellojohn/internal/store/core"
-	pgdriver "github.com/dropDatabas3/hellojohn/internal/store/pg"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1"
+	"github.com/dropDatabas3/hellojohn/internal/store/v1/core"
+	pgdriver "github.com/dropDatabas3/hellojohn/internal/store/v1/pg"
+	storev2 "github.com/dropDatabas3/hellojohn/internal/store/v2"
 	"github.com/jackc/pgx/v5/pgxpool"
 	rdb "github.com/redis/go-redis/v9"
 )
@@ -562,7 +562,7 @@ func main() {
 	cpctx.Provider = cpfs.New(cfg.ControlPlane.FSRoot)
 
 	// Placeholder del nodo de clúster (se asigna si CLUSTER_MODE=embedded)
-	var clusterNode *cluster.Node
+	var clusterNode *clusterv1.Node
 
 	// Paso 0 (Fase 6): si CLUSTER_MODE=embedded, preparar carpeta RAFT bajo FS root
 	if strings.EqualFold(strings.TrimSpace(cfg.Cluster.Mode), "embedded") {
@@ -572,10 +572,10 @@ func main() {
 		}
 
 		// Inicializar nodo Raft embebido (mono-nodo por ahora)
-		fsm := cluster.NewFSM()
+		fsm := clusterv1.NewFSM()
 		// Allow explicit bootstrap via CLUSTER_BOOTSTRAP=1 for exactly one node
 		bootstrapPreferred := getenvBool("CLUSTER_BOOTSTRAP", false)
-		node, err := cluster.NewNode(cluster.NodeOptions{
+		node, err := clusterv1.NewNode(clusterv1.NodeOptions{
 			NodeID:             strings.TrimSpace(cfg.Cluster.NodeID),
 			RaftAddr:           strings.TrimSpace(cfg.Cluster.RaftAddr),
 			RaftDir:            raftDir,
@@ -622,7 +622,7 @@ func main() {
 			ConnMaxLifetime: 30 * time.Minute,
 		},
 		MigrationsDir: "migrations/postgres/tenant",
-		MetricsFunc:   httpmetrics.RecordTenantMigration,
+		MetricsFunc:   httpserver.RecordTenantMigration,
 	})
 	if err != nil {
 		log.Fatalf("tenant sql manager: %v", err)
@@ -722,31 +722,30 @@ func main() {
 	}
 
 	var ks *jwtx.PersistentKeystore
-	if hasGlobalDB {
-		pgRepo, ok := repo.(*pgdriver.Store)
-		if !ok {
-			log.Fatalf("signing keys: se esperaba Postgres store")
-		}
-		// Usar un store híbrido: global desde PG, por-tenant desde FS para asegurar aislamiento
+	{
+		// Inicializar keystore usando Store V2 DAL
 		keysDir := filepath.Join(cfg.ControlPlane.FSRoot, "keys")
-		fileStore, err := jwtx.NewFileSigningKeyStore(keysDir)
+
+		// Crear el adapter FS de Store V2
+		dalAdapter, err := storev2.OpenAdapter(ctx, storev2.AdapterConfig{
+			Name:             "fs",
+			FSRoot:           cfg.ControlPlane.FSRoot,
+			SigningMasterKey: os.Getenv("SIGNING_MASTER_KEY"),
+		})
 		if err != nil {
-			log.Fatalf("create file signing keystore: %v", err)
+			log.Fatalf("open store v2 fs adapter: %v", err)
 		}
-		hybrid := jwtx.NewHybridSigningKeyStore(pgRepo, fileStore)
-		ks = jwtx.NewPersistentKeystore(ctx, hybrid)
-	} else {
-		// FS-only: usar FileSigningKeyStore para persistencia
-		keysDir := filepath.Join(cfg.ControlPlane.FSRoot, "keys")
-		fileStore, err := jwtx.NewFileSigningKeyStore(keysDir)
-		if err != nil {
-			log.Fatalf("create file signing keystore: %v", err)
-		}
-		ks = jwtx.NewPersistentKeystore(ctx, fileStore)
-		log.Printf("Using persistent file keystore at: %s", keysDir)
+
+		// Obtener KeyRepository del adapter
+		keyRepo := dalAdapter.Keys()
+
+		// Crear PersistentKeystore
+		ks = jwtx.NewPersistentKeystore(keyRepo)
+
+		log.Printf("Using persistent keystore at: %s (via Store V2 DAL)", keysDir)
 	}
-	if err := ks.EnsureBootstrap(); err != nil {
-		log.Printf("WARN: bootstrap signing key failed (DB down?): %v", err)
+	if err := ks.EnsureBootstrap(ctx); err != nil {
+		log.Printf("WARN: bootstrap signing key failed: %v", err)
 	}
 
 	iss := cfg.JWT.Issuer
@@ -1081,7 +1080,7 @@ func main() {
 		globalPoolFunc = pgRepo.Pool
 	}
 
-	_, err = httpmetrics.RegisterMetrics(httpmetrics.MetricsConfig{
+	_, err = httpserver.RegisterMetrics(httpserver.MetricsConfig{
 		TenantManager: tenantSQLManager,
 		GlobalPool:    globalPoolFunc,
 	})
@@ -1173,7 +1172,7 @@ func main() {
 	handler := httpserver.WithLogging(
 		httpserver.WithRecover(
 			httpserver.WithRequestID(
-				httpmetrics.WithMetrics(
+				httpserver.WithMetrics(
 					httpserver.WithRateLimit(
 						httpserver.WithSecurityHeaders(
 							httpserver.WithCORS(mux, cfg.Server.CORSAllowedOrigins),
