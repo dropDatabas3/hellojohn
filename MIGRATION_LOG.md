@@ -8,11 +8,11 @@
 ## 📊 Estadísticas
 
 - **Total handlers V1**: 48 (según V1_HANDLERS_INVENTORY.md)
-- **Migrados a V2**: 2
+- **Migrados a V2**: 6
 - **En progreso**: 0
-- **Bloqueados**: 0
-- **Pendientes**: 46
-- **Progreso**: 4%
+- **Bloqueados**: 1 (admin_mailing - no equivalente V2)
+- **Pendientes**: 41
+- **Progreso**: 13%
 
 ---
 
@@ -100,6 +100,87 @@
 
 ---
 
+### ✅ admin_rbac.go → v2/admin/rbac_service.go
+- **Fecha**: 2026-01-20
+- **Rutas migradas**:
+  - `/v1/admin/rbac/users/{userID}/roles` → `/v2/admin/rbac/users/{userID}/roles`
+  - `/v1/admin/rbac/roles/{role}/perms` → `/v2/admin/rbac/roles/{role}/perms`
+- **Archivos creados**:
+  - `internal/http/v2/services/admin/rbac_service.go` (existente)
+  - `internal/http/v2/controllers/admin/rbac_controller.go` (existente)
+- **Herramientas V2 usadas**:
+  - `store.DataAccessLayer.ForTenant()` (DAL V2)
+- **Wiring verificado**: ✅
+  - `services/admin/services.go:37` (RBACService en aggregator)
+  - `controllers/admin/controllers.go:23` (RBACController en aggregator)
+  - `router/admin_routes.go:47` (rutas con requireDB=true)
+  - `app/v2/app.go:79` (adminControllers desde svcs.Admin)
+
+---
+
+### ✅ admin_scopes_fs.go → v2/admin/scopes_service.go
+- **Fecha**: 2026-01-20
+- **Rutas migradas**:
+  - `GET /v1/admin/scopes` → `GET /v2/admin/scopes`
+  - `POST /v1/admin/scopes` → `POST /v2/admin/scopes`
+  - `PUT/PATCH /v1/admin/scopes/{scopeID}` → `PUT/PATCH /v2/admin/scopes/{scopeID}`
+  - `DELETE /v1/admin/scopes/{scopeID}` → `DELETE /v2/admin/scopes/{scopeID}`
+- **Archivos creados**:
+  - `internal/http/v2/services/admin/scopes_service.go` (existente)
+  - `internal/http/v2/controllers/admin/scopes_controller.go` (existente)
+- **Herramientas V2 usadas**:
+  - `controlplane.Service.ListScopes()`
+  - `controlplane.Service.UpsertScope()`
+  - `controlplane.Service.DeleteScope()`
+- **Wiring verificado**: ✅
+  - `services/admin/services.go:34` (ScopeService en aggregator)
+  - `controllers/admin/controllers.go:22` (ScopesController en aggregator)
+  - `router/admin_routes.go:43-44` (rutas con requireDB=false, Control Plane)
+  - `app/v2/app.go:79` (adminControllers desde svcs.Admin)
+
+---
+
+### ✅ admin_tenants_fs.go → v2/admin/tenants_service.go
+- **Fecha**: 2026-01-20
+- **Rutas migradas**:
+  - `GET /v1/admin/tenants` → `GET /v2/admin/tenants`
+  - `POST /v1/admin/tenants` → `POST /v2/admin/tenants`
+  - `PUT/PATCH /v1/admin/tenants/{slug}` → `PUT/PATCH /v2/admin/tenants/{slug}`
+  - `DELETE /v1/admin/tenants/{slug}` → `DELETE /v2/admin/tenants/{slug}`
+  - `POST /v1/admin/tenants/test-connection` → `POST /v2/admin/tenants/test-connection`
+- **Archivos creados**:
+  - `internal/http/v2/services/admin/tenants_service.go` (existente)
+  - `internal/http/v2/controllers/admin/tenants_controller.go` (existente)
+- **Herramientas V2 usadas**:
+  - `store.DataAccessLayer` (DAL V2)
+  - `jwtx.Issuer` (JWT V2)
+  - `emailv2.Service` (Email V2)
+- **Wiring verificado**: ✅
+  - `services/admin/services.go:38` (TenantsService en aggregator)
+  - `controllers/admin/controllers.go:24` (TenantsController en aggregator)
+  - `router/tenants_routes.go:33-34` (rutas con middleware especial System Admin)
+  - `app/v2/app.go:79` (adminControllers desde svcs.Admin)
+
+---
+
+### ✅ admin_users.go → v2/admin/users_service.go
+- **Fecha**: 2026-01-20
+- **Rutas migradas**:
+  - `POST /v1/admin/users/disable` → `POST /v2/admin/users/disable`
+  - `POST /v1/admin/users/enable` → `POST /v2/admin/users/enable`
+  - `POST /v1/admin/users/resend-verification` → `POST /v2/admin/users/resend-verification`
+- **Archivos creados**:
+  - `internal/http/v2/services/admin/users_service.go` (existente)
+  - `internal/http/v2/controllers/admin/users_controller.go` (existente)
+- **Herramientas V2 usadas**:
+  - `store.DataAccessLayer.ForTenant()` (DAL V2)
+  - `emailv2.Service` (Email V2)
+- **Wiring verificado**: ✅
+  - `services/admin/services.go:35` (UserActionService en aggregator)
+  - `controllers/admin/controllers.go:21` (UsersController en aggregator)
+  - `router/admin_routes.go:40` (rutas con requireDB=true)
+  - `app/v2/app.go:79` (adminControllers desde svcs.Admin)
+
 ---
 
 ## ⏳ Handlers En Progreso
@@ -110,7 +191,12 @@ _(Vacío - Handlers parcialmente migrados)_
 
 ## ❌ Handlers Bloqueados
 
-_(Vacío - Handlers bloqueados por dependencias)_
+### ❌ admin_mailing.go → Sin equivalente V2
+- **Bloqueador**: No existe service V2 para "test email" (envío de email de prueba SMTP)
+- **Handler V1**: POST /v1/admin/mailing (test SMTP configuration)
+- **Descripción**: Endpoint para probar configuración SMTP de un tenant enviando email de prueba
+- **Solución propuesta**: Crear `admin/TestEmailService` o agregar método `TestEmail()` a `admin.TenantsService`
+- **Prioridad**: Baja (feature administrativa no crítica)
 
 ---
 
@@ -129,10 +215,11 @@ _(Vacío - Handlers bloqueados por dependencias)_
 ### Admin
 - [x] `admin_clients_fs.go` → CRUD de clients (FS) ✅ MIGRADO (2026-01-20)
 - [x] `admin_consents.go` → Gestión de consents ✅ MIGRADO (2026-01-20)
-- [ ] `admin_scopes_fs.go` → CRUD de scopes (FS)
-- [ ] `admin_tenants_fs.go` → CRUD de tenants + settings
-- [ ] `admin_users.go` → Disable/enable users
-- [ ] `admin_rbac.go` → RBAC (users/roles, roles/perms)
+- [x] `admin_rbac.go` → RBAC (users/roles, roles/perms) ✅ MIGRADO (2026-01-20)
+- [x] `admin_scopes_fs.go` → CRUD de scopes (FS) ✅ MIGRADO (2026-01-20)
+- [x] `admin_tenants_fs.go` → CRUD de tenants + settings ✅ MIGRADO (2026-01-20)
+- [x] `admin_users.go` → Disable/enable users ✅ MIGRADO (2026-01-20)
+- [ ] `admin_mailing.go` → ❌ BLOQUEADO (sin equivalente V2)
 
 ### OIDC/Discovery
 - [ ] `jwks.go` → JWKS global + per-tenant
