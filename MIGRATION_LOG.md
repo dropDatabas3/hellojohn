@@ -8,11 +8,11 @@
 ## 📊 Estadísticas
 
 - **Total handlers V1**: 48 (según V1_HANDLERS_INVENTORY.md)
-- **Migrados a V2**: 6
+- **Migrados a V2**: 14
 - **En progreso**: 0
 - **Bloqueados**: 1 (admin_mailing - no equivalente V2)
-- **Pendientes**: 41
-- **Progreso**: 13%
+- **Pendientes**: 33
+- **Progreso**: 29%
 
 ---
 
@@ -183,6 +183,45 @@
 
 ---
 
+### ✅ Auth Handlers (Batch) → v2/auth/*_service.go
+- **Fecha**: 2026-01-20
+- **Handlers migrados** (8 handlers):
+  1. `auth_config.go` → `config_service.go` + `config_controller.go`
+  2. `auth_complete_profile.go` → `complete_profile_service.go` + `complete_profile_controller.go`
+  3. `auth_login.go` → `login_service.go` + `login_controller.go`
+  4. `auth_logout_all.go` → `logout_service.go` + `logout_all_controller.go`
+  5. `auth_refresh.go` → `refresh_service.go` + `refresh_controller.go`
+  6. `auth_register.go` → `register_service.go` + `register_controller.go`
+  7. `me.go` → `profile_service.go` + `me_controller.go`
+  8. `profile.go` → `profile_service.go` + `profile_controller.go`
+- **Rutas migradas**:
+  - `POST /v1/auth/login` → `POST /v2/auth/login`
+  - `POST /v1/auth/register` → `POST /v2/auth/register`
+  - `POST /v1/auth/refresh` → `POST /v2/auth/refresh`
+  - `POST /v1/auth/logout-all` → `POST /v2/auth/logout-all`
+  - `GET /v1/auth/config` → `GET /v2/auth/config`
+  - `POST /v1/auth/complete-profile` → `POST /v2/auth/complete-profile`
+  - `GET /v1/me` → `GET /v2/me`
+  - `GET /v1/profile` → `GET /v2/profile`
+- **Herramientas V2 usadas**:
+  - `store.DataAccessLayer.ForTenant()` (DAL V2)
+  - `jwtx.Issuer` (JWT V2 con EdDSA)
+  - `emailv2.Service` (Email V2 para verification)
+  - `cache.Client` (Cache V2)
+- **Wiring verificado**: ✅
+  - `services/auth/services.go:44-95` (todos los services en aggregator)
+  - `controllers/auth/controllers.go:24-39` (todos los controllers en aggregator)
+  - `router/auth_routes.go:23-59` (todas las rutas registradas)
+  - `app/v2/app.go:78` (authControllers desde svcs.Auth)
+  - `app/v2/app.go:108` (AuthControllers pasado a RegisterV2Routes)
+- **Notas**:
+  - V1 tenía ClaimsHook manual. V2 encapsula en services.
+  - V1 mezclaba password validation en handler. V2 Service usa blacklist opcional.
+  - V1 usaba Store directo. V2 usa DAL.ForTenant() con isolation.
+  - Controllers separan métodos por endpoint (vs ServeHTTP monolítico).
+
+---
+
 ## ⏳ Handlers En Progreso
 
 _(Vacío - Handlers parcialmente migrados)_
@@ -203,14 +242,14 @@ _(Vacío - Handlers parcialmente migrados)_
 ## 📝 Handlers Pendientes
 
 ### Auth
-- [ ] `auth_login.go` → Login con password
-- [ ] `auth_register.go` → Registro de usuario
-- [ ] `auth_refresh.go` → Refresh token
-- [ ] `auth_logout_all.go` → Logout all sessions
-- [ ] `auth_config.go` → Branding/config público
-- [ ] `auth_complete_profile.go` → Custom fields post-social
-- [ ] `me.go` → /v1/me (user info)
-- [ ] `profile.go` → /v1/profile (protected resource)
+- [x] `auth_login.go` → Login con password ✅ MIGRADO (2026-01-20)
+- [x] `auth_register.go` → Registro de usuario ✅ MIGRADO (2026-01-20)
+- [x] `auth_refresh.go` → Refresh token ✅ MIGRADO (2026-01-20)
+- [x] `auth_logout_all.go` → Logout all sessions ✅ MIGRADO (2026-01-20)
+- [x] `auth_config.go` → Branding/config público ✅ MIGRADO (2026-01-20)
+- [x] `auth_complete_profile.go` → Custom fields post-social ✅ MIGRADO (2026-01-20)
+- [x] `me.go` → /v1/me (user info) ✅ MIGRADO (2026-01-20)
+- [x] `profile.go` → /v1/profile (protected resource) ✅ MIGRADO (2026-01-20)
 
 ### Admin
 - [x] `admin_clients_fs.go` → CRUD de clients (FS) ✅ MIGRADO (2026-01-20)
