@@ -7,6 +7,9 @@ import (
 	"time"
 
 	v2server "github.com/dropDatabas3/hellojohn/internal/http/v2/server"
+
+	// CRITICAL: Import adapters to register them via init()
+	_ "github.com/dropDatabas3/hellojohn/internal/store/v2/adapters/dal"
 )
 
 func main() {
