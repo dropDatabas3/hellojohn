@@ -8,11 +8,11 @@
 ## 📊 Estadísticas
 
 - **Total handlers V1**: 48 (según V1_HANDLERS_INVENTORY.md)
-- **Migrados a V2**: 1
+- **Migrados a V2**: 2
 - **En progreso**: 0
 - **Bloqueados**: 0
-- **Pendientes**: 47
-- **Progreso**: 2%
+- **Pendientes**: 46
+- **Progreso**: 4%
 
 ---
 
@@ -58,6 +58,48 @@
 
 ---
 
+### ✅ admin_consents.go → v2/admin/consents_service.go
+- **Fecha**: 2026-01-20
+- **Rutas migradas**:
+  - `POST /v1/admin/consents/upsert` → `POST /v2/admin/consents/upsert`
+  - `POST /v1/admin/consents/revoke` → `POST /v2/admin/consents/revoke`
+  - `GET /v1/admin/consents/by-user/{userID}` → `GET /v2/admin/consents/by-user/{userID}`
+  - `GET /v1/admin/consents` → `GET /v2/admin/consents`
+  - `DELETE /v1/admin/consents/{userID}/{clientID}` → `DELETE /v2/admin/consents/{userID}/{clientID}`
+- **Archivos creados**:
+  - `internal/http/v2/dto/admin/consent.go` (existente)
+  - `internal/http/v2/dto/admin/consent_upsert.go` (existente)
+  - `internal/http/v2/dto/admin/consent_revoke.go` (existente)
+  - `internal/http/v2/services/admin/consents_service.go` (existente)
+  - `internal/http/v2/controllers/admin/consents_controller.go` (existente)
+- **Archivos editados**:
+  - N/A (ya estaban en aggregators)
+- **Herramientas V2 usadas**:
+  - `store.DataAccessLayer.ForTenant()` (DAL V2)
+  - `dal.Consents().UpsertConsent()`
+  - `dal.Consents().RevokeConsent()`
+  - `dal.Consents().GetConsentsByUser()`
+  - `dal.Tokens().RevokeRefreshTokensByClientAndUser()`
+- **Dependencias**:
+  - DAL V2 (Data Access Layer)
+  - Logger (observability/logger)
+  - Middlewares V2 (TenantResolution, RequireAuth, RequireAdmin, RequireTenantDB)
+- **Descripción**:
+  Gestión de OAuth consents (user_id + client_id + scopes granted). Incluye best-effort revocation de refresh tokens al revocar consent.
+- **Notas**:
+  - V1 mezclaba resolución de client_id (UUID interno vs público) en el handler. V2 Service maneja esto internamente.
+  - V1 usaba ScopesConsents repository directo. V2 usa DAL.ForTenant().Consents() para aislamiento multi-tenant.
+  - V1 tenía lógica best-effort de revocar tokens embebida en ServeHTTP. V2 Service encapsula esta orquestación.
+  - Controller separa métodos: UpsertConsent, RevokeConsent, ListConsentsByUser, GetConsents, DeleteConsent.
+- **Wiring verificado**: ✅
+  - `services/admin/services.go:36` (ConsentService inyectado en aggregator)
+  - `controllers/admin/controllers.go:20` (ConsentsController inyectado en aggregator)
+  - `router/admin_routes.go:36-37` (rutas registradas con middleware chain + requireDB=true)
+  - `app/v2/app.go:79` (adminControllers creado desde svcs.Admin)
+  - `app/v2/app.go:109` (AdminControllers pasado a RegisterV2Routes)
+
+---
+
 ---
 
 ## ⏳ Handlers En Progreso
@@ -86,7 +128,7 @@ _(Vacío - Handlers bloqueados por dependencias)_
 
 ### Admin
 - [x] `admin_clients_fs.go` → CRUD de clients (FS) ✅ MIGRADO (2026-01-20)
-- [ ] `admin_consents.go` → Gestión de consents
+- [x] `admin_consents.go` → Gestión de consents ✅ MIGRADO (2026-01-20)
 - [ ] `admin_scopes_fs.go` → CRUD de scopes (FS)
 - [ ] `admin_tenants_fs.go` → CRUD de tenants + settings
 - [ ] `admin_users.go` → Disable/enable users
