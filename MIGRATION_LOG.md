@@ -8,11 +8,11 @@
 ## 📊 Estadísticas
 
 - **Total handlers V1**: 48 (según V1_HANDLERS_INVENTORY.md)
-- **Migrados a V2**: 14
+- **Migrados a V2**: 34
 - **En progreso**: 0
 - **Bloqueados**: 1 (admin_mailing - no equivalente V2)
-- **Pendientes**: 33
-- **Progreso**: 29%
+- **Pendientes**: 13
+- **Progreso**: 71% (34/48 handlers activos)
 
 ---
 
@@ -222,6 +222,105 @@
 
 ---
 
+### ✅ OIDC Handlers (Batch) → v2/oidc/*_service.go
+- **Fecha**: 2026-01-20
+- **Handlers migrados** (3 handlers):
+  1. `jwks.go` → `jwks_service.go` + `jwks_controller.go`
+  2. `oidc_discovery.go` → `discovery_service.go` + `discovery_controller.go`
+  3. `userinfo.go` → `userinfo_service.go` + `userinfo_controller.go`
+- **Rutas migradas**:
+  - `GET /.well-known/jwks.json` (global)
+  - `GET /.well-known/jwks/{slug}.json` (per-tenant)
+  - `GET /.well-known/openid-configuration` (discovery)
+  - `GET/POST /userinfo` (OIDC userinfo endpoint)
+- **Wiring verificado**: ✅ (services/oidc/services.go, controllers/oidc/controllers.go, router/oidc_routes.go, app.go)
+
+---
+
+### ✅ OAuth Handlers (Batch) → v2/oauth/*_service.go
+- **Fecha**: 2026-01-20
+- **Handlers migrados** (5 handlers):
+  1. `oauth_authorize.go` → `authorize_service.go` + `authorize_controller.go`
+  2. `oauth_token.go` → `token_service.go` + `token_controller.go`
+  3. `oauth_consent.go` → `consent_service.go` + `consent_controller.go`
+  4. `oauth_introspect.go` → `introspect_service.go` + `introspect_controller.go`
+  5. `oauth_revoke.go` → `revoke_service.go` + `revoke_controller.go`
+- **Rutas migradas**:
+  - `GET/POST /oauth2/authorize`
+  - `POST /oauth2/token`
+  - `POST /oauth2/revoke`
+  - `POST /oauth2/introspect`
+- **Wiring verificado**: ✅ (services/oauth/services.go, controllers/oauth/controllers.go, router/oauth_routes.go, app.go)
+
+---
+
+### ✅ Session Handlers (Batch) → v2/session/*_service.go
+- **Fecha**: 2026-01-20
+- **Handlers migrados** (2 handlers):
+  1. `session_login.go` → `login_service.go` + `login_controller.go`
+  2. `session_logout.go` → `logout_service.go` + `logout_controller.go`
+- **Rutas migradas**:
+  - `POST /v2/session/login`
+  - `POST /v2/session/logout`
+- **Wiring verificado**: ✅ (services/session/services.go, controllers/session/controllers.go, router/session_routes.go, app.go)
+
+---
+
+### ✅ Social Handlers (Batch) → v2/social/*_service.go
+- **Fecha**: 2026-01-20
+- **Handlers migrados** (3 handlers):
+  1. `social_dynamic.go` → social services (inyectado externamente)
+  2. `social_exchange.go` → `exchange_controller.go`
+  3. `social_result.go` → `result_controller.go`
+- **Rutas migradas**:
+  - `GET/POST /v2/auth/social/{provider}/{action}`
+  - `POST /v2/auth/social/exchange`
+  - `GET /v2/auth/social/result`
+- **Notas**: Social services se inyectan externamente (no creados en NewServices), siguiendo patrón de excepción arquitectural documentado.
+- **Wiring verificado**: ✅ (router/auth_routes.go, router/social_routes.go, app.go)
+
+---
+
+### ✅ Email Flow Handlers (Batch) → v2/email/*_service.go
+- **Fecha**: 2026-01-20
+- **Handlers migrados** (parte de email_flows.go):
+  1. Verify Email Start → `flows_controller.VerifyEmailStart()`
+  2. Verify Email Confirm → `flows_controller.VerifyEmailConfirm()`
+  3. Forgot Password → `flows_controller.ForgotPassword()`
+  4. Reset Password → `flows_controller.ResetPassword()`
+- **Rutas migradas**:
+  - `POST /v2/auth/verify-email/start`
+  - `POST /v2/auth/verify-email`
+  - `POST /v2/auth/forgot`
+  - `POST /v2/auth/reset`
+- **Wiring verificado**: ✅ (services/email/services.go, controllers/email/controllers.go, router/email_routes.go, app.go)
+
+---
+
+### ✅ MFA Handler → v2/auth/mfa_service.go
+- **Fecha**: 2026-01-20
+- **Handler migrado**: `mfa_totp.go` → `mfa_service.go` + `mfa_totp_controller.go`
+- **Rutas migradas**: MFA endpoints en auth routes
+- **Wiring verificado**: ✅ (incluido en auth controllers aggregator)
+
+---
+
+### ✅ Security Handler → v2/security/csrf_service.go
+- **Fecha**: 2026-01-20
+- **Handler migrado**: `csrf.go` → `csrf_service.go` + `csrf_controller.go`
+- **Rutas migradas**: `GET /v2/csrf`
+- **Wiring verificado**: ✅ (services/security/services.go, controllers/security/controllers.go, router/security_routes.go, app.go)
+
+---
+
+### ✅ Health Handler → v2/health/health_service.go
+- **Fecha**: 2026-01-20
+- **Handler migrado**: `readyz.go` → `health_service.go` + `health_controller.go`
+- **Rutas migradas**: `GET /readyz`
+- **Wiring verificado**: ✅ (services/health/services.go, controllers/health/controllers.go, router/health_routes.go, app.go)
+
+---
+
 ## ⏳ Handlers En Progreso
 
 _(Vacío - Handlers parcialmente migrados)_
@@ -261,37 +360,51 @@ _(Vacío - Handlers parcialmente migrados)_
 - [ ] `admin_mailing.go` → ❌ BLOQUEADO (sin equivalente V2)
 
 ### OIDC/Discovery
-- [ ] `jwks.go` → JWKS global + per-tenant
-- [ ] `oidc_discovery.go` → Discovery global + per-tenant
-- [ ] `userinfo.go` → /userinfo endpoint
+- [x] `jwks.go` → JWKS global + per-tenant ✅ MIGRADO (2026-01-20)
+- [x] `oidc_discovery.go` → Discovery global + per-tenant ✅ MIGRADO (2026-01-20)
+- [x] `userinfo.go` → /userinfo endpoint ✅ MIGRADO (2026-01-20)
 
 ### OAuth
-- [ ] `oauth_authorize.go` → /oauth2/authorize
-- [ ] `oauth_token.go` → /oauth2/token (authorization_code, refresh_token, client_credentials)
-- [ ] `oauth_consent.go` → Consent accept
-- [ ] `oauth_introspect.go` → /oauth2/introspect
-- [ ] `oauth_revoke.go` → /oauth2/revoke
+- [x] `oauth_authorize.go` → /oauth2/authorize ✅ MIGRADO (2026-01-20)
+- [x] `oauth_token.go` → /oauth2/token ✅ MIGRADO (2026-01-20)
+- [x] `oauth_consent.go` → Consent accept ✅ MIGRADO (2026-01-20)
+- [x] `oauth_introspect.go` → /oauth2/introspect ✅ MIGRADO (2026-01-20)
+- [x] `oauth_revoke.go` → /oauth2/revoke ✅ MIGRADO (2026-01-20)
 
 ### MFA
-- [ ] `mfa_totp.go` → Enroll/verify/challenge/disable TOTP + recovery codes
+- [x] `mfa_totp.go` → Enroll/verify/challenge/disable TOTP + recovery codes ✅ MIGRADO (2026-01-20)
 
 ### Session
-- [ ] `session_login.go` → Cookie-based session login
-- [ ] `session_logout.go` → Cookie-based session logout
+- [x] `session_login.go` → Cookie-based session login ✅ MIGRADO (2026-01-20)
+- [x] `session_logout.go` → Cookie-based session logout ✅ MIGRADO (2026-01-20)
 
 ### Social
-- [ ] `social_dynamic.go` → Dynamic social login (/v1/auth/social/{provider}/{action})
-- [ ] `social_exchange.go` → Exchange login_code for tokens
-- [ ] `social_result.go` → Debug viewer for login_code
+- [x] `social_dynamic.go` → Dynamic social login ✅ MIGRADO (2026-01-20)
+- [x] `social_exchange.go` → Exchange login_code for tokens ✅ MIGRADO (2026-01-20)
+- [x] `social_result.go` → Debug viewer for login_code ✅ MIGRADO (2026-01-20)
 
 ### Email Flows
-- [ ] `email_flows.go` → Verify email start/confirm, forgot/reset password
+- [x] `email_flows.go` → Verify email start/confirm, forgot/reset password ✅ MIGRADO (2026-01-20)
 
 ### Security
-- [ ] `csrf.go` → CSRF token generation
+- [x] `csrf.go` → CSRF token generation ✅ MIGRADO (2026-01-20)
 
 ### Health
-- [ ] `readyz.go` → Health check endpoint
+- [x] `readyz.go` → Health check endpoint ✅ MIGRADO (2026-01-20)
+
+### Legacy / Not Wired (pendientes de investigación)
+- [ ] `admin_clients.go` (DB-based, reemplazado por admin_clients_fs)
+- [ ] `admin_scopes.go` (DB-based, reemplazado por admin_scopes_fs)
+- [ ] `oauth_start.go` (TODO vacío)
+- [ ] `oauth_callback.go` (TODO vacío)
+- [ ] `social_google.go` (deprecated, reemplazado por social_dynamic)
+- [ ] `public_forms.go` (not wired)
+- [ ] `registry_clients.go` (not wired)
+- [ ] `admin_keys.go` (deprecated/empty)
+- [ ] `claims_hook.go` (utility, no endpoint)
+- [ ] `cookieutil.go` (utility, no endpoint)
+- [ ] `json.go` (utility, no endpoint)
+- [ ] `providers.go` (utility, no endpoint)
 
 ---
 
