@@ -48,6 +48,15 @@ func RegisterAdminRoutes(mux *http.ServeMux, deps AdminRouterDeps) {
 
 	// Admin Tenants (Control Plane - System Admin)
 	RegisterTenantAdminRoutes(mux, deps)
+
+	// User CRUD (Data Plane - requiere DB)
+	// Note: No trailing slash to avoid conflict with tenant routes
+	userHandler := adminUserCRUDHandler(dal, issuer, limiter, c.UsersCRUD, true)
+	mux.Handle("POST /v2/admin/tenants/{id}/users", userHandler)
+	mux.Handle("GET /v2/admin/tenants/{id}/users", userHandler)
+	mux.Handle("GET /v2/admin/tenants/{id}/users/{userId}", userHandler)
+	mux.Handle("PUT /v2/admin/tenants/{id}/users/{userId}", userHandler)
+	mux.Handle("DELETE /v2/admin/tenants/{id}/users/{userId}", userHandler)
 }
 
 // ─── Helpers para crear handlers con middleware chain ───
@@ -101,6 +110,14 @@ func adminClientsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter
 			case http.MethodPost:
 				c.CreateClient(w, r)
 			default:
+				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
+			}
+
+		case strings.HasSuffix(path, "/revoke"):
+			// Handle /v2/admin/clients/{clientId}/revoke
+			if r.Method == http.MethodPost {
+				c.RevokeSecret(w, r)
+			} else {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
@@ -240,6 +257,46 @@ func adminRBACHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter mw
 
 		default:
 			httperrors.WriteError(w, httperrors.ErrNotFound)
+		}
+	})
+
+	return mw.Chain(handler, adminBaseChain(dal, issuer, limiter, requireDB)...)
+}
+
+
+// ─── Admin User CRUD ───
+
+func adminUserCRUDHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter mw.RateLimiter, c *ctrl.UsersCRUDController, requireDB bool) http.Handler {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		switch {
+		// POST/GET /v2/admin/tenants/{id}/users - Create user or List users
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/users"):
+			if r.Method == http.MethodPost {
+				c.CreateUser(w, r)
+			} else if r.Method == http.MethodGet {
+				c.ListUsers(w, r)
+			} else {
+				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
+			}
+
+		// GET/PUT/DELETE /v2/admin/tenants/{id}/users/{userId}
+		case strings.Contains(path, "/tenants/") && strings.Contains(path, "/users/"):
+			switch r.Method {
+			case http.MethodGet:
+				c.GetUser(w, r)
+			case http.MethodPut:
+				c.UpdateUser(w, r)
+			case http.MethodDelete:
+				c.DeleteUser(w, r)
+			default:
+				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
+			}
+
+		default:
+			// No match, skip to avoid conflict with other handlers
+			http.NotFound(w, r)
 		}
 	})
 

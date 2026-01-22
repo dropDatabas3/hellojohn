@@ -28,7 +28,9 @@ type TenantsService interface {
 	Update(ctx context.Context, slugOrID string, req dto.UpdateTenantRequest) (*dto.TenantResponse, error)
 	Delete(ctx context.Context, slugOrID string) error
 	GetSettings(ctx context.Context, slugOrID string) (*repository.TenantSettings, string, error)
+	GetSettingsDTO(ctx context.Context, slugOrID string) (*dto.TenantSettingsResponse, string, error)
 	UpdateSettings(ctx context.Context, slugOrID string, settings repository.TenantSettings, ifMatch string) (string, error)
+	UpdateSettingsDTO(ctx context.Context, slugOrID string, req dto.UpdateTenantSettingsRequest, ifMatch string) (string, error)
 	RotateKeys(ctx context.Context, slugOrID string, graceSeconds int64) (string, error)
 
 	// Infra
@@ -244,6 +246,42 @@ func (s *tenantsService) GetSettings(ctx context.Context, slugOrID string) (*rep
 	}
 
 	return &t.Settings, etag, nil
+}
+
+func (s *tenantsService) GetSettingsDTO(ctx context.Context, slugOrID string) (*dto.TenantSettingsResponse, string, error) {
+	settings, etag, err := s.GetSettings(ctx, slugOrID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return mapTenantSettingsToDTO(settings), etag, nil
+}
+
+func (s *tenantsService) UpdateSettingsDTO(ctx context.Context, slugOrID string, req dto.UpdateTenantSettingsRequest, ifMatch string) (string, error) {
+	log := logger.From(ctx).With(logger.Layer("service"), logger.Component(componentTenants), logger.Op("UpdateSettingsDTO"))
+
+	// 1. Get current settings
+	currentSettings, currentETag, err := s.GetSettings(ctx, slugOrID)
+	if err != nil {
+		return "", err
+	}
+
+	// 2. Check ETag for concurrency control
+	if ifMatch != currentETag {
+		return "", fmt.Errorf("%w: etag mismatch", store.ErrPreconditionFailed)
+	}
+
+	// 3. Merge request with existing settings
+	updatedSettings := mapDTOToTenantSettings(&req, currentSettings)
+
+	// 4. Call existing UpdateSettings with full settings object
+	newETag, err := s.UpdateSettings(ctx, slugOrID, *updatedSettings, currentETag)
+	if err != nil {
+		log.Error("update settings failed", logger.Err(err))
+		return "", err
+	}
+
+	return newETag, nil
 }
 
 func (s *tenantsService) UpdateSettings(ctx context.Context, slugOrID string, settings repository.TenantSettings, ifMatch string) (string, error) {
@@ -540,4 +578,234 @@ func mapTenantToResponse(t repository.Tenant) dto.TenantResponse {
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
 	}
+}
+
+// mapTenantSettingsToDTO converts repository.TenantSettings to DTO
+func mapTenantSettingsToDTO(s *repository.TenantSettings) *dto.TenantSettingsResponse {
+	if s == nil {
+		return &dto.TenantSettingsResponse{}
+	}
+
+	resp := &dto.TenantSettingsResponse{
+		IssuerMode:                  s.IssuerMode,
+		SessionLifetimeSeconds:      s.SessionLifetimeSeconds,
+		RefreshTokenLifetimeSeconds: s.RefreshTokenLifetimeSeconds,
+		MFAEnabled:                  s.MFAEnabled,
+		SocialLoginEnabled:          s.SocialLoginEnabled,
+		LogoURL:                     s.LogoURL,
+		BrandColor:                  s.BrandColor,
+	}
+
+	if s.IssuerOverride != "" {
+		resp.IssuerOverride = &s.IssuerOverride
+	}
+
+	if s.UserDB != nil {
+		resp.UserDB = &dto.UserDBSettings{
+			Driver: s.UserDB.Driver,
+			DSNEnc: s.UserDB.DSNEnc,
+			Schema: s.UserDB.Schema,
+		}
+	}
+
+	if s.SMTP != nil {
+		resp.SMTP = &dto.SMTPSettings{
+			Host:        s.SMTP.Host,
+			Port:        s.SMTP.Port,
+			Username:    s.SMTP.Username,
+			PasswordEnc: s.SMTP.PasswordEnc,
+			FromEmail:   s.SMTP.FromEmail,
+			UseTLS:      s.SMTP.UseTLS,
+		}
+	}
+
+	if s.Cache != nil {
+		resp.Cache = &dto.CacheSettings{
+			Enabled: s.Cache.Enabled,
+			Driver:  s.Cache.Driver,
+			Host:    s.Cache.Host,
+			Port:    s.Cache.Port,
+			PassEnc: s.Cache.PassEnc,
+			DB:      s.Cache.DB,
+			Prefix:  s.Cache.Prefix,
+		}
+	}
+
+	if s.Security != nil {
+		resp.Security = &dto.SecuritySettings{
+			PasswordMinLength: s.Security.PasswordMinLength,
+			MFARequired:       s.Security.MFARequired,
+		}
+	}
+
+	if s.SocialProviders != nil {
+		resp.SocialProviders = &dto.SocialProvidersConfig{
+			GoogleEnabled:   s.SocialProviders.GoogleEnabled,
+			GoogleClient:    s.SocialProviders.GoogleClient,
+			GoogleSecretEnc: s.SocialProviders.GoogleSecretEnc,
+		}
+	}
+
+	if len(s.UserFields) > 0 {
+		resp.UserFields = make([]dto.UserFieldDefinition, len(s.UserFields))
+		for i, uf := range s.UserFields {
+			resp.UserFields[i] = dto.UserFieldDefinition{
+				Name:        uf.Name,
+				Type:        uf.Type,
+				Required:    uf.Required,
+				Unique:      uf.Unique,
+				Indexed:     uf.Indexed,
+				Description: uf.Description,
+			}
+		}
+	}
+
+	return resp
+}
+
+// mapDTOToTenantSettings converts DTO to repository.TenantSettings
+// For partial updates, this merges with existing settings
+func mapDTOToTenantSettings(req *dto.UpdateTenantSettingsRequest, existing *repository.TenantSettings) *repository.TenantSettings {
+	// Start with existing settings
+	result := *existing
+
+	// Apply updates from request (only non-nil fields)
+	if req.IssuerMode != nil {
+		result.IssuerMode = *req.IssuerMode
+	}
+	if req.IssuerOverride != nil {
+		result.IssuerOverride = *req.IssuerOverride
+	}
+	if req.SessionLifetimeSeconds != nil {
+		result.SessionLifetimeSeconds = *req.SessionLifetimeSeconds
+	}
+	if req.RefreshTokenLifetimeSeconds != nil {
+		result.RefreshTokenLifetimeSeconds = *req.RefreshTokenLifetimeSeconds
+	}
+	if req.MFAEnabled != nil {
+		result.MFAEnabled = *req.MFAEnabled
+	}
+	if req.SocialLoginEnabled != nil {
+		result.SocialLoginEnabled = *req.SocialLoginEnabled
+	}
+	if req.LogoURL != nil {
+		result.LogoURL = *req.LogoURL
+	}
+	if req.BrandColor != nil {
+		result.BrandColor = *req.BrandColor
+	}
+
+	// Infrastructure settings
+	if req.UserDB != nil {
+		if result.UserDB == nil {
+			result.UserDB = &repository.UserDBSettings{}
+		}
+		if req.UserDB.Driver != "" {
+			result.UserDB.Driver = req.UserDB.Driver
+		}
+		if req.UserDB.DSN != "" {
+			result.UserDB.DSN = req.UserDB.DSN
+		}
+		if req.UserDB.DSNEnc != "" {
+			result.UserDB.DSNEnc = req.UserDB.DSNEnc
+		}
+		if req.UserDB.Schema != "" {
+			result.UserDB.Schema = req.UserDB.Schema
+		}
+	}
+
+	if req.SMTP != nil {
+		if result.SMTP == nil {
+			result.SMTP = &repository.SMTPSettings{}
+		}
+		if req.SMTP.Host != "" {
+			result.SMTP.Host = req.SMTP.Host
+		}
+		if req.SMTP.Port > 0 {
+			result.SMTP.Port = req.SMTP.Port
+		}
+		if req.SMTP.Username != "" {
+			result.SMTP.Username = req.SMTP.Username
+		}
+		if req.SMTP.Password != "" {
+			result.SMTP.Password = req.SMTP.Password
+		}
+		if req.SMTP.PasswordEnc != "" {
+			result.SMTP.PasswordEnc = req.SMTP.PasswordEnc
+		}
+		if req.SMTP.FromEmail != "" {
+			result.SMTP.FromEmail = req.SMTP.FromEmail
+		}
+		result.SMTP.UseTLS = req.SMTP.UseTLS
+	}
+
+	if req.Cache != nil {
+		if result.Cache == nil {
+			result.Cache = &repository.CacheSettings{}
+		}
+		result.Cache.Enabled = req.Cache.Enabled
+		if req.Cache.Driver != "" {
+			result.Cache.Driver = req.Cache.Driver
+		}
+		if req.Cache.Host != "" {
+			result.Cache.Host = req.Cache.Host
+		}
+		if req.Cache.Port > 0 {
+			result.Cache.Port = req.Cache.Port
+		}
+		if req.Cache.Password != "" {
+			result.Cache.Password = req.Cache.Password
+		}
+		if req.Cache.PassEnc != "" {
+			result.Cache.PassEnc = req.Cache.PassEnc
+		}
+		if req.Cache.DB >= 0 {
+			result.Cache.DB = req.Cache.DB
+		}
+		if req.Cache.Prefix != "" {
+			result.Cache.Prefix = req.Cache.Prefix
+		}
+	}
+
+	if req.Security != nil {
+		if result.Security == nil {
+			result.Security = &repository.SecurityPolicy{}
+		}
+		if req.Security.PasswordMinLength > 0 {
+			result.Security.PasswordMinLength = req.Security.PasswordMinLength
+		}
+		result.Security.MFARequired = req.Security.MFARequired
+	}
+
+	if req.SocialProviders != nil {
+		if result.SocialProviders == nil {
+			result.SocialProviders = &repository.SocialConfig{}
+		}
+		result.SocialProviders.GoogleEnabled = req.SocialProviders.GoogleEnabled
+		if req.SocialProviders.GoogleClient != "" {
+			result.SocialProviders.GoogleClient = req.SocialProviders.GoogleClient
+		}
+		if req.SocialProviders.GoogleSecret != "" {
+			result.SocialProviders.GoogleSecret = req.SocialProviders.GoogleSecret
+		}
+		if req.SocialProviders.GoogleSecretEnc != "" {
+			result.SocialProviders.GoogleSecretEnc = req.SocialProviders.GoogleSecretEnc
+		}
+	}
+
+	if req.UserFields != nil {
+		result.UserFields = make([]repository.UserFieldDefinition, len(req.UserFields))
+		for i, uf := range req.UserFields {
+			result.UserFields[i] = repository.UserFieldDefinition{
+				Name:        uf.Name,
+				Type:        uf.Type,
+				Required:    uf.Required,
+				Unique:      uf.Unique,
+				Indexed:     uf.Indexed,
+				Description: uf.Description,
+			}
+		}
+	}
+
+	return &result
 }
