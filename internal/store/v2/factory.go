@@ -47,6 +47,9 @@ type FactoryConfig struct {
 	// Logger para debug (opcional)
 	Logger *log.Logger
 
+	// SigningMasterKey para encriptar/desencriptar claves de firma (hex, 64 chars)
+	SigningMasterKey string
+
 	// OnTenantConnect callback cuando se conecta un tenant
 	OnTenantConnect func(slug string, driver string)
 }
@@ -77,8 +80,9 @@ func NewFactory(ctx context.Context, cfg FactoryConfig) (*Factory, error) {
 
 	// Conectar al FileSystem (siempre requerido)
 	fsConn, err := OpenAdapter(ctx, AdapterConfig{
-		Name:   "fs",
-		FSRoot: cfg.FSRoot,
+		Name:             "fs",
+		FSRoot:           cfg.FSRoot,
+		SigningMasterKey: cfg.SigningMasterKey,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("factory: connect fs: %w", err)

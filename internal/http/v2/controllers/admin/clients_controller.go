@@ -168,6 +168,47 @@ func (c *ClientsController) DeleteClient(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, dto.StatusResponse{Status: "ok"})
 }
 
+// RevokeSecret maneja POST /v2/admin/clients/{clientId}/revoke
+func (c *ClientsController) RevokeSecret(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.From(ctx).With(
+		logger.Layer("controller"),
+		logger.Op("ClientsController.RevokeSecret"),
+	)
+
+	tda := mw.GetTenant(ctx)
+	if tda == nil {
+		httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("tenant required"))
+		return
+	}
+
+	// Extract clientId from path: /v2/admin/clients/{clientId}/revoke
+	clientID := extractClientIDForRevoke(r.URL.Path)
+	if clientID == "" {
+		httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("missing client_id"))
+		return
+	}
+
+	log = log.With(logger.TenantSlug(tda.Slug()), logger.ClientID(clientID))
+
+	// Call service to revoke secret and get new plaintext secret
+	newSecret, err := c.service.RevokeSecret(ctx, tda.Slug(), clientID)
+	if err != nil {
+		log.Error("revoke secret failed", logger.Err(err))
+		httperrors.WriteError(w, mapError(err))
+		return
+	}
+
+	log.Info("client secret revoked", logger.ClientID(clientID))
+
+	// Return new secret (ONLY TIME IT'S SHOWN)
+	writeJSON(w, http.StatusOK, dto.RevokeClientSecretResponse{
+		ClientID:  clientID,
+		NewSecret: newSecret,
+		Message:   "Client secret rotated successfully. Save this secret - it won't be shown again.",
+	})
+}
+
 // ─── Helpers ───
 
 func extractClientID(path string) string {
@@ -176,7 +217,27 @@ func extractClientID(path string) string {
 	if !strings.HasPrefix(path, base) {
 		return ""
 	}
-	return strings.Trim(strings.TrimPrefix(path, base), "/")
+	remainder := strings.TrimPrefix(path, base)
+	// Check if this is a revoke path
+	if strings.HasSuffix(remainder, "/revoke") {
+		return ""
+	}
+	return strings.Trim(remainder, "/")
+}
+
+func extractClientIDForRevoke(path string) string {
+	// path = /v2/admin/clients/{clientId}/revoke
+	const base = "/v2/admin/clients/"
+	if !strings.HasPrefix(path, base) {
+		return ""
+	}
+	remainder := strings.TrimPrefix(path, base)
+	// Remove /revoke suffix
+	if !strings.HasSuffix(remainder, "/revoke") {
+		return ""
+	}
+	clientID := strings.TrimSuffix(remainder, "/revoke")
+	return strings.Trim(clientID, "/")
 }
 
 func toClientInput(req dto.ClientRequest) controlplane.ClientInput {

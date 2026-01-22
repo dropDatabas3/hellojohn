@@ -22,6 +22,7 @@ type Services struct {
 	Clients  ClientService
 	Consents ConsentService
 	Users    UserActionService
+	UserCRUD UserCRUDService
 	Scopes   ScopeService
 	RBAC     RBACService
 	Tenants  TenantsService
@@ -33,6 +34,9 @@ func NewServices(d Deps) Services {
 		Clients:  NewClientService(d.ControlPlane),
 		Scopes:   NewScopeService(d.ControlPlane),
 		Users:    NewUserActionService(d.Email),
+		UserCRUD: NewUserCRUDService(UserCRUDDeps{
+			DAL: d.DAL,
+		}),
 		Consents: NewConsentService(),
 		RBAC:     NewRBACService(),
 		Tenants:  NewTenantsService(d.DAL, d.MasterKey, d.Issuer, d.Email),

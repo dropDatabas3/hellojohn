@@ -38,3 +38,10 @@ type ClientResponse struct {
 type StatusResponse struct {
 	Status string `json:"status"`
 }
+
+// RevokeClientSecretResponse para POST /v2/admin/clients/{id}/revoke
+type RevokeClientSecretResponse struct {
+	ClientID  string `json:"client_id"`
+	NewSecret string `json:"new_secret"`
+	Message   string `json:"message"`
+}

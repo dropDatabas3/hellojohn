@@ -52,11 +52,7 @@ func RegisterAuthRoutes(mux *http.ServeMux, deps AuthRouterDeps) {
 	// POST /v2/auth/logout-all
 	mux.Handle("/v2/auth/logout-all", authHandler(deps.RateLimiter, http.HandlerFunc(c.Logout.LogoutAll)))
 
-	// POST /v2/auth/social/exchange
-	mux.Handle("/v2/auth/social/exchange", authHandler(deps.RateLimiter, http.HandlerFunc(c.Social.Exchange.Exchange)))
-
-	// GET /v2/auth/social/result
-	mux.Handle("/v2/auth/social/result", authHandler(deps.RateLimiter, http.HandlerFunc(c.Social.Result.GetResult)))
+	// Social routes are registered in social_routes.go to avoid duplication
 }
 
 // authHandler crea el middleware chain para endpoints de auth públicos.

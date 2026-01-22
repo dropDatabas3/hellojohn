@@ -96,23 +96,25 @@ type Manager struct {
 
 // ManagerConfig configuración para crear un Manager.
 type ManagerConfig struct {
-	FSRoot          string
-	GlobalDB        *DBConfig
-	DefaultTenantDB *DBConfig
-	MigrationsFS    embed.FS
-	MigrationsDir   string
-	Logger          *log.Logger
+	FSRoot           string
+	GlobalDB         *DBConfig
+	DefaultTenantDB  *DBConfig
+	MigrationsFS     embed.FS
+	MigrationsDir    string
+	Logger           *log.Logger
+	SigningMasterKey string // hex, 64 chars - for encrypting signing keys
 }
 
 // NewManager crea un nuevo Manager.
 func NewManager(ctx context.Context, cfg ManagerConfig) (*Manager, error) {
 	factory, err := NewFactory(ctx, FactoryConfig{
-		FSRoot:          cfg.FSRoot,
-		GlobalDB:        cfg.GlobalDB,
-		DefaultTenantDB: cfg.DefaultTenantDB,
-		MigrationsFS:    cfg.MigrationsFS,
-		MigrationsDir:   cfg.MigrationsDir,
-		Logger:          cfg.Logger,
+		FSRoot:           cfg.FSRoot,
+		GlobalDB:         cfg.GlobalDB,
+		DefaultTenantDB:  cfg.DefaultTenantDB,
+		MigrationsFS:     cfg.MigrationsFS,
+		MigrationsDir:    cfg.MigrationsDir,
+		Logger:           cfg.Logger,
+		SigningMasterKey: cfg.SigningMasterKey,
 	})
 	if err != nil {
 		return nil, err

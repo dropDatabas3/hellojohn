@@ -28,8 +28,18 @@ import (
 // BuildV2Handler builds the HTTP V2 handler with all dependencies wired.
 // This function acts as the main entry point for the HTTP server to get the V2 handler.
 // It instantiates dependencies (DAL, etc.) if they are not provided, or uses stubs for now.
-// BuildV2Handler builds the HTTP V2 handler with all dependencies wired.
 func BuildV2Handler() (http.Handler, func() error, error) {
+	handler, cleanup, _, err := buildV2HandlerInternal()
+	return handler, cleanup, err
+}
+
+// BuildV2HandlerWithDeps builds the HTTP V2 handler and returns DAL for bootstrap
+func BuildV2HandlerWithDeps() (http.Handler, func() error, store.DataAccessLayer, error) {
+	return buildV2HandlerInternal()
+}
+
+// buildV2HandlerInternal is the internal implementation that returns all dependencies
+func buildV2HandlerInternal() (http.Handler, func() error, store.DataAccessLayer, error) {
 	ctx := context.Background()
 
 	// 1. Config (Environment)
@@ -40,7 +50,7 @@ func BuildV2Handler() (http.Handler, func() error, error) {
 	}
 	masterKey := os.Getenv("SIGNING_MASTER_KEY")
 	if len(masterKey) < 32 {
-		return nil, nil, fmt.Errorf("SIGNING_MASTER_KEY must be at least 32 bytes")
+		return nil, nil, nil, fmt.Errorf("SIGNING_MASTER_KEY must be at least 32 bytes")
 	}
 	v2BaseURL := os.Getenv("V2_BASE_URL")
 	if v2BaseURL == "" {
@@ -49,12 +59,13 @@ func BuildV2Handler() (http.Handler, func() error, error) {
 
 	// 2. Data Store (DAL + Manager)
 	manager, err := store.NewManager(ctx, store.ManagerConfig{
-		FSRoot: fsRoot,
-		Logger: log.Default(), // Use standard logger for store debug
+		FSRoot:           fsRoot,
+		SigningMasterKey: masterKey,
+		Logger:           log.Default(), // Use standard logger for store debug
 		// DB configs could be loaded here if needed for Hybrid mode
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to init store manager: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to init store manager: %w", err)
 	}
 
 	// Cleanup for store
@@ -72,7 +83,7 @@ func BuildV2Handler() (http.Handler, func() error, error) {
 	// Ensure minimal bootstrap (creates global keys if missing)
 	if err := persistentKS.EnsureBootstrap(ctx); err != nil {
 		_ = cleanup()
-		return nil, nil, fmt.Errorf("keystore bootstrap failed: %w", err)
+		return nil, nil, nil, fmt.Errorf("keystore bootstrap failed: %w", err)
 	}
 
 	issuer := jwtx.NewIssuer(v2BaseURL, persistentKS)
@@ -89,7 +100,7 @@ func BuildV2Handler() (http.Handler, func() error, error) {
 
 	if _, err := validateSecretBoxKey(emailKey, "SECRETBOX_MASTER_KEY"); err != nil {
 		_ = cleanup()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	emailService, err := emailv2.NewService(emailv2.ServiceConfig{
@@ -101,7 +112,7 @@ func BuildV2Handler() (http.Handler, func() error, error) {
 	})
 	if err != nil {
 		_ = cleanup()
-		return nil, nil, fmt.Errorf("email v2 init failed: %w", err)
+		return nil, nil, nil, fmt.Errorf("email v2 init failed: %w", err)
 	}
 
 	// 6. Social Cache (Stub/Real?)
@@ -140,10 +151,10 @@ func BuildV2Handler() (http.Handler, func() error, error) {
 	app, err := appv2.New(appv2.Config{}, deps)
 	if err != nil {
 		_ = cleanup()
-		return nil, nil, fmt.Errorf("failed to build v2 app: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to build v2 app: %w", err)
 	}
 
-	return app.Handler, cleanup, nil
+	return app.Handler, cleanup, manager, nil
 }
 
 func getenvBool(key string, def bool) bool {
