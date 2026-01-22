@@ -149,7 +149,8 @@ func (c *TenantsController) GetSettings(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	settings, etag, err := c.service.GetSettings(ctx, slugOrID)
+	// Use DTO version for API stability
+	settings, etag, err := c.service.GetSettingsDTO(ctx, slugOrID)
 	if err != nil {
 		log.Error("get settings failed", logger.Err(err))
 		httperrors.WriteError(w, mapTenantError(err))
@@ -186,13 +187,14 @@ func (c *TenantsController) UpdateSettings(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	var settings repository.TenantSettings
-	if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+	// Use DTO version for API stability
+	var req dto.UpdateTenantSettingsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httperrors.WriteError(w, httperrors.ErrInvalidJSON)
 		return
 	}
 
-	newETag, err := c.service.UpdateSettings(ctx, slugOrID, settings, ifMatch)
+	newETag, err := c.service.UpdateSettingsDTO(ctx, slugOrID, req, ifMatch)
 	if err != nil {
 		log.Error("update settings failed", logger.Err(err))
 		httperrors.WriteError(w, mapTenantError(err))
