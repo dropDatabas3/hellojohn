@@ -117,6 +117,12 @@ func (s *tenantsService) Create(ctx context.Context, req dto.CreateTenantRequest
 	}
 	if req.Settings != nil {
 		t.Settings = *req.Settings
+
+		// Encrypt sensitive fields before persisting
+		if err := encryptTenantSecrets(&t.Settings, s.masterKey); err != nil {
+			log.Error("failed to encrypt tenant secrets", logger.Err(err))
+			return nil, fmt.Errorf("failed to encrypt secrets: %w", err)
+		}
 	}
 
 	if err := repos.Create(ctx, &t); err != nil {

@@ -43,5 +43,15 @@ func encryptTenantSecrets(s *repository.TenantSettings, masterKeyHex string) err
 		s.Cache.Password = ""
 	}
 
+	// Social Providers
+	if s.SocialProviders != nil && s.SocialProviders.GoogleSecret != "" {
+		enc, err := keycrypto.EncryptPrivateKey([]byte(s.SocialProviders.GoogleSecret), masterKeyHex)
+		if err != nil {
+			return err
+		}
+		s.SocialProviders.GoogleSecretEnc = string(enc)
+		s.SocialProviders.GoogleSecret = ""
+	}
+
 	return nil
 }
