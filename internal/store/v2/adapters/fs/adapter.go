@@ -623,15 +623,32 @@ type tenantYAML struct {
 }
 
 type tenantSettingsYAML struct {
-	LogoURL    string `yaml:"logoUrl,omitempty"`
-	BrandColor string `yaml:"brandColor,omitempty"`
-	MFAEnabled bool   `yaml:"mfaEnabled,omitempty"`
-	UserDB     *struct {
-		Driver string `yaml:"driver,omitempty"`
-		DSNEnc string `yaml:"dsnEnc,omitempty"`
-		DSN    string `yaml:"dsn,omitempty"`
-		Schema string `yaml:"schema,omitempty"`
+	LogoURL                     string `yaml:"logoUrl,omitempty"`
+	BrandColor                  string `yaml:"brandColor,omitempty"`
+	SessionLifetimeSeconds      int    `yaml:"sessionLifetimeSeconds,omitempty"`
+	RefreshTokenLifetimeSeconds int    `yaml:"refreshTokenLifetimeSeconds,omitempty"`
+	MFAEnabled                  bool   `yaml:"mfaEnabled,omitempty"`
+	SocialLoginEnabled          bool   `yaml:"social_login_enabled,omitempty"`
+	IssuerMode                  string `yaml:"issuerMode,omitempty"`
+	IssuerOverride              string `yaml:"issuerOverride,omitempty"`
+
+	SMTP *struct {
+		Host        string `yaml:"host,omitempty"`
+		Port        int    `yaml:"port,omitempty"`
+		Username    string `yaml:"username,omitempty"`
+		PasswordEnc string `yaml:"passwordEnc,omitempty"`
+		FromEmail   string `yaml:"fromEmail,omitempty"`
+		UseTLS      bool   `yaml:"useTLS,omitempty"`
+	} `yaml:"smtp,omitempty"`
+
+	UserDB *struct {
+		Driver     string `yaml:"driver,omitempty"`
+		DSNEnc     string `yaml:"dsnEnc,omitempty"`
+		DSN        string `yaml:"dsn,omitempty"`
+		Schema     string `yaml:"schema,omitempty"`
+		ManualMode bool   `yaml:"manualMode,omitempty"`
 	} `yaml:"userDb,omitempty"`
+
 	Cache *struct {
 		Enabled  bool   `yaml:"enabled"`
 		Driver   string `yaml:"driver,omitempty"`
@@ -642,6 +659,20 @@ type tenantSettingsYAML struct {
 		DB       int    `yaml:"db,omitempty"`
 		Prefix   string `yaml:"prefix,omitempty"`
 	} `yaml:"cache,omitempty"`
+
+	SocialProviders *struct {
+		GoogleEnabled   bool   `yaml:"googleEnabled,omitempty"`
+		GoogleClient    string `yaml:"googleClient,omitempty"`
+		GoogleSecretEnc string `yaml:"googleSecretEnc,omitempty"`
+
+		GithubEnabled   bool   `yaml:"githubEnabled,omitempty"`
+		GithubClient    string `yaml:"githubClient,omitempty"`
+		GithubSecretEnc string `yaml:"githubSecretEnc,omitempty"`
+
+		FacebookEnabled   bool   `yaml:"facebookEnabled,omitempty"`
+		FacebookClient    string `yaml:"facebookClient,omitempty"`
+		FacebookSecretEnc string `yaml:"facebookSecretEnc,omitempty"`
+	} `yaml:"socialProviders,omitempty"`
 }
 
 func (t *tenantYAML) toRepository(slug string) *repository.Tenant {
@@ -653,19 +684,38 @@ func (t *tenantYAML) toRepository(slug string) *repository.Tenant {
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
 		Settings: repository.TenantSettings{
-			LogoURL:    t.Settings.LogoURL,
-			BrandColor: t.Settings.BrandColor,
-			MFAEnabled: t.Settings.MFAEnabled,
+			LogoURL:                     t.Settings.LogoURL,
+			BrandColor:                  t.Settings.BrandColor,
+			SessionLifetimeSeconds:      t.Settings.SessionLifetimeSeconds,
+			RefreshTokenLifetimeSeconds: t.Settings.RefreshTokenLifetimeSeconds,
+			MFAEnabled:                  t.Settings.MFAEnabled,
+			SocialLoginEnabled:          t.Settings.SocialLoginEnabled,
+			IssuerMode:                  t.Settings.IssuerMode,
+			IssuerOverride:              t.Settings.IssuerOverride,
 		},
 	}
-	if t.Settings.UserDB != nil {
-		tenant.Settings.UserDB = &repository.UserDBSettings{
-			Driver: t.Settings.UserDB.Driver,
-			DSNEnc: t.Settings.UserDB.DSNEnc,
-			DSN:    t.Settings.UserDB.DSN,
-			Schema: t.Settings.UserDB.Schema,
+
+	if t.Settings.SMTP != nil {
+		tenant.Settings.SMTP = &repository.SMTPSettings{
+			Host:        t.Settings.SMTP.Host,
+			Port:        t.Settings.SMTP.Port,
+			Username:    t.Settings.SMTP.Username,
+			PasswordEnc: t.Settings.SMTP.PasswordEnc,
+			FromEmail:   t.Settings.SMTP.FromEmail,
+			UseTLS:      t.Settings.SMTP.UseTLS,
 		}
 	}
+
+	if t.Settings.UserDB != nil {
+		tenant.Settings.UserDB = &repository.UserDBSettings{
+			Driver:     t.Settings.UserDB.Driver,
+			DSNEnc:     t.Settings.UserDB.DSNEnc,
+			DSN:        t.Settings.UserDB.DSN,
+			Schema:     t.Settings.UserDB.Schema,
+			ManualMode: t.Settings.UserDB.ManualMode,
+		}
+	}
+
 	if t.Settings.Cache != nil {
 		tenant.Settings.Cache = &repository.CacheSettings{
 			Enabled:  t.Settings.Cache.Enabled,
@@ -678,22 +728,130 @@ func (t *tenantYAML) toRepository(slug string) *repository.Tenant {
 			Prefix:   t.Settings.Cache.Prefix,
 		}
 	}
+
+	if t.Settings.SocialProviders != nil {
+		tenant.Settings.SocialProviders = &repository.SocialConfig{
+			GoogleEnabled:     t.Settings.SocialProviders.GoogleEnabled,
+			GoogleClient:      t.Settings.SocialProviders.GoogleClient,
+			GoogleSecretEnc:   t.Settings.SocialProviders.GoogleSecretEnc,
+			GithubEnabled:     t.Settings.SocialProviders.GithubEnabled,
+			GithubClient:      t.Settings.SocialProviders.GithubClient,
+			GithubSecretEnc:   t.Settings.SocialProviders.GithubSecretEnc,
+			FacebookEnabled:   t.Settings.SocialProviders.FacebookEnabled,
+			FacebookClient:    t.Settings.SocialProviders.FacebookClient,
+			FacebookSecretEnc: t.Settings.SocialProviders.FacebookSecretEnc,
+		}
+	}
+
 	return tenant
 }
 
 func toTenantYAML(t *repository.Tenant) *tenantYAML {
-	return &tenantYAML{
+	y := &tenantYAML{
 		ID:          t.ID,
 		Name:        t.Name,
 		DisplayName: t.DisplayName,
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   time.Now(),
 		Settings: tenantSettingsYAML{
-			LogoURL:    t.Settings.LogoURL,
-			BrandColor: t.Settings.BrandColor,
-			MFAEnabled: t.Settings.MFAEnabled,
+			LogoURL:                     t.Settings.LogoURL,
+			BrandColor:                  t.Settings.BrandColor,
+			SessionLifetimeSeconds:      t.Settings.SessionLifetimeSeconds,
+			RefreshTokenLifetimeSeconds: t.Settings.RefreshTokenLifetimeSeconds,
+			MFAEnabled:                  t.Settings.MFAEnabled,
+			SocialLoginEnabled:          t.Settings.SocialLoginEnabled,
+			IssuerMode:                  t.Settings.IssuerMode,
+			IssuerOverride:              t.Settings.IssuerOverride,
 		},
 	}
+
+	// SMTP
+	if t.Settings.SMTP != nil {
+		y.Settings.SMTP = &struct {
+			Host        string `yaml:"host,omitempty"`
+			Port        int    `yaml:"port,omitempty"`
+			Username    string `yaml:"username,omitempty"`
+			PasswordEnc string `yaml:"passwordEnc,omitempty"`
+			FromEmail   string `yaml:"fromEmail,omitempty"`
+			UseTLS      bool   `yaml:"useTLS,omitempty"`
+		}{
+			Host:        t.Settings.SMTP.Host,
+			Port:        t.Settings.SMTP.Port,
+			Username:    t.Settings.SMTP.Username,
+			PasswordEnc: t.Settings.SMTP.PasswordEnc,
+			FromEmail:   t.Settings.SMTP.FromEmail,
+			UseTLS:      t.Settings.SMTP.UseTLS,
+		}
+	}
+
+	// UserDB
+	if t.Settings.UserDB != nil {
+		y.Settings.UserDB = &struct {
+			Driver     string `yaml:"driver,omitempty"`
+			DSNEnc     string `yaml:"dsnEnc,omitempty"`
+			DSN        string `yaml:"dsn,omitempty"`
+			Schema     string `yaml:"schema,omitempty"`
+			ManualMode bool   `yaml:"manualMode,omitempty"`
+		}{
+			Driver:     t.Settings.UserDB.Driver,
+			DSNEnc:     t.Settings.UserDB.DSNEnc,
+			DSN:        t.Settings.UserDB.DSN,
+			Schema:     t.Settings.UserDB.Schema,
+			ManualMode: t.Settings.UserDB.ManualMode,
+		}
+	}
+
+	// Cache
+	if t.Settings.Cache != nil {
+		y.Settings.Cache = &struct {
+			Enabled  bool   `yaml:"enabled"`
+			Driver   string `yaml:"driver,omitempty"`
+			Host     string `yaml:"host,omitempty"`
+			Port     int    `yaml:"port,omitempty"`
+			Password string `yaml:"password,omitempty"`
+			PassEnc  string `yaml:"passEnc,omitempty"`
+			DB       int    `yaml:"db,omitempty"`
+			Prefix   string `yaml:"prefix,omitempty"`
+		}{
+			Enabled:  t.Settings.Cache.Enabled,
+			Driver:   t.Settings.Cache.Driver,
+			Host:     t.Settings.Cache.Host,
+			Port:     t.Settings.Cache.Port,
+			Password: t.Settings.Cache.Password,
+			PassEnc:  t.Settings.Cache.PassEnc,
+			DB:       t.Settings.Cache.DB,
+			Prefix:   t.Settings.Cache.Prefix,
+		}
+	}
+
+	// SocialProviders
+	if t.Settings.SocialProviders != nil {
+		y.Settings.SocialProviders = &struct {
+			GoogleEnabled   bool   `yaml:"googleEnabled,omitempty"`
+			GoogleClient    string `yaml:"googleClient,omitempty"`
+			GoogleSecretEnc string `yaml:"googleSecretEnc,omitempty"`
+
+			GithubEnabled   bool   `yaml:"githubEnabled,omitempty"`
+			GithubClient    string `yaml:"githubClient,omitempty"`
+			GithubSecretEnc string `yaml:"githubSecretEnc,omitempty"`
+
+			FacebookEnabled   bool   `yaml:"facebookEnabled,omitempty"`
+			FacebookClient    string `yaml:"facebookClient,omitempty"`
+			FacebookSecretEnc string `yaml:"facebookSecretEnc,omitempty"`
+		}{
+			GoogleEnabled:     t.Settings.SocialProviders.GoogleEnabled,
+			GoogleClient:      t.Settings.SocialProviders.GoogleClient,
+			GoogleSecretEnc:   t.Settings.SocialProviders.GoogleSecretEnc,
+			GithubEnabled:     t.Settings.SocialProviders.GithubEnabled,
+			GithubClient:      t.Settings.SocialProviders.GithubClient,
+			GithubSecretEnc:   t.Settings.SocialProviders.GithubSecretEnc,
+			FacebookEnabled:   t.Settings.SocialProviders.FacebookEnabled,
+			FacebookClient:    t.Settings.SocialProviders.FacebookClient,
+			FacebookSecretEnc: t.Settings.SocialProviders.FacebookSecretEnc,
+		}
+	}
+
+	return y
 }
 
 type clientsYAML struct {
