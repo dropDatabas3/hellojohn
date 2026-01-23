@@ -40,7 +40,7 @@ type TenantsService interface {
 	ApplySchema(ctx context.Context, slugOrID string, schema map[string]any) error
 	InfraStats(ctx context.Context, slugOrID string) (map[string]any, error)
 	TestCache(ctx context.Context, slugOrID string) error
-	TestMailing(ctx context.Context, slugOrID string) error
+	TestMailing(ctx context.Context, slugOrID string, recipientEmail string) error
 }
 
 // tenantsService implements TenantsService.
@@ -546,25 +546,17 @@ func (s *tenantsService) TestCache(ctx context.Context, slugOrID string) error {
 	return tda.Cache().Ping(ctx)
 }
 
-func (s *tenantsService) TestMailing(ctx context.Context, slugOrID string) error {
+func (s *tenantsService) TestMailing(ctx context.Context, slugOrID string, recipientEmail string) error {
 	if s.email == nil {
 		return httperrors.ErrNotImplemented.WithDetail("mailing service not available")
 	}
 
-	// Use TestSMTP
-	// Recipient? Prompt doesn't specify.
-	// Maybe just check if sender can be retrieved?
-	// Prompt says "usar email/v2 Service... TestSMTP".
-	// TestSMTP requires a recipient.
-	// "POST /v2/admin/tenants/{idOrSlug}/mailing/test" usually has a body with recipient?
-	// User prompt: body not specified for mailing/test in list, but usually needed.
-	// However, if no body specified in prompt description ("body JSON map..." was for schema apply),
-	// maybe it expects a dry run?
-	// Or maybe I should default to a dummy address or fail?
-	// Let's try to get sender first.
+	if recipientEmail == "" {
+		return httperrors.ErrBadRequest.WithDetail("recipient email required")
+	}
 
-	_, err := s.email.GetSender(ctx, slugOrID)
-	return err
+	// Test SMTP connection by sending a test email
+	return s.email.TestSMTP(ctx, slugOrID, recipientEmail, nil)
 }
 
 func mapTenantToResponse(t repository.Tenant) dto.TenantResponse {

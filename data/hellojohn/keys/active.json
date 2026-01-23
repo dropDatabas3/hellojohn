@@ -1,0 +1,9 @@
+{
+  "kid": "fs-20260122T180011Z-674a3057",
+  "algorithm": "EdDSA",
+  "private_key_enc": "R0NNVjHt7hoabKMRAXrccx6pxE/t6DXAelQPInx+30r2dB9j33dKI2c1JbX8Bpn0Zjg8A3e/RAx/NZgcjBvpcv19q5aWyCv3NCwLkjAi3T8QnCkcOUladSJa722jLOqoLA==",
+  "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA7ZlAICgx15Vfhi5oJYQ2MuNBRWg1wZRTWjo4wu+muJE=\n-----END PUBLIC KEY-----\n",
+  "status": "active",
+  "not_before": "2026-01-22T18:00:11.260044Z",
+  "created_at": "2026-01-22T18:00:11.260044Z"
+}

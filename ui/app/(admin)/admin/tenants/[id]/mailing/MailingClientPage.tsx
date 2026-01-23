@@ -84,7 +84,9 @@ export default function MailingClientPage() {
     // Sync state with fetching
     useEffect(() => {
         if (settings) {
-            setSmtpData(settings.smtp || {})
+            // SMTP: No incluir password en el estado local (viene encriptada del backend)
+            const { password, passwordEnc, ...smtpWithoutPassword } = settings.smtp || {}
+            setSmtpData(smtpWithoutPassword)
 
             // Merge saved templates with defaults if missing
             const mergedTemplates = { ...settings.mailing?.templates }
@@ -174,10 +176,17 @@ export default function MailingClientPage() {
 
     // --- Logic Checks ---
 
-    const hasSavedCredentials = settings?.smtp?.host && settings?.smtp?.fromEmail
+    // Hay credenciales guardadas si existe passwordEnc (encriptada) o si hay host+fromEmail+username
+    const hasSavedCredentials = Boolean(
+        settings?.smtp &&
+        settings.smtp.host &&
+        settings.smtp.fromEmail &&
+        (settings.smtp.passwordEnc || settings.smtp.username)
+    )
 
     // Dirty Checks
-    const isSmtpDirty = JSON.stringify(settings?.smtp || {}) !== JSON.stringify(smtpData)
+    const { password: _, passwordEnc: __, ...savedSmtpWithoutPassword } = settings?.smtp || {}
+    const isSmtpDirty = JSON.stringify(savedSmtpWithoutPassword) !== JSON.stringify(smtpData)
     const isTemplatesDirty = JSON.stringify(settings?.mailing?.templates || {}) !== JSON.stringify(templatesData) && Object.keys(templatesData).length > 0;
 
 
@@ -273,35 +282,94 @@ export default function MailingClientPage() {
 
                 <TabsContent value="smtp" className="overflow-y-auto p-1 text-sm">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto py-6">
-                        {/* SMTP Content (Unchanged) */}
+                        {/* SMTP Content */}
                         <div className="md:col-span-2 space-y-6">
-                            <Card>
+                            <Card className={hasSavedCredentials && !isSmtpDirty ? "border-green-500/50 bg-green-50/50 dark:bg-green-950/10" : ""}>
                                 <CardHeader>
-                                    <CardTitle>Credenciales SMTP</CardTitle>
-                                    <CardDescription>Configura tu proveedor de correo.</CardDescription>
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <CardTitle className="flex items-center gap-2">
+                                                Credenciales SMTP
+                                                {hasSavedCredentials && !isSmtpDirty && (
+                                                    <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
+                                                        <CheckCircle className="mr-1 h-3 w-3" />
+                                                        Configurado
+                                                    </Badge>
+                                                )}
+                                            </CardTitle>
+                                            <CardDescription>Configura tu proveedor de correo.</CardDescription>
+                                        </div>
+                                    </div>
                                 </CardHeader>
                                 <CardContent className="space-y-6">
+                                    {hasSavedCredentials && (
+                                        <Alert className="bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-950/50 dark:border-blue-800 dark:text-blue-200">
+                                            <Info className="h-4 w-4" />
+                                            <AlertTitle>Credenciales Guardadas</AlertTitle>
+                                            <AlertDescription>
+                                                Las credenciales SMTP están configuradas. La contraseña está encriptada en el servidor por seguridad.
+                                                Puedes editar los campos y guardar cambios, o dejar el campo de contraseña vacío para mantener la actual.
+                                            </AlertDescription>
+                                        </Alert>
+                                    )}
                                     <div className="grid gap-6 md:grid-cols-2">
                                         <div className="space-y-2">
                                             <Label>Host</Label>
-                                            <Input placeholder="smtp.provider.com" value={smtpData.host || ""} onChange={e => setSmtpData({ ...smtpData, host: e.target.value })} />
+                                            <Input
+                                                placeholder="smtp.provider.com"
+                                                value={smtpData.host || ""}
+                                                onChange={e => setSmtpData({ ...smtpData, host: e.target.value })}
+                                                className={hasSavedCredentials && smtpData.host ? "border-green-300 bg-white dark:bg-zinc-900" : ""}
+                                            />
                                         </div>
                                         <div className="space-y-2">
                                             <Label>Puerto</Label>
-                                            <Input type="number" placeholder="587" value={smtpData.port || ""} onChange={e => setSmtpData({ ...smtpData, port: parseInt(e.target.value) || 0 })} />
+                                            <Input
+                                                type="number"
+                                                placeholder="587"
+                                                value={smtpData.port || ""}
+                                                onChange={e => setSmtpData({ ...smtpData, port: parseInt(e.target.value) || 0 })}
+                                                className={hasSavedCredentials && smtpData.port ? "border-green-300 bg-white dark:bg-zinc-900" : ""}
+                                            />
                                         </div>
                                         <div className="space-y-2">
                                             <Label>Usuario</Label>
-                                            <Input placeholder="user@domain.com" value={smtpData.username || ""} onChange={e => setSmtpData({ ...smtpData, username: e.target.value })} />
+                                            <Input
+                                                placeholder="user@domain.com"
+                                                value={smtpData.username || ""}
+                                                onChange={e => setSmtpData({ ...smtpData, username: e.target.value })}
+                                                className={hasSavedCredentials && smtpData.username ? "border-green-300 bg-white dark:bg-zinc-900" : ""}
+                                            />
                                         </div>
                                         <div className="space-y-2">
-                                            <Label>Contraseña</Label>
-                                            <Input type="password" placeholder="••••••••" value={smtpData.password || ""} onChange={e => setSmtpData({ ...smtpData, password: e.target.value })} />
+                                            <Label>
+                                                Contraseña
+                                                {hasSavedCredentials && (
+                                                    <span className="ml-2 text-xs text-muted-foreground">(dejar vacío para mantener la actual)</span>
+                                                )}
+                                            </Label>
+                                            <Input
+                                                type="password"
+                                                placeholder={hasSavedCredentials ? "••••••••" : "Ingresa tu contraseña"}
+                                                value={smtpData.password || ""}
+                                                onChange={e => setSmtpData({ ...smtpData, password: e.target.value })}
+                                            />
+                                            {hasSavedCredentials && !smtpData.password && (
+                                                <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                                                    <CheckCircle className="h-3 w-3" />
+                                                    Contraseña guardada de forma segura
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="space-y-2">
                                         <Label>Remitente (From)</Label>
-                                        <Input placeholder="no-reply@tudominio.com" value={smtpData.fromEmail || ""} onChange={e => setSmtpData({ ...smtpData, fromEmail: e.target.value })} />
+                                        <Input
+                                            placeholder="no-reply@tudominio.com"
+                                            value={smtpData.fromEmail || ""}
+                                            onChange={e => setSmtpData({ ...smtpData, fromEmail: e.target.value })}
+                                            className={hasSavedCredentials && smtpData.fromEmail ? "border-green-300 bg-white dark:bg-zinc-900" : ""}
+                                        />
                                     </div>
                                     <div className="flex items-center space-x-2 pt-2">
                                         <Switch id="tls" checked={smtpData.useTLS || false} onCheckedChange={c => setSmtpData({ ...smtpData, useTLS: c })} />

@@ -376,14 +376,28 @@ func (c *TenantsController) TestMailing(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := c.service.TestMailing(ctx, slugOrID); err != nil {
+	// Parse request body for recipient email
+	var req struct {
+		To string `json:"to"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httperrors.WriteError(w, httperrors.ErrInvalidJSON)
+		return
+	}
+
+	if req.To == "" {
+		httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("recipient email required"))
+		return
+	}
+
+	if err := c.service.TestMailing(ctx, slugOrID, req.To); err != nil {
 		log.Error("test mailing failed", logger.Err(err))
 		httperrors.WriteError(w, mapTenantError(err))
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "message": "Test email sent successfully"})
 }
 
 func (c *TenantsController) TestTenantDBConnection(w http.ResponseWriter, r *http.Request) {

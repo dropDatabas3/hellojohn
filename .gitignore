@@ -1,11 +1,11 @@
 # ───────── Environment files ─────────
-.env
-.env.*
+#.env
+#.env.*
 !.env.example
 configs/config.yaml
 
 # ───────── Control-plane local data ─────────
-/data/
+/.data/
 
 # ───────── Local utility scripts (keep out of repo) ─────────
 codeprinter.bat
