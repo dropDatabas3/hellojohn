@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useApi } from "@/lib/hooks/use-api"
 import { useUIStore } from "@/lib/ui-store"
 import { getTranslations } from "@/lib/i18n"
+import { API_ROUTES } from "@/lib/routes"
 import type { ReadyzResponse, Tenant } from "@/lib/types"
 import { Activity, AlertCircle, CheckCircle, Server, Key, Building2 } from "lucide-react"
 import Link from "next/link"
@@ -20,14 +21,14 @@ export default function DashboardPage() {
   // Fetch system health
   const { data: health, isLoading: healthLoading } = useQuery({
     queryKey: ["readyz"],
-    queryFn: () => api.get<ReadyzResponse>("/readyz"),
+    queryFn: () => api.get<ReadyzResponse>(API_ROUTES.READYZ),
     refetchInterval: 10000, // Refresh every 10 seconds
   })
 
   // Fetch tenants
   const { data: tenants, isLoading: tenantsLoading } = useQuery({
     queryKey: ["tenants"],
-    queryFn: () => api.get<Tenant[]>("/v1/admin/tenants"),
+    queryFn: () => api.get<Tenant[]>(API_ROUTES.ADMIN_TENANTS),
   })
 
   const getStatusColor = (status: string) => {

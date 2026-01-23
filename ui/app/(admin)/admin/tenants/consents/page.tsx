@@ -4,6 +4,7 @@ import { useParams, useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useI18n } from "@/lib/i18n"
 import { api } from "@/lib/api"
+import { API_ROUTES } from "@/lib/routes"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table"
@@ -36,7 +37,7 @@ function ConsentsContent() {
     enabled: !!tenantId,
     queryFn: async () => {
       try {
-        return await api.get<ConsentRow[]>(`/v1/admin/consents?tenant=${tenantId}`)
+        return await api.get<ConsentRow[]>(`${API_ROUTES.ADMIN_CONSENTS}?tenant=${tenantId}`)
       } catch (e: any) {
         if (e?.status === 404) return [] as ConsentRow[]
         throw e
@@ -52,9 +53,9 @@ function ConsentsContent() {
       if (c.client_id) qs.set("client", c.client_id)
       // Prefer a DELETE composed by keys; fallback to POST revoke if backend expects it
       try {
-        return await api.delete(`/v1/admin/consents?${qs.toString()}`)
+        return await api.delete(`${API_ROUTES.ADMIN_CONSENTS}?${qs.toString()}`)
       } catch {
-        return await api.post(`/v1/admin/consents/revoke?${qs.toString()}`)
+        return await api.post(`${API_ROUTES.ADMIN_CONSENTS_REVOKE}?${qs.toString()}`)
       }
     },
     onSuccess: () => {

@@ -21,7 +21,7 @@ export default function FormsClientPage() {
         queryKey: ["tenant", tenantId],
         queryFn: async () => {
             if (!tenantId) return null;
-            const res = await fetch(`http://localhost:8081/v1/admin/tenants/${tenantId}`, {
+            const res = await fetch(`http://localhost:8081/v2/admin/tenants/${tenantId}`, {
                 headers: { Authorization: "Bearer dev-token" }, // TODO: Real auth
             });
             if (!res.ok) throw new Error("Failed to fetch tenant");
@@ -32,7 +32,7 @@ export default function FormsClientPage() {
 
     const updateMutation = useMutation({
         mutationFn: async (newSettings: any) => {
-            const res = await fetch(`http://localhost:8081/v1/admin/tenants/${tenantId}/settings`, {
+            const res = await fetch(`http://localhost:8081/v2/admin/tenants/${tenantId}/settings`, {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",

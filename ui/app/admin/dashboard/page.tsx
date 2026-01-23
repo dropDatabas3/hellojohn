@@ -11,7 +11,7 @@ export default function AdminDashboardPage() {
 		queryKey: ["admin-stats"],
 		queryFn: async () => {
 			try {
-				return await api.get<any>("/v1/admin/stats")
+				return await api.get<any>("/v2/admin/stats")
 			} catch (e: any) {
 				return null
 			}

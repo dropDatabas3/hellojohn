@@ -172,7 +172,7 @@ export default function ClientsClientPage() {
 	const { data: tenant } = useQuery({
 		queryKey: ["tenant", tenantId],
 		enabled: !!tenantId,
-		queryFn: () => api.get<Tenant>(`/v1/admin/tenants/${tenantId}`),
+		queryFn: () => api.get<Tenant>(`/v2/admin/tenants/${tenantId}`),
 	})
 
 	// Auto-generate clientId when name or type changes

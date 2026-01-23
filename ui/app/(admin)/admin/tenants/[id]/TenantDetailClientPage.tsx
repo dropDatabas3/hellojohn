@@ -36,7 +36,7 @@ export default function TenantDetailClientPage() {
     enabled: !!tenantId,
     queryFn: async () => {
       try {
-        return await api.get<Tenant>(`/v1/admin/tenants/${tenantId}`)
+        return await api.get<Tenant>(`/v2/admin/tenants/${tenantId}`)
       } catch (e: any) {
         if (e?.status === 404) return null as unknown as Tenant
         throw e
@@ -87,7 +87,7 @@ export default function TenantDetailClientPage() {
   // Test DB connection action
   const testDb = useMutation({
     mutationFn: async () => {
-      await api.post(`/v1/admin/tenants/${tenantId}/user-store/test-connection`)
+      await api.post(`/v2/admin/tenants/${tenantId}/user-store/test-connection`)
     },
     onSuccess: () => toast({ title: t("database.connectionSuccess") }),
     onError: (e: any) => toast({ title: t("common.error"), description: e?.error_description || e?.message, variant: "destructive" }),
@@ -198,7 +198,7 @@ export default function TenantDetailClientPage() {
             </div>
             <div>
               <dt className="text-sm text-muted-foreground">{t("tenants.displayName")}</dt>
-              <dd className="font-medium">-</dd>
+              <dd className="font-medium">{tnt.display_name || "-"}</dd>
             </div>
             <div>
               <dt className="text-sm text-muted-foreground">{t("tenants.tenantId")}</dt>

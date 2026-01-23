@@ -21,7 +21,7 @@ function SessionsContent() {
   const { data: tenant } = useQuery({
     queryKey: ["tenant", tenantId],
     enabled: !!tenantId,
-    queryFn: () => api.get<Tenant>(`/v1/admin/tenants/${tenantId}`),
+    queryFn: () => api.get<Tenant>(`/v2/admin/tenants/${tenantId}`),
   })
 
   return (

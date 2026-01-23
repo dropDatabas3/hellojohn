@@ -188,7 +188,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
     const { data: users, isLoading } = useQuery<UserType[]>({
         queryKey: ["users", tenantId],
         queryFn: async () => {
-            const res = await fetch(`/v1/admin/tenants/${tenantId}/users`, {
+            const res = await fetch(`/v2/admin/tenants/${tenantId}/users`, {
                 headers: {
                     "Authorization": `Bearer ${token}`
                 }
@@ -203,7 +203,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
     const { data: fieldDefs } = useQuery<UserFieldDefinition[]>({
         queryKey: ["user-fields", tenantId],
         queryFn: async () => {
-            const res = await fetch(`/v1/admin/tenants/${tenantId}`, {
+            const res = await fetch(`/v2/admin/tenants/${tenantId}`, {
                 headers: {
                     "Authorization": `Bearer ${token}`
                 }
@@ -236,7 +236,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
     // 3. Create User Mutation
     const createMutation = useMutation({
         mutationFn: async (vars: any) => {
-            const res = await fetch(`/v1/admin/tenants/${tenantId}/users`, {
+            const res = await fetch(`/v2/admin/tenants/${tenantId}/users`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -263,7 +263,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
     // 4. Delete User Mutation
     const deleteMutation = useMutation({
         mutationFn: async (userId: string) => {
-            const res = await fetch(`/v1/admin/tenants/${tenantId}/users/${userId}`, {
+            const res = await fetch(`/v2/admin/tenants/${tenantId}/users/${userId}`, {
                 method: "DELETE",
                 headers: {
                     "Authorization": `Bearer ${token}`
@@ -694,7 +694,7 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
     } = useQuery<TenantSettings>({
         queryKey: ["tenant-users-settings", tenantId],
         queryFn: async () => {
-            const { data, headers } = await api.getWithHeaders<TenantSettings>(`/v1/admin/tenants/${tenantId}/settings`)
+            const { data, headers } = await api.getWithHeaders<TenantSettings>(`/v2/admin/tenants/${tenantId}/settings`)
             const etagHeader = headers.get("ETag")
             if (etagHeader) {
                 setEtag(etagHeader)
@@ -718,7 +718,7 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
                 ...currentSettings,
                 ...data,
             }
-            await api.put(`/v1/admin/tenants/${tenantId}/settings`, payload, etag)
+            await api.put(`/v2/admin/tenants/${tenantId}/settings`, payload, etag)
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["tenant-users-settings", tenantId] })
@@ -1014,7 +1014,7 @@ function UserDetails({ user, tenantId, token, clients, onUpdate }: {
     const handleSaveClient = async () => {
         if (!token) return
         try {
-            const res = await fetch(`/v1/admin/tenants/${tenantId}/users/${user.id}`, {
+            const res = await fetch(`/v2/admin/tenants/${tenantId}/users/${user.id}`, {
                 method: "PATCH",
                 headers: {
                     "Content-Type": "application/json",

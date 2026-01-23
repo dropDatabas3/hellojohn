@@ -3,8 +3,9 @@
 import type { ApiError } from "./types"
 import { useAuthStore } from "./auth-store"
 import { useUIStore } from "./ui-store"
+import { mapRoute, API_BASE_URL } from "./routes"
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080"
+const API_BASE = API_BASE_URL
 
 export class ApiClient {
   private baseUrl: string
@@ -35,7 +36,9 @@ export class ApiClient {
       headers["Authorization"] = `Bearer ${token}`
     }
 
-    const url = `${this.baseUrl}${endpoint}`
+    // Map route from V1 to V2 if needed
+    const mappedEndpoint = mapRoute(endpoint)
+    const url = `${this.baseUrl}${mappedEndpoint}`
 
     try {
       const response = await fetch(url, {
@@ -119,7 +122,9 @@ export class ApiClient {
       headers["Authorization"] = `Bearer ${token}`
     }
 
-    const url = `${this.baseUrl}${endpoint}`
+    // Map route from V1 to V2 if needed
+    const mappedEndpoint = mapRoute(endpoint)
+    const url = `${this.baseUrl}${mappedEndpoint}`
 
     try {
       const response = await fetch(url, {

@@ -113,7 +113,7 @@ export default function DatabasePage() {
     queryKey: ["tenant-storage", tenantId],
     queryFn: async () => {
       if (!tenantId || !token) throw new Error("No tenant ID or token")
-      const { data, headers } = await api.getWithHeaders<TenantSettings>(`/v1/admin/tenants/${tenantId}/settings`)
+      const { data, headers } = await api.getWithHeaders<TenantSettings>(`/v2/admin/tenants/${tenantId}/settings`)
       const etagHeader = headers.get("ETag")
       if (etagHeader) {
         setEtag(etagHeader)
@@ -128,7 +128,7 @@ export default function DatabasePage() {
     queryFn: async () => {
       if (!tenantId || !token) return null
       try {
-        const { data } = await api.get<any>(`/v1/admin/tenants/${tenantId}/infra-stats`)
+        const { data } = await api.get<any>(`/v2/admin/tenants/${tenantId}/infra-stats`)
         return data || null
       } catch (e) {
         return null
@@ -190,7 +190,7 @@ export default function DatabasePage() {
         ...currentSettings,
         ...data,
       }
-      await api.put(`/v1/admin/tenants/${tenantId}/settings`, payload, etag)
+      await api.put(`/v2/admin/tenants/${tenantId}/settings`, payload, etag)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tenant-storage", tenantId] })
@@ -214,7 +214,7 @@ export default function DatabasePage() {
     mutationFn: async () => {
       if (!tenantId || !token) throw new Error("No tenant ID")
       await api.post(
-        `/v1/admin/tenants/${tenantId}/user-store/test-connection`,
+        `/v2/admin/tenants/${tenantId}/user-store/test-connection`,
         {}
       )
     },
@@ -238,7 +238,7 @@ export default function DatabasePage() {
     mutationFn: async () => {
       if (!tenantId || !token) throw new Error("No tenant ID")
       return api.post<{ applied_count: number }>(
-        `/v1/admin/tenants/${tenantId}/user-store/migrate`,
+        `/v2/admin/tenants/${tenantId}/user-store/migrate`,
         {}
       )
     },
@@ -263,7 +263,7 @@ export default function DatabasePage() {
     mutationFn: async () => {
       if (!tenantId || !token) throw new Error("No tenant ID")
       await api.post(
-        `/v1/admin/tenants/${tenantId}/cache/test-connection`,
+        `/v2/admin/tenants/${tenantId}/cache/test-connection`,
         {}
       )
     },

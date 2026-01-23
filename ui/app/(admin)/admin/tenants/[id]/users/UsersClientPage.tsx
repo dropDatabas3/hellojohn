@@ -81,7 +81,7 @@ export default function UsersClientPage() {
     queryKey: ["users", tenantId],
     queryFn: async () => {
       if (!tenantId) return []
-      const res = await fetch(`/v1/admin/tenants/${tenantId}/users`, {
+      const res = await fetch(`/v2/admin/tenants/${tenantId}/users`, {
         headers: {
           "Authorization": `Bearer ${token}`
         }
@@ -97,7 +97,7 @@ export default function UsersClientPage() {
     queryKey: ["user-fields", tenantId],
     queryFn: async () => {
       if (!tenantId) return []
-      const res = await fetch(`/v1/admin/tenants/${tenantId}`, {
+      const res = await fetch(`/v2/admin/tenants/${tenantId}`, {
         headers: {
           "Authorization": `Bearer ${token}`
         }
@@ -112,7 +112,7 @@ export default function UsersClientPage() {
   // 3. Create User Mutation
   const createMutation = useMutation({
     mutationFn: async (vars: any) => {
-      const res = await fetch(`/v1/admin/tenants/${tenantId}/users`, {
+      const res = await fetch(`/v2/admin/tenants/${tenantId}/users`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -139,7 +139,7 @@ export default function UsersClientPage() {
   // 4. Delete User Mutation
   const deleteMutation = useMutation({
     mutationFn: async (userId: string) => {
-      const res = await fetch(`/v1/admin/tenants/${tenantId}/users/${userId}`, {
+      const res = await fetch(`/v2/admin/tenants/${tenantId}/users/${userId}`, {
         method: "DELETE",
         headers: {
           "Authorization": `Bearer ${token}`

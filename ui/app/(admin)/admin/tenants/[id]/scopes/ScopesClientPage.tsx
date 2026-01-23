@@ -44,7 +44,7 @@ export default function ScopesClientPage() {
   const { data: tenant } = useQuery({
     queryKey: ["tenant", tenantId],
     enabled: !!tenantId,
-    queryFn: () => api.get<Tenant>(`/v1/admin/tenants/${tenantId}`),
+    queryFn: () => api.get<Tenant>(`/v2/admin/tenants/${tenantId}`),
   })
 
   type ScopeRow = Scope & { id?: string; created_at?: string; tenant_id?: string }

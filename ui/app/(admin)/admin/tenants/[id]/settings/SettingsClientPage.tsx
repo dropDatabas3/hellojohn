@@ -28,14 +28,14 @@ export default function SettingsClientPage() {
   const { data: tenant } = useQuery({
     queryKey: ["tenant", tenantId],
     enabled: !!tenantId,
-    queryFn: () => api.get<Tenant>(`/v1/admin/tenants/${tenantId}`),
+    queryFn: () => api.get<Tenant>(`/v2/admin/tenants/${tenantId}`),
   })
   const { data: settings, isLoading } = useQuery({
     queryKey: ["tenant-settings", tenantId, "v2"],
     enabled: !!tenantId,
     queryFn: async () => {
       const token = (await import("@/lib/auth-store")).useAuthStore.getState().token
-      const resp = await fetch(`${api.getBaseUrl()}/v1/admin/tenants/${tenantId}/settings`, {
+      const resp = await fetch(`${api.getBaseUrl()}/v2/admin/tenants/${tenantId}/settings`, {
         headers: {
           Authorization: token ? `Bearer ${token}` : "",
         },
@@ -68,7 +68,7 @@ export default function SettingsClientPage() {
   }, [settings])
 
   const updateTenantMutation = useMutation({
-    mutationFn: (data: Partial<Tenant>) => api.put<Tenant>(`/v1/admin/tenants/${tenantId}`, data),
+    mutationFn: (data: Partial<Tenant>) => api.put<Tenant>(`/v2/admin/tenants/${tenantId}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tenant", tenantId] })
       queryClient.invalidateQueries({ queryKey: ["tenants"] })
@@ -92,7 +92,7 @@ export default function SettingsClientPage() {
       if (!etag) {
         throw new Error("Missing ETag. Please refresh the page.")
       }
-      return api.put<any>(`/v1/admin/tenants/${tenantId}/settings`, data, etag)
+      return api.put<any>(`/v2/admin/tenants/${tenantId}/settings`, data, etag)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tenant-settings", tenantId, "v2"] })
@@ -121,9 +121,9 @@ export default function SettingsClientPage() {
   const handleExport = async () => {
     try {
       const [clients, scopes, users] = await Promise.all([
-        api.get(`/v1/admin/tenants/${tenantId}/clients`),
-        api.get(`/v1/admin/tenants/${tenantId}/scopes`),
-        api.get(`/v1/admin/tenants/${tenantId}/users`),
+        api.get(`/v2/admin/tenants/${tenantId}/clients`),
+        api.get(`/v2/admin/tenants/${tenantId}/scopes`),
+        api.get(`/v2/admin/tenants/${tenantId}/users`),
       ])
 
       const exportData = {

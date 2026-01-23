@@ -56,7 +56,7 @@ export default function MailingClientPage() {
     const { data: tenant } = useQuery({
         queryKey: ["tenant", tenantId],
         enabled: !!tenantId,
-        queryFn: () => api.get<Tenant>(`/v1/admin/tenants/${tenantId}`),
+        queryFn: () => api.get<Tenant>(`/v2/admin/tenants/${tenantId}`),
     })
 
     const { data: settings, isLoading } = useQuery({
@@ -64,7 +64,7 @@ export default function MailingClientPage() {
         enabled: !!tenantId,
         queryFn: async () => {
             const token = (await import("@/lib/auth-store")).useAuthStore.getState().token
-            const resp = await fetch(`${api.getBaseUrl()}/v1/admin/tenants/${tenantId}/settings`, {
+            const resp = await fetch(`${api.getBaseUrl()}/v2/admin/tenants/${tenantId}/settings`, {
                 headers: { Authorization: token ? `Bearer ${token}` : "" },
             })
             const etag = resp.headers.get("ETag") || undefined
@@ -105,7 +105,7 @@ export default function MailingClientPage() {
         mutationFn: (data: any) => {
             const etag = settings?._etag
             if (!etag) throw new Error("Missing ETag. Please refresh.")
-            return api.put<any>(`/v1/admin/tenants/${tenantId}/settings`, data, etag)
+            return api.put<any>(`/v2/admin/tenants/${tenantId}/settings`, data, etag)
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["tenant-settings", tenantId, "mailing"] })
@@ -116,7 +116,7 @@ export default function MailingClientPage() {
 
     const sendTestEmailMutation = useMutation({
         mutationFn: async () => {
-            await api.post(`/v1/admin/tenants/${tenantId}/mailing/test`, {
+            await api.post(`/v2/admin/tenants/${tenantId}/mailing/test`, {
                 to: testEmailTo,
             })
         },

@@ -70,11 +70,11 @@ export default function TenantsPage() {
 
   const { data: tenants, isLoading } = useQuery({
     queryKey: ["tenants"],
-    queryFn: () => api.get<Tenant[]>("/v1/admin/tenants"),
+    queryFn: () => api.get<Tenant[]>("/v2/admin/tenants"),
   })
 
   const createMutation = useMutation({
-    mutationFn: (data: typeof newTenant) => api.post<Tenant>("/v1/admin/tenants", data),
+    mutationFn: (data: typeof newTenant) => api.post<Tenant>("/v2/admin/tenants", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tenants"] })
       setCreateDialogOpen(false)
@@ -98,7 +98,7 @@ export default function TenantsPage() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (slug: string) => api.delete(`/v1/admin/tenants/${slug}`),
+    mutationFn: (slug: string) => api.delete(`/v2/admin/tenants/${slug}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tenants"] })
       setDeleteDialogOpen(false)
@@ -118,7 +118,7 @@ export default function TenantsPage() {
   })
 
   const testConnectionMutation = useMutation({
-    mutationFn: (dsn: string) => api.post("/v1/admin/tenants/test-connection", { dsn }),
+    mutationFn: (dsn: string) => api.post("/v2/admin/tenants/test-connection", { dsn }),
     onSuccess: () => {
       setConnectionStatus("success")
       setConnectionMessage("Conexión exitosa")

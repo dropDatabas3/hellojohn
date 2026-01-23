@@ -67,7 +67,7 @@ function OrganizationSelector({
 }) {
   const { data: tenants } = useQuery({
     queryKey: ["tenants"],
-    queryFn: () => api.get<Tenant[]>("/v1/admin/tenants"),
+    queryFn: () => api.get<Tenant[]>("/v2/admin/tenants"),
   })
 
   return (
@@ -116,7 +116,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   // Tenants for selector
   const { data: tenants } = useQuery({
     queryKey: ["tenants"],
-    queryFn: () => api.get<Tenant[]>("/v1/admin/tenants"),
+    queryFn: () => api.get<Tenant[]>("/v2/admin/tenants"),
   })
   const pathname = usePathname()
   const searchParams = useSearchParams()

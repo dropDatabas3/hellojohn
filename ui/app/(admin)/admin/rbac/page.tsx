@@ -1,9 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { useQuery, useMutation } from "@tanstack/react-query"
+import { useQuery, useMutation } from "@tantml:react-query"
 import { Search, Shield, Trash2, Plus } from "lucide-react"
 import { api } from "@/lib/api"
+import { API_ROUTES } from "@/lib/routes"
 import { useI18n } from "@/lib/i18n"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -28,12 +29,12 @@ export default function RBACPage() {
   } = useQuery({
     queryKey: ["rbac-user-roles", userId],
     enabled: false,
-    queryFn: () => api.get<UserRolesResponse>(`/v1/admin/rbac/users/${userId}/roles`),
+    queryFn: () => api.get<UserRolesResponse>(API_ROUTES.ADMIN_RBAC_USER_ROLES(userId)),
   })
 
   const addUserRole = useMutation({
     mutationFn: (role: string) =>
-      api.post<UserRolesResponse>(`/v1/admin/rbac/users/${userId}/roles`, { add: [role], remove: [] }),
+      api.post<UserRolesResponse>(API_ROUTES.ADMIN_RBAC_USER_ROLES(userId), { add: [role], remove: [] }),
     onSuccess: (res) => {
       setNewUserRole("")
       toast({ title: t("common.saved"), description: t("rbac.userRolesUpdated") })
@@ -43,7 +44,7 @@ export default function RBACPage() {
 
   const removeUserRole = useMutation({
     mutationFn: (role: string) =>
-      api.post<UserRolesResponse>(`/v1/admin/rbac/users/${userId}/roles`, { add: [], remove: [role] }),
+      api.post<UserRolesResponse>(API_ROUTES.ADMIN_RBAC_USER_ROLES(userId), { add: [], remove: [role] }),
     onSuccess: () => toast({ title: t("common.saved"), description: t("rbac.userRolesUpdated") }),
     onError: (e: any) => toast({ title: t("common.error"), description: e.message, variant: "destructive" }),
   })
@@ -58,12 +59,12 @@ export default function RBACPage() {
   } = useQuery({
     queryKey: ["rbac-role-perms", roleName],
     enabled: false,
-    queryFn: () => api.get<RolePermsResponse>(`/v1/admin/rbac/roles/${encodeURIComponent(roleName)}/perms`),
+    queryFn: () => api.get<RolePermsResponse>(API_ROUTES.ADMIN_RBAC_ROLE_PERMS(roleName)),
   })
 
   const addPerm = useMutation({
     mutationFn: (perm: string) =>
-      api.post<RolePermsResponse>(`/v1/admin/rbac/roles/${encodeURIComponent(roleName)}/perms`, {
+      api.post<RolePermsResponse>(API_ROUTES.ADMIN_RBAC_ROLE_PERMS(roleName), {
         add: [perm],
         remove: [],
       }),
@@ -73,7 +74,7 @@ export default function RBACPage() {
 
   const removePerm = useMutation({
     mutationFn: (perm: string) =>
-      api.post<RolePermsResponse>(`/v1/admin/rbac/roles/${encodeURIComponent(roleName)}/perms`, {
+      api.post<RolePermsResponse>(API_ROUTES.ADMIN_RBAC_ROLE_PERMS(roleName), {
         add: [],
         remove: [perm],
       }),
