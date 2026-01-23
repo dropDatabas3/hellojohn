@@ -16,7 +16,8 @@
       "Bash(find:*)",
       "Bash(./hellojohn.exe:*)",
       "Bash(taskkill:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(go vet:*)"
     ]
   }
 }

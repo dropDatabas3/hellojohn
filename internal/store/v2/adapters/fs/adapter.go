@@ -664,14 +664,6 @@ type tenantSettingsYAML struct {
 		GoogleEnabled   bool   `yaml:"googleEnabled,omitempty"`
 		GoogleClient    string `yaml:"googleClient,omitempty"`
 		GoogleSecretEnc string `yaml:"googleSecretEnc,omitempty"`
-
-		GithubEnabled   bool   `yaml:"githubEnabled,omitempty"`
-		GithubClient    string `yaml:"githubClient,omitempty"`
-		GithubSecretEnc string `yaml:"githubSecretEnc,omitempty"`
-
-		FacebookEnabled   bool   `yaml:"facebookEnabled,omitempty"`
-		FacebookClient    string `yaml:"facebookClient,omitempty"`
-		FacebookSecretEnc string `yaml:"facebookSecretEnc,omitempty"`
 	} `yaml:"socialProviders,omitempty"`
 }
 
@@ -731,15 +723,9 @@ func (t *tenantYAML) toRepository(slug string) *repository.Tenant {
 
 	if t.Settings.SocialProviders != nil {
 		tenant.Settings.SocialProviders = &repository.SocialConfig{
-			GoogleEnabled:     t.Settings.SocialProviders.GoogleEnabled,
-			GoogleClient:      t.Settings.SocialProviders.GoogleClient,
-			GoogleSecretEnc:   t.Settings.SocialProviders.GoogleSecretEnc,
-			GithubEnabled:     t.Settings.SocialProviders.GithubEnabled,
-			GithubClient:      t.Settings.SocialProviders.GithubClient,
-			GithubSecretEnc:   t.Settings.SocialProviders.GithubSecretEnc,
-			FacebookEnabled:   t.Settings.SocialProviders.FacebookEnabled,
-			FacebookClient:    t.Settings.SocialProviders.FacebookClient,
-			FacebookSecretEnc: t.Settings.SocialProviders.FacebookSecretEnc,
+			GoogleEnabled:   t.Settings.SocialProviders.GoogleEnabled,
+			GoogleClient:    t.Settings.SocialProviders.GoogleClient,
+			GoogleSecretEnc: t.Settings.SocialProviders.GoogleSecretEnc,
 		}
 	}
 
@@ -830,24 +816,10 @@ func toTenantYAML(t *repository.Tenant) *tenantYAML {
 			GoogleEnabled   bool   `yaml:"googleEnabled,omitempty"`
 			GoogleClient    string `yaml:"googleClient,omitempty"`
 			GoogleSecretEnc string `yaml:"googleSecretEnc,omitempty"`
-
-			GithubEnabled   bool   `yaml:"githubEnabled,omitempty"`
-			GithubClient    string `yaml:"githubClient,omitempty"`
-			GithubSecretEnc string `yaml:"githubSecretEnc,omitempty"`
-
-			FacebookEnabled   bool   `yaml:"facebookEnabled,omitempty"`
-			FacebookClient    string `yaml:"facebookClient,omitempty"`
-			FacebookSecretEnc string `yaml:"facebookSecretEnc,omitempty"`
 		}{
-			GoogleEnabled:     t.Settings.SocialProviders.GoogleEnabled,
-			GoogleClient:      t.Settings.SocialProviders.GoogleClient,
-			GoogleSecretEnc:   t.Settings.SocialProviders.GoogleSecretEnc,
-			GithubEnabled:     t.Settings.SocialProviders.GithubEnabled,
-			GithubClient:      t.Settings.SocialProviders.GithubClient,
-			GithubSecretEnc:   t.Settings.SocialProviders.GithubSecretEnc,
-			FacebookEnabled:   t.Settings.SocialProviders.FacebookEnabled,
-			FacebookClient:    t.Settings.SocialProviders.FacebookClient,
-			FacebookSecretEnc: t.Settings.SocialProviders.FacebookSecretEnc,
+			GoogleEnabled:   t.Settings.SocialProviders.GoogleEnabled,
+			GoogleClient:    t.Settings.SocialProviders.GoogleClient,
+			GoogleSecretEnc: t.Settings.SocialProviders.GoogleSecretEnc,
 		}
 	}
 
