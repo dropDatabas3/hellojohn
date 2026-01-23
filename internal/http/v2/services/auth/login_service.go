@@ -16,6 +16,7 @@ import (
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
 	store "github.com/dropDatabas3/hellojohn/internal/store/v2"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
+	"go.uber.org/zap"
 )
 
 // LoginDeps contiene las dependencias para el login service.
@@ -62,9 +63,14 @@ func (s *loginService) LoginPassword(ctx context.Context, in dto.LoginRequest) (
 	in.TenantID = strings.TrimSpace(in.TenantID)
 	in.ClientID = strings.TrimSpace(in.ClientID)
 
-	// Validación mínima
-	if in.Email == "" || in.Password == "" || in.TenantID == "" || in.ClientID == "" {
+	// Validación: email y password siempre requeridos
+	if in.Email == "" || in.Password == "" {
 		return nil, ErrMissingFields
+	}
+
+	// Si faltan tenant_id y/o client_id, intentar login como admin global
+	if in.TenantID == "" || in.ClientID == "" {
+		return s.loginAsAdmin(ctx, in, log)
 	}
 
 	// Paso 1: Resolver tenant (sin abrir DB todavía)
@@ -285,4 +291,119 @@ func (s *loginService) selectSigningKey(tda store.TenantDataAccess) (kid string,
 		return s.deps.Issuer.Keys.ActiveForTenant(tda.Slug())
 	}
 	return s.deps.Issuer.Keys.Active()
+}
+
+// loginAsAdmin maneja el login de administradores globales del sistema.
+// Se usa cuando tenant_id y/o client_id están vacíos.
+func (s *loginService) loginAsAdmin(ctx context.Context, in dto.LoginRequest, log *zap.Logger) (*dto.LoginResult, error) {
+	log = log.With(logger.Op("loginAsAdmin"))
+
+	// Obtener el AdminRepository del Control Plane
+	adminRepo := s.deps.DAL.ConfigAccess().Admins()
+	if adminRepo == nil {
+		log.Debug("admin repository not available")
+		return nil, ErrInvalidCredentials
+	}
+
+	// Buscar admin por email
+	admin, err := adminRepo.GetByEmail(ctx, in.Email)
+	if err != nil {
+		log.Debug("admin not found", logger.Err(err))
+		return nil, ErrInvalidCredentials
+	}
+
+	// Verificar que no esté deshabilitado
+	if admin.DisabledAt != nil {
+		log.Info("admin disabled")
+		return nil, ErrUserDisabled
+	}
+
+	// Verificar password
+	if !adminRepo.CheckPassword(admin.PasswordHash, in.Password) {
+		log.Debug("admin password check failed")
+		return nil, ErrInvalidCredentials
+	}
+
+	// Actualizar last seen (best effort)
+	_ = adminRepo.UpdateLastSeen(ctx, admin.ID)
+
+	// Construir claims para admin global
+	amr := []string{"pwd"}
+	acr := "urn:hellojohn:loa:1"
+	grantedScopes := []string{"openid", "profile", "email"}
+
+	std := map[string]any{
+		"tid": "global",
+		"amr": amr,
+		"acr": acr,
+		"scp": strings.Join(grantedScopes, " "),
+	}
+	custom := map[string]any{
+		"admin_type": string(admin.Type),
+		"roles":      []string{"sys:admin"},
+	}
+
+	now := time.Now().UTC()
+	exp := now.Add(s.deps.Issuer.AccessTTL)
+
+	// Obtener clave de firma global
+	kid, priv, _, kerr := s.deps.Issuer.Keys.Active()
+	if kerr != nil {
+		log.Error("failed to get signing key", logger.Err(kerr))
+		return nil, ErrTokenIssueFailed
+	}
+
+	// Construir JWT claims
+	claims := jwtv5.MapClaims{
+		"iss": s.deps.Issuer.Iss,
+		"sub": admin.ID,
+		"aud": "admin",
+		"iat": now.Unix(),
+		"nbf": now.Unix(),
+		"exp": exp.Unix(),
+	}
+	for k, v := range std {
+		claims[k] = v
+	}
+	claims["custom"] = custom
+
+	// Firmar access token
+	tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
+	tk.Header["kid"] = kid
+	tk.Header["typ"] = "JWT"
+
+	accessToken, err := tk.SignedString(priv)
+	if err != nil {
+		log.Error("failed to sign access token", logger.Err(err))
+		return nil, ErrTokenIssueFailed
+	}
+
+	// Para admins, emitir refresh token como JWT stateless (no persistido en DB)
+	rtClaims := jwtv5.MapClaims{
+		"iss":       s.deps.Issuer.Iss,
+		"sub":       admin.ID,
+		"aud":       "admin",
+		"iat":       now.Unix(),
+		"nbf":       now.Unix(),
+		"exp":       now.Add(s.deps.RefreshTTL).Unix(),
+		"token_use": "refresh",
+	}
+	rtToken := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, rtClaims)
+	rtToken.Header["kid"] = kid
+	rtToken.Header["typ"] = "JWT"
+
+	refreshToken, err := rtToken.SignedString(priv)
+	if err != nil {
+		log.Error("failed to sign refresh token", logger.Err(err))
+		return nil, ErrTokenIssueFailed
+	}
+
+	log.Info("admin login successful")
+
+	return &dto.LoginResult{
+		Success:      true,
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresIn:    int64(time.Until(exp).Seconds()),
+	}, nil
 }

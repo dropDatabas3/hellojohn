@@ -42,10 +42,12 @@ func (c *noopConnection) Scopes() repository.ScopeRepository           { return 
 func (c *noopConnection) RBAC() repository.RBACRepository              { return &noopRBACRepo{} }
 func (c *noopConnection) Schema() repository.SchemaRepository          { return &noopSchemaRepo{} }
 func (c *noopConnection) Keys() repository.KeyRepository               { return &noopKeyRepo{} }
-func (c *noopConnection) Tenants() repository.TenantRepository         { return nil }
-func (c *noopConnection) Clients() repository.ClientRepository         { return nil }
-func (c *noopConnection) EmailTokens() repository.EmailTokenRepository { return &noopEmailTokenRepo{} }
-func (c *noopConnection) Identities() repository.IdentityRepository    { return &noopIdentityRepo{} }
+func (c *noopConnection) Tenants() repository.TenantRepository                   { return nil }
+func (c *noopConnection) Clients() repository.ClientRepository                   { return nil }
+func (c *noopConnection) Admins() repository.AdminRepository                     { return nil }
+func (c *noopConnection) AdminRefreshTokens() repository.AdminRefreshTokenRepository { return nil }
+func (c *noopConnection) EmailTokens() repository.EmailTokenRepository           { return &noopEmailTokenRepo{} }
+func (c *noopConnection) Identities() repository.IdentityRepository              { return &noopIdentityRepo{} }
 
 // ─── Repos que retornan ErrNoDatabase ───
 

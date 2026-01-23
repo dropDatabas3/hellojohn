@@ -19,82 +19,83 @@ type Tenant struct {
 
 // TenantSettings contiene la configuración de un tenant.
 type TenantSettings struct {
-	LogoURL                     string
-	BrandColor                  string
-	SessionLifetimeSeconds      int
-	RefreshTokenLifetimeSeconds int
-	MFAEnabled                  bool
-	SocialLoginEnabled          bool
-	SMTP                        *SMTPSettings
-	UserDB                      *UserDBSettings
-	Cache                       *CacheSettings
-	Security                    *SecurityPolicy
-	UserFields                  []UserFieldDefinition
-	Mailing                     *MailingSettings
+	LogoURL                     string          `json:"logoUrl" yaml:"logoUrl"`
+	BrandColor                  string          `json:"brandColor" yaml:"brandColor"`
+	SessionLifetimeSeconds      int             `json:"sessionLifetimeSeconds" yaml:"sessionLifetimeSeconds"`
+	RefreshTokenLifetimeSeconds int             `json:"refreshTokenLifetimeSeconds" yaml:"refreshTokenLifetimeSeconds"`
+	MFAEnabled                  bool            `json:"mfaEnabled" yaml:"mfaEnabled"`
+	SocialLoginEnabled          bool            `json:"social_login_enabled" yaml:"social_login_enabled"`
+	SMTP                        *SMTPSettings   `json:"smtp,omitempty" yaml:"smtp,omitempty"`
+	UserDB                      *UserDBSettings `json:"userDb,omitempty" yaml:"userDb,omitempty"`
+	Cache                       *CacheSettings  `json:"cache,omitempty" yaml:"cache,omitempty"`
+	Security                    *SecurityPolicy `json:"security,omitempty" yaml:"security,omitempty"`
+	UserFields                  []UserFieldDefinition `json:"userFields,omitempty" yaml:"userFields,omitempty"`
+	Mailing                     *MailingSettings      `json:"mailing,omitempty" yaml:"mailing,omitempty"`
 	// IssuerMode configura cómo se construye el issuer/JWKS por tenant.
-	IssuerMode      string
-	IssuerOverride  string
-	SocialProviders *SocialConfig
+	IssuerMode      string        `json:"issuerMode,omitempty" yaml:"issuerMode,omitempty"`
+	IssuerOverride  string        `json:"issuerOverride,omitempty" yaml:"issuerOverride,omitempty"`
+	SocialProviders *SocialConfig `json:"socialProviders,omitempty" yaml:"socialProviders,omitempty"`
 }
 
 // SMTPSettings configuración de email.
 type SMTPSettings struct {
-	Host        string
-	Port        int
-	Username    string
-	Password    string // Plain (no persiste)
-	PasswordEnc string // Encrypted
-	FromEmail   string
-	UseTLS      bool
+	Host        string `json:"host" yaml:"host"`
+	Port        int    `json:"port" yaml:"port"`
+	Username    string `json:"username" yaml:"username"`
+	Password    string `json:"password,omitempty" yaml:"-"` // Plain (no persiste)
+	PasswordEnc string `json:"-" yaml:"passwordEnc,omitempty"` // Encrypted
+	FromEmail   string `json:"fromEmail" yaml:"fromEmail"`
+	UseTLS      bool   `json:"useTLS" yaml:"useTLS"`
 }
 
 // UserDBSettings configuración de DB por tenant.
 type UserDBSettings struct {
-	Driver string
-	DSN    string // Plain (no persiste)
-	DSNEnc string // Encrypted
-	Schema string
+	Driver     string `json:"driver" yaml:"driver"`
+	DSN        string `json:"dsn,omitempty" yaml:"-"` // Plain (no persiste)
+	DSNEnc     string `json:"-" yaml:"dsnEnc,omitempty"` // Encrypted
+	Schema     string `json:"schema,omitempty" yaml:"schema,omitempty"`
+	ManualMode bool   `json:"manualMode,omitempty" yaml:"manualMode,omitempty"`
 }
 
 // CacheSettings configuración de cache por tenant.
 type CacheSettings struct {
-	Enabled  bool
-	Driver   string
-	Host     string
-	Port     int
-	Password string
-	PassEnc  string
-	DB       int
-	Prefix   string
+	Enabled  bool   `json:"enabled" yaml:"enabled"`
+	Driver   string `json:"driver" yaml:"driver"`
+	Host     string `json:"host" yaml:"host"`
+	Port     int    `json:"port" yaml:"port"`
+	Password string `json:"password,omitempty" yaml:"-"` // Plain (no persiste)
+	PassEnc  string `json:"-" yaml:"passEnc,omitempty"` // Encrypted
+	DB       int    `json:"db" yaml:"db"`
+	Prefix   string `json:"prefix" yaml:"prefix"`
 }
 
 // SecurityPolicy políticas de seguridad.
 type SecurityPolicy struct {
-	PasswordMinLength int
-	MFARequired       bool
+	PasswordMinLength int  `json:"passwordMinLength" yaml:"passwordMinLength"`
+	MFARequired       bool `json:"mfaRequired" yaml:"mfaRequired"`
 }
 
 // UserFieldDefinition define un campo custom de usuario.
 type UserFieldDefinition struct {
-	Name        string
-	Type        string
-	Required    bool
-	Unique      bool
-	Indexed     bool
-	Description string
+	Name        string `json:"name" yaml:"name"`
+	Type        string `json:"type" yaml:"type"`
+	Required    bool   `json:"required" yaml:"required"`
+	Unique      bool   `json:"unique" yaml:"unique"`
+	Indexed     bool   `json:"indexed" yaml:"indexed"`
+	Description string `json:"description" yaml:"description"`
 }
 
 // MailingSettings configuración de templates de email.
 type MailingSettings struct {
 	// Templates organizados por idioma: map[lang]map[templateID]EmailTemplate
 	// Ejemplo: Templates["es"]["verify_email"] = EmailTemplate{...}
-	Templates map[string]map[string]EmailTemplate
+	Templates map[string]map[string]EmailTemplate `json:"templates" yaml:"templates"`
 }
 
 // EmailTemplate un template de email.
 type EmailTemplate struct {
-	Subject string
-	Body    string
+	Subject string `json:"subject" yaml:"subject"`
+	Body    string `json:"body" yaml:"body"`
 }
 
 // TenantRepository define operaciones sobre tenants (Control Plane).
@@ -126,8 +127,8 @@ type TenantRepository interface {
 
 // SocialConfig: habilitación/config de IdPs sociales.
 type SocialConfig struct {
-	GoogleEnabled   bool
-	GoogleClient    string
-	GoogleSecret    string // Plain (input)
-	GoogleSecretEnc string // Encrypted (persisted)
+	GoogleEnabled   bool   `json:"googleEnabled" yaml:"googleEnabled"`
+	GoogleClient    string `json:"googleClient" yaml:"googleClient"`
+	GoogleSecret    string `json:"googleSecret,omitempty" yaml:"-"` // Plain (input)
+	GoogleSecretEnc string `json:"googleSecretEnc,omitempty" yaml:"googleSecretEnc,omitempty"` // Encrypted (persisted)
 }

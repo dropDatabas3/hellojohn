@@ -32,8 +32,11 @@ const componentJWKS = "oidc.jwks"
 // slugRe valida slugs de tenant: solo a-z, 0-9, - con max 64 chars.
 var slugRe = regexp.MustCompile(`^[a-z0-9\-]{1,64}$`)
 
-// ErrInvalidSlug indica que el slug es inválido.
-var ErrInvalidSlug = fmt.Errorf("invalid slug format")
+// uuidRe valida UUIDs (formato: 8-4-4-4-12 hex chars con guiones)
+var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// ErrInvalidSlug indica que el slug/ID es inválido.
+var ErrInvalidSlug = fmt.Errorf("invalid slug or ID format")
 
 func (s *jwksService) GetGlobalJWKS(ctx context.Context) (json.RawMessage, error) {
 	log := logger.From(ctx).With(
@@ -51,20 +54,22 @@ func (s *jwksService) GetGlobalJWKS(ctx context.Context) (json.RawMessage, error
 	return data, nil
 }
 
-func (s *jwksService) GetTenantJWKS(ctx context.Context, slug string) (json.RawMessage, error) {
+func (s *jwksService) GetTenantJWKS(ctx context.Context, slugOrID string) (json.RawMessage, error) {
 	log := logger.From(ctx).With(
 		logger.Layer("service"),
 		logger.Component(componentJWKS),
 		logger.Op("GetTenantJWKS"),
-		logger.TenantSlug(slug),
+		logger.TenantSlug(slugOrID),
 	)
 
-	// Validar slug
-	if !slugRe.MatchString(slug) {
+	// Validar que sea un slug válido o un UUID
+	if !slugRe.MatchString(slugOrID) && !uuidRe.MatchString(slugOrID) {
+		log.Error("invalid tenant identifier format", logger.String("tenant", slugOrID))
 		return nil, ErrInvalidSlug
 	}
 
-	data, err := s.cache.Get(slug)
+	// El cache se encargará de resolver el tenant por slug o ID
+	data, err := s.cache.Get(slugOrID)
 	if err != nil {
 		log.Error("failed to get tenant JWKS", logger.Err(err))
 		return nil, err

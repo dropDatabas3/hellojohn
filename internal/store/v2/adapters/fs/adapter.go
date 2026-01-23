@@ -32,12 +32,18 @@ func (a *fsAdapter) Connect(ctx context.Context, cfg store.AdapterConfig) (store
 		root = "data"
 	}
 
-	// Verificar que existe
+	// Verificar que existe, si no existe lo creamos automáticamente
 	info, err := os.Stat(root)
 	if err != nil {
-		return nil, fmt.Errorf("fs: root path error: %w", err)
-	}
-	if !info.IsDir() {
+		if os.IsNotExist(err) {
+			// Crear el directorio raíz automáticamente
+			if mkErr := os.MkdirAll(root, 0755); mkErr != nil {
+				return nil, fmt.Errorf("fs: failed to create root path %s: %w", root, mkErr)
+			}
+		} else {
+			return nil, fmt.Errorf("fs: root path error: %w", err)
+		}
+	} else if !info.IsDir() {
 		return nil, fmt.Errorf("fs: root path is not a directory: %s", root)
 	}
 
@@ -70,6 +76,10 @@ func (c *fsConnection) Clients() repository.ClientRepository { return &clientRep
 func (c *fsConnection) Scopes() repository.ScopeRepository   { return &scopeRepo{conn: c} }
 func (c *fsConnection) Keys() repository.KeyRepository {
 	return newKeyRepo(filepath.Join(c.root, "keys"), c.signingMasterKey)
+}
+func (c *fsConnection) Admins() repository.AdminRepository { return newAdminRepo(c.root) }
+func (c *fsConnection) AdminRefreshTokens() repository.AdminRefreshTokenRepository {
+	return newAdminRefreshTokenRepo(c.root)
 }
 
 // Data plane (NO soportado por FS)

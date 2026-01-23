@@ -2,6 +2,8 @@
 package admin
 
 import (
+	"time"
+
 	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane/v2"
 	emailv2 "github.com/dropDatabas3/hellojohn/internal/email/v2"
 	"github.com/dropDatabas3/hellojohn/internal/jwt"
@@ -15,10 +17,12 @@ type Deps struct {
 	Email        emailv2.Service
 	MasterKey    string
 	Issuer       *jwt.Issuer
+	RefreshTTL   time.Duration // TTL para admin refresh tokens
 }
 
 // Services agrupa todos los services del dominio admin.
 type Services struct {
+	Auth     AuthService
 	Clients  ClientService
 	Consents ConsentService
 	Users    UserActionService
@@ -31,6 +35,11 @@ type Services struct {
 // NewServices crea el agregador de services admin.
 func NewServices(d Deps) Services {
 	return Services{
+		Auth: NewAuthService(AuthServiceDeps{
+			ControlPlane: d.ControlPlane,
+			Issuer:       d.Issuer,
+			RefreshTTL:   d.RefreshTTL,
+		}),
 		Clients:  NewClientService(d.ControlPlane),
 		Scopes:   NewScopeService(d.ControlPlane),
 		Users:    NewUserActionService(d.Email),

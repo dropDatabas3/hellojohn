@@ -125,6 +125,7 @@ func New(d Deps) *Services {
 			Email:        d.Email,
 			MasterKey:    d.MasterKey,
 			Issuer:       d.Issuer,
+			RefreshTTL:   d.RefreshTTL,
 		}),
 		Auth: auth.NewServices(auth.Deps{
 			DAL:            d.DAL,

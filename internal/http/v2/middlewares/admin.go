@@ -149,3 +149,121 @@ func RequireSysAdmin(issuer *jwtx.Issuer, cfg AdminConfig) Middleware {
 		})
 	}
 }
+
+// =================================================================================
+// ADMIN JWT MIDDLEWARES (V2)
+// =================================================================================
+
+// RequireAdminAuth valida que el token JWT es un admin access token válido.
+// Este middleware debe usarse en rutas de administración que requieren autenticación admin.
+func RequireAdminAuth(issuer *jwtx.Issuer) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Extraer token del header Authorization
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				errors.WriteError(w, errors.ErrUnauthorized.WithDetail("authorization header required"))
+				return
+			}
+
+			// Validar formato "Bearer <token>"
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+				errors.WriteError(w, errors.ErrUnauthorized.WithDetail("invalid authorization header format"))
+				return
+			}
+
+			token := parts[1]
+
+			// Verificar token admin
+			adminClaims, err := issuer.VerifyAdminAccess(r.Context(), token)
+			if err != nil {
+				errors.WriteError(w, errors.ErrUnauthorized.WithDetail("invalid admin token"))
+				return
+			}
+
+			// Guardar claims en contexto
+			ctx := SetAdminClaims(r.Context(), adminClaims)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// RequireAdminTenantAccess valida que el admin tenga acceso al tenant solicitado.
+// Este middleware debe usarse DESPUÉS de RequireAdminAuth.
+//
+// - Admins tipo "global" tienen acceso a todos los tenants
+// - Admins tipo "tenant" solo tienen acceso a sus assigned_tenants
+//
+// El tenant_id se puede obtener de:
+// - Query param: ?tenant_id=acme
+// - Path param: /v2/admin/tenants/{tenant_id}/...
+// - Request body (JSON): {"tenant_id": "acme"}
+func RequireAdminTenantAccess() Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			adminClaims := GetAdminClaims(r.Context())
+			if adminClaims == nil {
+				errors.WriteError(w, errors.ErrUnauthorized.WithDetail("admin claims not found"))
+				return
+			}
+
+			// Admins globales tienen acceso a todo
+			if adminClaims.AdminType == "global" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Extraer tenant_id de la request
+			tenantID := extractTenantID(r)
+			if tenantID == "" {
+				// Si no hay tenant_id en la request, permitir (puede ser una ruta que no requiere tenant)
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Verificar que el admin tenant tenga acceso
+			hasAccess := false
+			for _, tid := range adminClaims.Tenants {
+				if tid == tenantID {
+					hasAccess = true
+					break
+				}
+			}
+
+			if !hasAccess {
+				errors.WriteError(w, errors.ErrForbidden.WithDetail("admin does not have access to this tenant"))
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// extractTenantID intenta extraer el tenant_id de varios lugares de la request.
+func extractTenantID(r *http.Request) string {
+	// 1. Query param: ?tenant_id=acme
+	if tid := r.URL.Query().Get("tenant_id"); tid != "" {
+		return tid
+	}
+
+	// 2. Query param alternativo: ?tenant=acme
+	if tid := r.URL.Query().Get("tenant"); tid != "" {
+		return tid
+	}
+
+	// 3. Path param: /v2/admin/tenants/{tenant_id}/...
+	// Esto requiere parsing manual del path
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	for i, part := range pathParts {
+		if part == "tenants" && i+1 < len(pathParts) {
+			return pathParts[i+1]
+		}
+	}
+
+	// TODO: Parse JSON body si es POST/PUT/PATCH
+	// Por ahora, solo soportamos query params y path params
+
+	return ""
+}

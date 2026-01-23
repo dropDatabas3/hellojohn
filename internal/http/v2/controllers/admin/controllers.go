@@ -5,6 +5,7 @@ import svc "github.com/dropDatabas3/hellojohn/internal/http/v2/services/admin"
 
 // Controllers agrupa todos los controllers del dominio admin.
 type Controllers struct {
+	Auth      *AuthController
 	Clients   *ClientsController
 	Consents  *ConsentsController
 	Users     *UsersController
@@ -17,6 +18,7 @@ type Controllers struct {
 // NewControllers crea el agregador de controllers admin.
 func NewControllers(s svc.Services) *Controllers {
 	return &Controllers{
+		Auth:      NewAuthController(s.Auth),
 		Clients:   NewClientsController(s.Clients),
 		Consents:  NewConsentsController(s.Consents),
 		Users:     NewUsersController(s.Users),

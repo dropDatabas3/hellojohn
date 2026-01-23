@@ -245,7 +245,8 @@ func (i *Issuer) JWKSJSON() []byte {
 
 // Helpers defensivos para errores comunes
 var (
-	ErrInvalidIssuer = errors.New("invalid_issuer")
+	ErrInvalidIssuer   = errors.New("invalid_issuer")
+	ErrInvalidAudience = errors.New("invalid_audience")
 )
 
 // ───────────────────────────────────────────────────────────────
@@ -342,4 +343,90 @@ func (i *Issuer) KeyfuncFromTokenClaims() jwtv5.Keyfunc {
 		}
 		return ed25519.PublicKey(pub), nil
 	}
+}
+
+// IssueAdminAccess emite un Access Token para un administrador.
+// El token incluye claims específicos de admin: admin_type y tenants asignados.
+// Audience siempre es "hellojohn:admin".
+func (i *Issuer) IssueAdminAccess(ctx context.Context, claims AdminAccessClaims) (string, int, error) {
+	now := time.Now().UTC()
+	exp := now.Add(i.AccessTTL)
+
+	kid, priv, _, err := i.Keys.Active()
+	if err != nil {
+		return "", 0, err
+	}
+
+	jwtClaims := jwtv5.MapClaims{
+		"iss":        i.Iss,
+		"sub":        claims.AdminID,
+		"aud":        "hellojohn:admin",
+		"email":      claims.Email,
+		"admin_type": claims.AdminType,
+		"iat":        now.Unix(),
+		"nbf":        now.Unix(),
+		"exp":        exp.Unix(),
+	}
+
+	// Solo incluir tenants si no está vacío (tenant admin)
+	if len(claims.Tenants) > 0 {
+		jwtClaims["tenants"] = claims.Tenants
+	}
+
+	tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, jwtClaims)
+	tk.Header["kid"] = kid
+	tk.Header["typ"] = "JWT"
+
+	signed, err := tk.SignedString(priv)
+	if err != nil {
+		return "", 0, err
+	}
+
+	expiresIn := int(i.AccessTTL.Seconds())
+	return signed, expiresIn, nil
+}
+
+// VerifyAdminAccess verifica un admin access token y retorna los claims.
+func (i *Issuer) VerifyAdminAccess(ctx context.Context, token string) (*AdminAccessClaims, error) {
+	// Parse y validar firma usando el keystore
+	rawClaims, err := ParseEdDSA(token, i.Keys, i.Iss)
+	if err != nil {
+		return nil, err
+	}
+
+	// Verificar audience
+	if aud, ok := rawClaims["aud"].(string); !ok || aud != "hellojohn:admin" {
+		return nil, ErrInvalidAudience
+	}
+
+	// Extraer claims específicos de admin
+	adminID, _ := rawClaims["sub"].(string)
+	email, _ := rawClaims["email"].(string)
+	adminType, _ := rawClaims["admin_type"].(string)
+
+	if adminID == "" || email == "" || adminType == "" {
+		return nil, errors.New("missing required admin claims")
+	}
+
+	claims := &AdminAccessClaims{
+		AdminID:   adminID,
+		Email:     email,
+		AdminType: adminType,
+	}
+
+	// Extraer tenants si existen (opcional para global admins)
+	if tenantsRaw, ok := rawClaims["tenants"]; ok {
+		switch v := tenantsRaw.(type) {
+		case []string:
+			claims.Tenants = v
+		case []interface{}:
+			for _, t := range v {
+				if s, ok := t.(string); ok {
+					claims.Tenants = append(claims.Tenants, s)
+				}
+			}
+		}
+	}
+
+	return claims, nil
 }

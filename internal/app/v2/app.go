@@ -2,6 +2,9 @@ package appv2
 
 import (
 	"net/http"
+	"os"
+	"strings"
+	"time"
 
 	cp "github.com/dropDatabas3/hellojohn/internal/controlplane/v2"
 	emailv2 "github.com/dropDatabas3/hellojohn/internal/email/v2"
@@ -17,6 +20,7 @@ import (
 	mw "github.com/dropDatabas3/hellojohn/internal/http/v2/middlewares"
 	"github.com/dropDatabas3/hellojohn/internal/http/v2/router"
 	"github.com/dropDatabas3/hellojohn/internal/http/v2/services"
+	healthsvc "github.com/dropDatabas3/hellojohn/internal/http/v2/services/health"
 	oauth "github.com/dropDatabas3/hellojohn/internal/http/v2/services/oauth"
 	socialsvc "github.com/dropDatabas3/hellojohn/internal/http/v2/services/social"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
@@ -34,6 +38,9 @@ type Deps struct {
 	ControlPlane cp.Service
 	Email        emailv2.Service
 	Issuer       *jwtx.Issuer
+	JWKSCache    *jwtx.JWKSCache
+	BaseIssuer   string
+	RefreshTTL   time.Duration
 	SocialCache  socialsvc.CacheWriter
 	MasterKey    string
 	RateLimiter  mw.RateLimiter
@@ -63,6 +70,9 @@ func New(cfg Config, deps Deps) (*App, error) {
 		Email:        deps.Email,
 		MasterKey:    deps.MasterKey,
 		Issuer:       deps.Issuer,
+		JWKSCache:    deps.JWKSCache,
+		BaseIssuer:   deps.BaseIssuer,
+		RefreshTTL:   deps.RefreshTTL,
 		SocialCache:  deps.SocialCache,
 		Social:       deps.Social,
 		// Auth Config
@@ -72,6 +82,11 @@ func New(cfg Config, deps Deps) (*App, error) {
 		OAuthCache:       deps.OAuthCache,
 		OAuthCookieName:  deps.OAuthCookieName,
 		OAuthAllowBearer: deps.OAuthAllowBearer,
+		// Health Check
+		HealthDeps: healthsvc.Deps{
+			ControlPlane: deps.ControlPlane,
+			Issuer:       deps.Issuer,
+		},
 	})
 
 	// 2. Build Controllers
@@ -118,7 +133,45 @@ func New(cfg Config, deps Deps) (*App, error) {
 		AuthMiddleware:      mw.RequireAuth(deps.Issuer),
 	})
 
+	// 4. Apply global middlewares (CORS, etc)
+	handler := applyGlobalMiddlewares(mux)
+
 	return &App{
-		Handler: mux,
+		Handler: handler,
 	}, nil
+}
+
+// applyGlobalMiddlewares wraps the mux with global middlewares
+func applyGlobalMiddlewares(handler http.Handler) http.Handler {
+	// Get CORS allowed origins from environment
+	allowedOrigins := getCORSOrigins()
+
+	// Apply CORS middleware if origins are configured
+	if len(allowedOrigins) > 0 {
+		handler = mw.WithCORS(allowedOrigins)(handler)
+	}
+
+	return handler
+}
+
+// getCORSOrigins returns the list of allowed CORS origins from environment
+func getCORSOrigins() []string {
+	// Check CORS_ALLOWED_ORIGINS env var
+	corsEnv := os.Getenv("CORS_ALLOWED_ORIGINS")
+	if corsEnv == "" {
+		// Default for development
+		corsEnv = "http://localhost:3000,http://localhost:3001"
+	}
+
+	// Split by comma and trim spaces
+	origins := strings.Split(corsEnv, ",")
+	result := make([]string, 0, len(origins))
+	for _, origin := range origins {
+		trimmed := strings.TrimSpace(origin)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+
+	return result
 }

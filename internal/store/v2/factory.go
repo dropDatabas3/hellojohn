@@ -354,6 +354,14 @@ func (c *factoryConfigAccess) Keys() repository.KeyRepository {
 	return c.fs.Keys()
 }
 
+func (c *factoryConfigAccess) Admins() repository.AdminRepository {
+	return c.fs.Admins()
+}
+
+func (c *factoryConfigAccess) AdminRefreshTokens() repository.AdminRefreshTokenRepository {
+	return c.fs.AdminRefreshTokens()
+}
+
 // ─── TenantDataAccess Implementation ───
 
 type tenantAccess struct {

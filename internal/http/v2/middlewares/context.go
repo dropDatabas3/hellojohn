@@ -3,6 +3,7 @@ package middlewares
 import (
 	"context"
 
+	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	storev2 "github.com/dropDatabas3/hellojohn/internal/store/v2"
 )
 
@@ -15,6 +16,8 @@ type ctxKey string
 const (
 	// ctxClaimsKey guarda las claims JWT parseadas
 	ctxClaimsKey ctxKey = "claims"
+	// ctxAdminClaimsKey guarda las claims de admin JWT
+	ctxAdminClaimsKey ctxKey = "admin_claims"
 	// ctxTenantKey guarda el TenantDataAccess
 	ctxTenantKey ctxKey = "tenant"
 	// ctxUserIDKey guarda el user ID extraído del token
@@ -40,6 +43,11 @@ func WithTenant(ctx context.Context, tda storev2.TenantDataAccess) context.Conte
 // WithUserID inyecta el user ID en el contexto
 func WithUserID(ctx context.Context, userID string) context.Context {
 	return context.WithValue(ctx, ctxUserIDKey, userID)
+}
+
+// SetAdminClaims inyecta admin claims en el contexto
+func SetAdminClaims(ctx context.Context, claims *jwtx.AdminAccessClaims) context.Context {
+	return context.WithValue(ctx, ctxAdminClaimsKey, claims)
 }
 
 // setRequestID inyecta el request ID en el contexto (interno)
@@ -103,6 +111,17 @@ func GetRequestID(ctx context.Context) string {
 		}
 	}
 	return ""
+}
+
+// GetAdminClaims obtiene las admin claims del contexto.
+// Retorna nil si no hay admin claims (admin middleware no aplicado).
+func GetAdminClaims(ctx context.Context) *jwtx.AdminAccessClaims {
+	if v := ctx.Value(ctxAdminClaimsKey); v != nil {
+		if c, ok := v.(*jwtx.AdminAccessClaims); ok {
+			return c
+		}
+	}
+	return nil
 }
 
 // =================================================================================

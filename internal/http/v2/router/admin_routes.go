@@ -28,6 +28,12 @@ func RegisterAdminRoutes(mux *http.ServeMux, deps AdminRouterDeps) {
 	issuer := deps.Issuer
 	limiter := deps.RateLimiter
 
+	// ─── Admin Auth (Público - No requiere autenticación) ───
+	mux.Handle("POST /v2/admin/login", adminAuthHandler(limiter, c.Auth.Login))
+	mux.Handle("POST /v2/admin/refresh", adminAuthHandler(limiter, c.Auth.Refresh))
+
+	// ─── Admin Routes (Requieren autenticación) ───
+
 	// Admin Clients (Control Plane - no requiere DB)
 	mux.Handle("/v2/admin/clients", adminClientsHandler(dal, issuer, limiter, c.Clients, false))
 	mux.Handle("/v2/admin/clients/", adminClientsHandler(dal, issuer, limiter, c.Clients, false))
@@ -301,4 +307,27 @@ func adminUserCRUDHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 	})
 
 	return mw.Chain(handler, adminBaseChain(dal, issuer, limiter, requireDB)...)
+}
+
+// adminAuthHandler crea un handler para endpoints de autenticación de admin (públicos).
+// Solo aplica recover, request ID, security headers, rate limit, y logging.
+// NO aplica auth ni tenant resolution.
+func adminAuthHandler(limiter mw.RateLimiter, handlerFunc http.HandlerFunc) http.Handler {
+	chain := []mw.Middleware{
+		mw.WithRecover(),
+		mw.WithRequestID(),
+		mw.WithSecurityHeaders(),
+		mw.WithNoStore(),
+	}
+
+	if limiter != nil {
+		chain = append(chain, mw.WithRateLimit(mw.RateLimitConfig{
+			Limiter: limiter,
+			KeyFunc: mw.IPPathRateKey,
+		}))
+	}
+
+	chain = append(chain, mw.WithLogging())
+
+	return mw.Chain(handlerFunc, chain...)
 }

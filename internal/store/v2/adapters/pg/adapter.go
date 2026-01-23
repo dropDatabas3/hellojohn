@@ -88,9 +88,11 @@ func (c *pgConnection) EmailTokens() repository.EmailTokenRepository {
 func (c *pgConnection) Identities() repository.IdentityRepository { return newIdentityRepo(c.pool) }
 
 // Control plane (no soportado por PG, viene de FS)
-func (c *pgConnection) Tenants() repository.TenantRepository { return nil }
-func (c *pgConnection) Clients() repository.ClientRepository { return nil }
-func (c *pgConnection) Keys() repository.KeyRepository       { return nil } // Keys viven en FS
+func (c *pgConnection) Tenants() repository.TenantRepository                   { return nil }
+func (c *pgConnection) Clients() repository.ClientRepository                   { return nil }
+func (c *pgConnection) Admins() repository.AdminRepository                     { return nil }
+func (c *pgConnection) AdminRefreshTokens() repository.AdminRefreshTokenRepository { return nil }
+func (c *pgConnection) Keys() repository.KeyRepository                         { return nil } // Keys viven en FS
 
 // ─── UserRepository ───
 

@@ -47,6 +47,8 @@ type AdapterConnection interface {
 
 	Tenants() repository.TenantRepository
 	Clients() repository.ClientRepository
+	Admins() repository.AdminRepository
+	AdminRefreshTokens() repository.AdminRefreshTokenRepository
 }
 
 // AdapterConfig configuración para conectar a un almacenamiento.

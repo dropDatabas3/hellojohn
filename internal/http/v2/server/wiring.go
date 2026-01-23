@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -88,6 +89,34 @@ func buildV2HandlerInternal() (http.Handler, func() error, store.DataAccessLayer
 
 	issuer := jwtx.NewIssuer(v2BaseURL, persistentKS)
 
+	// 3.5. JWKS Cache (15s TTL)
+	// El loader recibe slug/ID del tenant y resuelve las keys
+	jwksCache := jwtx.NewJWKSCache(15*time.Second, func(slugOrID string) (json.RawMessage, error) {
+		// Global JWKS
+		if strings.TrimSpace(slugOrID) == "" || strings.EqualFold(slugOrID, "global") {
+			b, err := persistentKS.JWKSJSON()
+			if err != nil {
+				return nil, err
+			}
+			return json.RawMessage(b), nil
+		}
+
+		// Tenant JWKS - necesitamos resolver el tenant primero
+		// porque JWKSJSONForTenant espera el slug exacto
+		tda, err := manager.ForTenant(ctx, slugOrID)
+		if err != nil {
+			// Si el tenant no existe, retornar error
+			return nil, fmt.Errorf("tenant not found: %w", err)
+		}
+
+		// Obtener JWKS usando el slug resuelto
+		b, err := persistentKS.JWKSJSONForTenant(tda.Slug())
+		if err != nil {
+			return nil, err
+		}
+		return json.RawMessage(b), nil
+	})
+
 	// 4. Control Plane Service
 	cpService := cp.NewService(manager)
 
@@ -126,6 +155,9 @@ func buildV2HandlerInternal() (http.Handler, func() error, store.DataAccessLayer
 		ControlPlane: cpService,
 		Email:        emailService,
 		Issuer:       issuer,
+		JWKSCache:    jwksCache,
+		BaseIssuer:   v2BaseURL,
+		RefreshTTL:   30 * 24 * time.Hour, // 30 days default
 		SocialCache:  socialCache,
 		MasterKey:    masterKey,
 		RateLimiter:  nil, // Optional, can be added if needed

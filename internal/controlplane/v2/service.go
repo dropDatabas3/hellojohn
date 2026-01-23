@@ -103,6 +103,22 @@ type Service interface {
 	CreateScope(ctx context.Context, slug, name, description string) (*repository.Scope, error)
 	DeleteScope(ctx context.Context, slug, name string) error
 
+	// ─── Admins ───
+	ListAdmins(ctx context.Context) ([]repository.Admin, error)
+	GetAdmin(ctx context.Context, id string) (*repository.Admin, error)
+	GetAdminByEmail(ctx context.Context, email string) (*repository.Admin, error)
+	CreateAdmin(ctx context.Context, input CreateAdminInput) (*repository.Admin, error)
+	UpdateAdmin(ctx context.Context, id string, input UpdateAdminInput) (*repository.Admin, error)
+	DeleteAdmin(ctx context.Context, id string) error
+	UpdateAdminPassword(ctx context.Context, id string, passwordHash string) error
+	CheckAdminPassword(passwordHash, plainPassword string) bool
+
+	// ─── Admin Refresh Tokens ───
+	CreateAdminRefreshToken(ctx context.Context, input AdminRefreshTokenInput) error
+	GetAdminRefreshToken(ctx context.Context, tokenHash string) (*AdminRefreshToken, error)
+	DeleteAdminRefreshToken(ctx context.Context, tokenHash string) error
+	CleanupExpiredAdminRefreshTokens(ctx context.Context) (int, error)
+
 	// ─── Validations ───
 	ValidateClientID(id string) bool
 	ValidateRedirectURI(uri string) bool
@@ -124,6 +140,40 @@ type ClientInput struct {
 	VerifyEmailURL           string
 	ClaimSchema              map[string]any
 	ClaimMapping             map[string]any
+}
+
+// CreateAdminInput contiene los datos para crear un admin.
+type CreateAdminInput struct {
+	Email           string              // Required
+	PasswordHash    string              // Required (ya hasheado con Argon2id)
+	Name            string              // Optional
+	Type            repository.AdminType // Required (global | tenant)
+	AssignedTenants []string            // Optional (solo para AdminTypeTenant)
+	CreatedBy       *string             // Optional (ID del admin que lo crea)
+}
+
+// UpdateAdminInput contiene los datos para actualizar un admin.
+type UpdateAdminInput struct {
+	Email           *string              // Optional
+	Name            *string              // Optional
+	Type            *repository.AdminType // Optional
+	AssignedTenants *[]string            // Optional
+	DisabledAt      *time.Time           // Optional (nil = enable, non-nil = disable)
+}
+
+// AdminRefreshTokenInput contiene los datos para crear un refresh token de admin.
+type AdminRefreshTokenInput struct {
+	AdminID   string    // ID del admin
+	TokenHash string    // Hash SHA-256 del token
+	ExpiresAt time.Time // Fecha de expiración
+}
+
+// AdminRefreshToken representa un refresh token de admin persistido.
+type AdminRefreshToken struct {
+	TokenHash string
+	AdminID   string
+	ExpiresAt time.Time
+	CreatedAt time.Time
 }
 
 // ─── Implementation ───
