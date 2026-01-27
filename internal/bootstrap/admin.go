@@ -10,7 +10,7 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/domain/repository"
 	"github.com/dropDatabas3/hellojohn/internal/security/password"
-	store "github.com/dropDatabas3/hellojohn/internal/store/v2"
+	store "github.com/dropDatabas3/hellojohn/internal/store"
 	"golang.org/x/term"
 )
 

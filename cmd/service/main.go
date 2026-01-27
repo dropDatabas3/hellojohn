@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/bootstrap"
-	v2server "github.com/dropDatabas3/hellojohn/internal/http/v2/server"
+	v2server "github.com/dropDatabas3/hellojohn/internal/http/server"
 	"github.com/joho/godotenv"
 
-	_ "github.com/dropDatabas3/hellojohn/internal/store/v2/adapters/dal"
+	_ "github.com/dropDatabas3/hellojohn/internal/store/adapters/dal"
 )
 
 func main() {
