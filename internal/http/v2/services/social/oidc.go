@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/oauth/google"
 	sec "github.com/dropDatabas3/hellojohn/internal/security/secretbox"
 )
@@ -47,27 +46,29 @@ type OIDCFactory interface {
 	Google(ctx context.Context, tenantSlug, baseURL string) (OIDCClient, error)
 }
 
-// DefaultOIDCFactory implements OIDCFactory using control plane data.
-type DefaultOIDCFactory struct{}
+// DefaultOIDCFactory implements OIDCFactory using TenantProvider.
+type DefaultOIDCFactory struct {
+	tenantProvider TenantProvider
+}
 
 // NewOIDCFactory creates a new OIDCFactory.
-func NewOIDCFactory() OIDCFactory {
-	return &DefaultOIDCFactory{}
+func NewOIDCFactory(tp TenantProvider) OIDCFactory {
+	return &DefaultOIDCFactory{tenantProvider: tp}
 }
 
 // Google creates a Google OIDC client for the tenant.
 func (f *DefaultOIDCFactory) Google(ctx context.Context, tenantSlug, baseURL string) (OIDCClient, error) {
-	// Get tenant from control plane
-	if cpctx.Provider == nil {
-		return nil, fmt.Errorf("control plane not initialized")
+	// Get tenant from TenantProvider
+	if f.tenantProvider == nil {
+		return nil, fmt.Errorf("tenant provider not configured")
 	}
 
-	tenant, err := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug)
+	tenant, err := f.tenantProvider.GetTenant(ctx, tenantSlug)
 	if err != nil {
 		return nil, fmt.Errorf("tenant not found: %w", err)
 	}
 
-	settings := tenant.Settings
+	settings := &tenant.Settings
 	if settings.SocialProviders == nil {
 		return nil, fmt.Errorf("social providers not configured")
 	}

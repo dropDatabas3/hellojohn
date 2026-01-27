@@ -5,21 +5,23 @@ import (
 	"time"
 
 	"github.com/dropDatabas3/hellojohn/internal/jwt"
+	store "github.com/dropDatabas3/hellojohn/internal/store/v2"
 )
 
 // Deps contiene las dependencias para crear los services social.
 type Deps struct {
-	Cache               CacheWriter    // Cache with write capabilities (Get/Delete/Set)
-	DebugPeek           bool           // Enable peek mode for result viewer (should be false in production)
-	ConfiguredProviders []string       // List of enabled provider names (optional, reads from env if empty)
-	AuthURLBuilder      AuthURLBuilder // Deprecated: use OIDCFactory instead
-	StateSigner         StateSigner    // Optional: signer for state JWTs
-	LoginCodeTTL        time.Duration  // TTL for login codes (default 60s)
-	OIDCFactory         OIDCFactory    // Factory for OIDC clients (Google, etc.)
-	Issuer              *jwt.Issuer    // JWT issuer for token signing
-	BaseURL             string         // Base URL for issuer resolution
-	RefreshTTL          time.Duration  // TTL for refresh tokens
-	TenantProvider      TenantProvider // Control plane tenant provider
+	DAL                 store.DataAccessLayer // V2 data access layer
+	Cache               CacheWriter           // Cache with write capabilities (Get/Delete/Set)
+	DebugPeek           bool                  // Enable peek mode for result viewer (should be false in production)
+	ConfiguredProviders []string              // List of enabled provider names (optional, reads from env if empty)
+	AuthURLBuilder      AuthURLBuilder        // Deprecated: use OIDCFactory instead
+	StateSigner         StateSigner           // Optional: signer for state JWTs
+	LoginCodeTTL        time.Duration         // TTL for login codes (default 60s)
+	OIDCFactory         OIDCFactory           // Factory for OIDC clients (Google, etc.)
+	Issuer              *jwt.Issuer           // JWT issuer for token signing
+	BaseURL             string                // Base URL for issuer resolution
+	RefreshTTL          time.Duration         // TTL for refresh tokens
+	TenantProvider      TenantProvider        // Control plane tenant provider
 }
 
 // Services agrupa todos los services del dominio social.
@@ -40,9 +42,12 @@ func NewServices(d Deps) Services {
 		ConfiguredProviders: d.ConfiguredProviders,
 	})
 
-	provisioning := NewProvisioningService(ProvisioningDeps{})
+	provisioning := NewProvisioningService(ProvisioningDeps{
+		DAL: d.DAL,
+	})
 
 	tokenSvc := NewTokenService(TokenDeps{
+		DAL:        d.DAL,
 		Issuer:     d.Issuer,
 		BaseURL:    d.BaseURL,
 		RefreshTTL: d.RefreshTTL,

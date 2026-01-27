@@ -169,12 +169,14 @@ func buildV2HandlerInternal() (http.Handler, func() error, store.DataAccessLayer
 		AutoLogin:      getenvBool("REGISTER_AUTO_LOGIN", true),
 		FSAdminEnabled: getenvBool("FS_ADMIN_ENABLE", false),
 		Social: socialsvc.NewServices(socialsvc.Deps{
+			DAL:            manager,
 			Cache:          socialsvc.NewCacheAdapter(cache.NewMemory("social")),
 			DebugPeek:      getenvBool("SOCIAL_DEBUG_PEEK", false),
 			Issuer:         issuer,
 			RefreshTTL:     24 * time.Hour * 30, // Default 30 days
 			LoginCodeTTL:   60 * time.Second,
 			TenantProvider: cpService,
+			OIDCFactory:    socialsvc.NewOIDCFactory(cpService),
 			// ConfiguredProviders: Load from config/env
 		}),
 		// OAuth

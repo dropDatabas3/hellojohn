@@ -8,22 +8,24 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
-	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane/v1"
+	"github.com/dropDatabas3/hellojohn/internal/domain/repository"
 	dtoa "github.com/dropDatabas3/hellojohn/internal/http/v2/dto/auth"
 	"github.com/dropDatabas3/hellojohn/internal/jwt"
 	"github.com/dropDatabas3/hellojohn/internal/observability/logger"
+	store "github.com/dropDatabas3/hellojohn/internal/store/v2"
 )
 
 // TokenDeps contains dependencies for token service.
 type TokenDeps struct {
-	Issuer     *jwt.Issuer   // JWT issuer for signing tokens
-	BaseURL    string        // Base URL for issuer resolution
-	RefreshTTL time.Duration // TTL for refresh tokens (default 30 days)
+	DAL        store.DataAccessLayer // V2 data access layer
+	Issuer     *jwt.Issuer           // JWT issuer for signing tokens
+	BaseURL    string                // Base URL for issuer resolution
+	RefreshTTL time.Duration         // TTL for refresh tokens (default 30 days)
 }
 
 // tokenService implements TokenService.
 type tokenService struct {
+	dal        store.DataAccessLayer
 	issuer     *jwt.Issuer
 	baseURL    string
 	refreshTTL time.Duration
@@ -36,6 +38,7 @@ func NewTokenService(d TokenDeps) TokenService {
 		ttl = 30 * 24 * time.Hour // 30 days default
 	}
 	return &tokenService{
+		dal:        d.DAL,
 		issuer:     d.Issuer,
 		baseURL:    d.BaseURL,
 		refreshTTL: ttl,
@@ -51,21 +54,27 @@ func (s *tokenService) IssueSocialTokens(ctx context.Context, tenantSlug, client
 		return nil, ErrTokenIssuerNotConfigured
 	}
 
-	// Get tenant from control plane for issuer configuration
-	if cpctx.Provider == nil {
-		log.Error("control plane not initialized")
+	// Get tenant data access via DAL
+	if s.dal == nil {
+		log.Error("DAL not configured")
 		return nil, ErrTokenIssuerNotConfigured
 	}
 
-	tenant, err := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug)
+	tda, err := s.dal.ForTenant(ctx, tenantSlug)
 	if err != nil {
 		log.Error("tenant not found", logger.Err(err), logger.TenantID(tenantSlug))
 		return nil, fmt.Errorf("%w: tenant not found", ErrTokenIssueFailed)
 	}
 
+	settings := tda.Settings()
+	if settings == nil {
+		log.Error("tenant settings not available", logger.TenantID(tenantSlug))
+		return nil, fmt.Errorf("%w: tenant settings not found", ErrTokenIssueFailed)
+	}
+
 	// Resolve effective issuer for tenant
-	issMode := string(tenant.Settings.IssuerMode)
-	issOverride := tenant.Settings.IssuerOverride
+	issMode := settings.IssuerMode
+	issOverride := settings.IssuerOverride
 	effectiveIss := jwt.ResolveIssuer(s.baseURL, issMode, tenantSlug, issOverride)
 
 	// Build standard claims
@@ -92,7 +101,7 @@ func (s *tokenService) IssueSocialTokens(ctx context.Context, tenantSlug, client
 	}
 
 	// Store refresh token in tenant DB
-	if err := s.storeRefreshToken(ctx, tenant, userID, clientID, refreshToken); err != nil {
+	if err := s.storeRefreshToken(ctx, settings, userID, clientID, refreshToken); err != nil {
 		log.Error("failed to store refresh token", logger.Err(err), logger.TenantID(tenantSlug))
 		// Don't fail the flow, just log and continue without refresh
 		// In production you might want to fail here
@@ -120,12 +129,12 @@ func (s *tokenService) IssueSocialTokens(ctx context.Context, tenantSlug, client
 }
 
 // storeRefreshToken stores refresh token hash in tenant DB.
-func (s *tokenService) storeRefreshToken(ctx context.Context, tenant *controlplane.Tenant, userID, clientID, refreshToken string) error {
-	if tenant.Settings.UserDB == nil || tenant.Settings.UserDB.DSN == "" {
+func (s *tokenService) storeRefreshToken(ctx context.Context, settings *repository.TenantSettings, userID, clientID, refreshToken string) error {
+	if settings == nil || settings.UserDB == nil || settings.UserDB.DSN == "" {
 		return nil // No DB configured, skip storage
 	}
 
-	pool, err := DefaultPoolManager.GetPool(ctx, tenant.Settings.UserDB.DSN)
+	pool, err := DefaultPoolManager.GetPool(ctx, settings.UserDB.DSN)
 	if err != nil {
 		return fmt.Errorf("db connection: %w", err)
 	}

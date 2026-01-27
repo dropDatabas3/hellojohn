@@ -4,23 +4,25 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dropDatabas3/hellojohn/internal/app/v1/cpctx"
 	"github.com/dropDatabas3/hellojohn/internal/observability/logger"
+	store "github.com/dropDatabas3/hellojohn/internal/store/v2"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ProvisioningDeps contains dependencies for provisioning service.
 type ProvisioningDeps struct {
-	// TenantDBProvider is optional - if nil, uses control plane for tenant lookup
+	DAL store.DataAccessLayer // V2 data access layer
 }
 
 // provisioningService implements ProvisioningService.
-type provisioningService struct{}
+type provisioningService struct {
+	dal store.DataAccessLayer
+}
 
 // NewProvisioningService creates a new ProvisioningService.
 func NewProvisioningService(d ProvisioningDeps) ProvisioningService {
-	return &provisioningService{}
+	return &provisioningService{dal: d.DAL}
 }
 
 // EnsureUserAndIdentity creates or updates a user from social login claims.
@@ -32,32 +34,32 @@ func (s *provisioningService) EnsureUserAndIdentity(ctx context.Context, tenantS
 		return "", ErrProvisioningEmailMissing
 	}
 
-	// Get tenant from control plane
-	if cpctx.Provider == nil {
-		log.Error("control plane not initialized")
+	// Get tenant data access via DAL
+	if s.dal == nil {
+		log.Error("DAL not configured")
 		return "", ErrProvisioningDBRequired
 	}
 
-	tenant, err := cpctx.Provider.GetTenantBySlug(ctx, tenantSlug)
+	tda, err := s.dal.ForTenant(ctx, tenantSlug)
 	if err != nil {
 		log.Error("tenant not found", logger.Err(err), logger.TenantID(tenantSlug))
 		return "", fmt.Errorf("%w: tenant not found", ErrProvisioningDBRequired)
 	}
 
-	// Get tenant DB connection - DSN is in Settings.UserDB
-	if tenant.Settings.UserDB == nil {
-		log.Error("tenant has no UserDB configured", logger.TenantID(tenantSlug))
-		return "", fmt.Errorf("%w: no UserDB for tenant", ErrProvisioningDBRequired)
+	// Check tenant has DB
+	if !tda.HasDB() {
+		log.Error("tenant has no database configured", logger.TenantID(tenantSlug))
+		return "", fmt.Errorf("%w: no database for tenant", ErrProvisioningDBRequired)
 	}
-	dsn := tenant.Settings.UserDB.DSN
-	if dsn == "" {
+
+	settings := tda.Settings()
+	if settings == nil || settings.UserDB == nil || settings.UserDB.DSN == "" {
 		log.Error("tenant has no DSN configured", logger.TenantID(tenantSlug))
 		return "", fmt.Errorf("%w: no DSN for tenant", ErrProvisioningDBRequired)
 	}
 
-	// Connect to tenant DB
 	// Connect to tenant DB via PoolManager
-	pool, err := DefaultPoolManager.GetPool(ctx, dsn)
+	pool, err := DefaultPoolManager.GetPool(ctx, settings.UserDB.DSN)
 	if err != nil {
 		log.Error("failed to get tenant DB pool", logger.Err(err), logger.TenantID(tenantSlug))
 		return "", fmt.Errorf("%w: db connection failed", ErrProvisioningDBRequired)
