@@ -181,10 +181,12 @@ func RequireTenantDB() Middleware {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			tda := GetTenant(r.Context())
 			if tda == nil {
+				log.Printf(`{"level":"warn","msg":"tenant_db_check_failed","reason":"no_tenant_in_context","path":"%s"}`, r.URL.Path)
 				errors.WriteError(w, errors.ErrBadRequest.WithDetail("tenant required"))
 				return
 			}
 			if !tda.HasDB() {
+				log.Printf(`{"level":"warn","msg":"tenant_db_check_failed","reason":"no_db_configured","tenant":"%s","path":"%s"}`, tda.Slug(), r.URL.Path)
 				errors.WriteError(w, errors.ErrServiceUnavailable.WithDetail("tenant has no database configured"))
 				return
 			}

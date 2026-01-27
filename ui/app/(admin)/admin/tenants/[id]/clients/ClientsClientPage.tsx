@@ -185,32 +185,36 @@ export default function ClientsClientPage() {
 		}
 	}, [form.name, form.type, tenant?.slug])
 
-	// Backend returns camelCase
+	// Backend v2 returns snake_case
 	type ClientRow = {
-		clientId: string
+		id: string
+		client_id: string
 		name: string
 		type: "public" | "confidential"
-		redirectUris: string[]
-		allowedOrigins?: string[]
+		redirect_uris: string[]
+		allowed_origins?: string[]
 		providers?: string[]
 		scopes?: string[]
-		secretEnc?: string
+		secret?: string // Only on create response
+		secret_hash?: string
 	}
 
 	const { data: clientsRaw, isLoading } = useQuery({
 		queryKey: ["clients", tenantId],
 		enabled: !!tenantId,
-		queryFn: () => api.get<ClientRow[]>(`/v1/admin/clients?tenant_id=${tenantId}`),
+		queryFn: () => api.get<ClientRow[]>(`/v2/admin/clients`, {
+			headers: { "X-Tenant-ID": tenantId }
+		}),
 	})
 
 	const clients: Client[] | undefined = clientsRaw?.map((c) => ({
-		id: c.clientId,
+		id: c.id || c.client_id,
 		tenantId: tenantId || "",
 		name: c.name,
-		clientId: c.clientId,
+		clientId: c.client_id,
 		type: c.type,
-		redirectUris: c.redirectUris || [],
-		allowedOrigins: c.allowedOrigins || [],
+		redirectUris: c.redirect_uris || [],
+		allowedOrigins: c.allowed_origins || [],
 		providers: c.providers || [],
 		scopes: c.scopes || [],
 		createdAt: "",
@@ -219,31 +223,31 @@ export default function ClientsClientPage() {
 
 	const createMutation = useMutation({
 		mutationFn: (data: ClientInput) =>
-			api.post<ClientRow>(`/v1/admin/clients`, {
-				clientId: data.clientId,
+			api.post<ClientRow>(`/v2/admin/clients`, {
+				client_id: data.clientId,
 				name: data.name,
 				type: data.type,
-				redirectUris: data.redirectUris,
-				allowedOrigins: data.allowedOrigins || [],
+				redirect_uris: data.redirectUris,
+				allowed_origins: data.allowedOrigins || [],
 				providers: data.providers || [],
 				scopes: data.scopes || [],
-				requireEmailVerification: data.requireEmailVerification || false,
-				resetPasswordUrl: data.resetPasswordUrl || "",
-				verifyEmailUrl: data.verifyEmailUrl || "",
+				require_email_verification: data.requireEmailVerification || false,
+				reset_password_url: data.resetPasswordUrl || "",
+				verify_email_url: data.verifyEmailUrl || "",
 			}, {
 				headers: { "X-Tenant-ID": tenantId }
 			}),
 		onSuccess: (data) => {
 			queryClient.invalidateQueries({ queryKey: ["clients", tenantId] })
-			const d = data as any
+			const d = data as ClientRow
 			setSelectedClient({
-				id: d.clientId,
+				id: d.id || d.client_id,
 				tenantId: tenantId!,
 				name: d.name,
-				clientId: d.clientId,
+				clientId: d.client_id,
 				type: d.type,
-				redirectUris: d.redirectUris || [],
-				allowedOrigins: d.allowedOrigins || [],
+				redirectUris: d.redirect_uris || [],
+				allowedOrigins: d.allowed_origins || [],
 				providers: d.providers || [],
 				scopes: d.scopes || [],
 				secret: d.secret,
@@ -268,7 +272,7 @@ export default function ClientsClientPage() {
 	})
 
 	const deleteMutation = useMutation({
-		mutationFn: (clientUUID: string) => api.delete(`/v1/admin/clients/${clientUUID}`, {
+		mutationFn: (clientUUID: string) => api.delete(`/v2/admin/clients/${clientUUID}`, {
 			headers: { "X-Tenant-ID": tenantId }
 		}),
 		onSuccess: () => {
@@ -290,7 +294,7 @@ export default function ClientsClientPage() {
 	})
 
 	const revokeMutation = useMutation({
-		mutationFn: (clientUUID: string) => api.post(`/v1/admin/clients/${clientUUID}/revoke`, {}, {
+		mutationFn: (clientUUID: string) => api.post(`/v2/admin/clients/${clientUUID}/revoke`, {}, {
 			headers: { "X-Tenant-ID": tenantId }
 		}),
 		onSuccess: () => {

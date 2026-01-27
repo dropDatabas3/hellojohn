@@ -51,6 +51,13 @@ type AdapterConnection interface {
 	AdminRefreshTokens() repository.AdminRefreshTokenRepository
 }
 
+// MigratableConnection interfaz opcional para conexiones que pueden ejecutar migraciones.
+// Las conexiones de DB (postgres, mysql) deben implementar esto.
+type MigratableConnection interface {
+	// GetMigrationExecutor retorna el ejecutor para migraciones (pgxpool, etc).
+	GetMigrationExecutor() PgxPoolExecutor
+}
+
 // AdapterConfig configuración para conectar a un almacenamiento.
 type AdapterConfig struct {
 	// Name del adapter: "postgres", "mysql", "mongo", "fs"

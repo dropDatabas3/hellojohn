@@ -56,6 +56,7 @@ import type { Tenant } from "@/lib/types"
 import { useAuthRefresh } from "@/lib/auth-refresh"
 import { CommandPalette } from "@/components/command-palette"
 import { cn } from "@/lib/utils"
+import { CreateTenantWizard } from "@/components/tenant/CreateTenantWizard"
 
 // Organization Selector Component
 function OrganizationSelector({
@@ -105,6 +106,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const theme = useUIStore((state) => state.theme)
   const toggleTheme = useUIStore((state) => state.toggleTheme)
 
+  // State for Create Wizard
+  const [showCreateWizard, setShowCreateWizard] = useState(false)
+
   // Schedule token auto-refresh if available
   useAuthRefresh()
 
@@ -133,7 +137,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
   const handleTenantSelect = (val: string) => {
     if (val === "+create") {
-      router.push("/admin/tenants")
+      setShowCreateWizard(true)
     } else {
       const t = tenants?.find((t) => t.slug === val)
       if (t) {
@@ -170,6 +174,15 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
 
   return (
     <AuthGuard>
+      <CreateTenantWizard
+        open={showCreateWizard}
+        onOpenChange={setShowCreateWizard}
+        onSuccess={(tenant) => {
+          // Navegar al nuevo tenant al crearlo exitosamente
+          router.push(`/admin/tenants/detail?id=${tenant.id}`)
+        }}
+      />
+
       {/* FS-admin fallback notice */}
       {!hasRefresh && !hideFsNotice && (
         <div className="fixed top-0 left-0 right-0 z-[60] bg-amber-100 text-amber-900 border-b border-amber-200 px-4 py-2 text-xs font-medium">

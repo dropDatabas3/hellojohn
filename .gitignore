@@ -1,11 +1,12 @@
 # ───────── Environment files ─────────
-#.env
-#.env.*
+.env
+.env.*
 !.env.example
 configs/config.yaml
 
 # ───────── Control-plane local data ─────────
-/.data/
+/data/
+/data/hellojohn/*
 
 # ───────── Local utility scripts (keep out of repo) ─────────
 codeprinter.bat
@@ -76,3 +77,14 @@ roadmap_v2.md
 
 
 #handlers_description.md
+
+
+# -------- scripts --------
+
+/scripts/
+
+
+# --------- claude ---------
+/.claude/
+CLAUDE.md
+.clauderc

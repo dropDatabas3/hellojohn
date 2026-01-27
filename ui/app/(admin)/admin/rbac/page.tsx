@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useQuery, useMutation } from "@tantml:react-query"
+import { useQuery, useMutation } from "@tanstack/react-query"
 import { Search, Shield, Trash2, Plus } from "lucide-react"
 import { api } from "@/lib/api"
 import { API_ROUTES } from "@/lib/routes"

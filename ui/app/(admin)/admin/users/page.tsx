@@ -26,6 +26,7 @@ import { useToast } from "@/hooks/use-toast"
 import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
 import { useI18n } from "@/lib/i18n"
+import { apiFetch, apiFetchWithTenant } from "@/lib/routes"
 import {
     CheckCircle2,
     Edit2,
@@ -101,7 +102,7 @@ interface UserFieldDefinition {
 }
 
 interface TenantSettings {
-    user_fields?: UserFieldDefinition[]
+    userFields?: UserFieldDefinition[]
 }
 
 // Ensure User type matches if not importing
@@ -188,13 +189,11 @@ function UsersList({ tenantId }: { tenantId: string }) {
     const { data: users, isLoading } = useQuery<UserType[]>({
         queryKey: ["users", tenantId],
         queryFn: async () => {
-            const res = await fetch(`/v2/admin/tenants/${tenantId}/users`, {
-                headers: {
-                    "Authorization": `Bearer ${token}`
-                }
+            const response = await api.get<{ users: UserType[], total_count: number }>(`/v2/admin/tenants/${tenantId}/users`, {
+                headers: { "X-Tenant-ID": tenantId }
             })
-            if (!res.ok) throw new Error("Error fetching users")
-            return res.json()
+            // Backend returns paginated response, extract users array
+            return response?.users || []
         },
         enabled: !!tenantId && !!token,
     })
@@ -203,32 +202,22 @@ function UsersList({ tenantId }: { tenantId: string }) {
     const { data: fieldDefs } = useQuery<UserFieldDefinition[]>({
         queryKey: ["user-fields", tenantId],
         queryFn: async () => {
-            const res = await fetch(`/v2/admin/tenants/${tenantId}`, {
-                headers: {
-                    "Authorization": `Bearer ${token}`
-                }
-            })
-            if (!res.ok) return []
-            const tenant = await res.json()
-            return tenant.settings?.user_fields || []
+            const tenant = await api.get<any>(`/v2/admin/tenants/${tenantId}`)
+            // Backend uses camelCase (userFields)
+            return tenant?.settings?.userFields || []
         },
         enabled: !!tenantId && !!token,
     })
 
     // 3. Fetch Clients (for source_client_id selector)
-    const { data: clients } = useQuery<Array<{ clientId: string, name: string, type: string }>>({
+    const { data: clients } = useQuery<Array<{ client_id: string, name: string, type: string }>>({
         queryKey: ["tenant-clients", tenantId],
         queryFn: async () => {
-            const res = await fetch(`/v1/admin/clients?tenant=${tenantId}`, {
-                headers: {
-                    "Authorization": `Bearer ${token}`,
-                    "X-Tenant-ID": tenantId
-                }
+            const list = await api.get<any[]>(`/v2/admin/clients`, {
+                headers: { "X-Tenant-ID": tenantId }
             })
-            if (!res.ok) return []
-            const list = await res.json()
-            // Filter to public clients only and ensure valid clientId
-            return (list || []).filter((c: any) => c.type !== "confidential" && c.clientId)
+            // Filter to public clients only and ensure valid client_id
+            return (list || []).filter((c: any) => c.type !== "confidential" && c.client_id)
         },
         enabled: !!tenantId && !!token,
     })
@@ -236,19 +225,9 @@ function UsersList({ tenantId }: { tenantId: string }) {
     // 3. Create User Mutation
     const createMutation = useMutation({
         mutationFn: async (vars: any) => {
-            const res = await fetch(`/v2/admin/tenants/${tenantId}/users`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`
-                },
-                body: JSON.stringify(vars),
+            return api.post(`/v2/admin/tenants/${tenantId}/users`, vars, {
+                headers: { "X-Tenant-ID": tenantId }
             })
-            if (!res.ok) {
-                const err = await res.json()
-                throw new Error(err.error_description || "Error creating user")
-            }
-            return res.json()
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
@@ -263,13 +242,9 @@ function UsersList({ tenantId }: { tenantId: string }) {
     // 4. Delete User Mutation
     const deleteMutation = useMutation({
         mutationFn: async (userId: string) => {
-            const res = await fetch(`/v2/admin/tenants/${tenantId}/users/${userId}`, {
-                method: "DELETE",
-                headers: {
-                    "Authorization": `Bearer ${token}`
-                },
+            return api.delete(`/v2/admin/tenants/${tenantId}/users/${userId}`, {
+                headers: { "X-Tenant-ID": tenantId }
             })
-            if (!res.ok) throw new Error("Error deleting user")
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
@@ -283,18 +258,10 @@ function UsersList({ tenantId }: { tenantId: string }) {
     // 5. Block User Mutation
     const blockMutation = useMutation({
         mutationFn: async ({ userId, reason, duration }: { userId: string, reason: string, duration: string }) => {
-            const res = await fetch(`/v1/admin/users/disable`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`
-                },
-                body: JSON.stringify({ user_id: userId, tenant_id: tenantId, reason, duration }),
-            })
-            if (!res.ok) {
-                const err = await res.json()
-                throw new Error(err.error_description || "Error blocking user")
-            }
+            return api.post(`/v2/admin/tenants/${tenantId}/users/${userId}/disable`,
+                { reason, duration },
+                { headers: { "X-Tenant-ID": tenantId } }
+            )
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
@@ -309,15 +276,9 @@ function UsersList({ tenantId }: { tenantId: string }) {
     // 6. Enable User Mutation
     const enableMutation = useMutation({
         mutationFn: async (userId: string) => {
-            const res = await fetch(`/v1/admin/users/enable`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`
-                },
-                body: JSON.stringify({ user_id: userId, tenant_id: tenantId }),
+            return api.post(`/v2/admin/tenants/${tenantId}/users/${userId}/enable`, {}, {
+                headers: { "X-Tenant-ID": tenantId }
             })
-            if (!res.ok) throw new Error("Error enabling user")
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
@@ -550,7 +511,7 @@ function UserRow({ user, onDelete, onDetails, onBlock, onUnlock }: { user: UserT
 
 function CreateUserForm({ fieldDefs, clients, onSubmit, isPending }: {
     fieldDefs: UserFieldDefinition[],
-    clients: Array<{ clientId: string, name: string, type: string }>,
+    clients: Array<{ client_id: string, name: string, type: string }>,
     onSubmit: (data: any) => void,
     isPending: boolean
 }) {
@@ -604,8 +565,8 @@ function CreateUserForm({ fieldDefs, clients, onSubmit, isPending }: {
                         <SelectContent>
                             <SelectItem value="_none">Sin cliente asociado</SelectItem>
                             {clients.map((c) => (
-                                <SelectItem key={c.clientId} value={c.clientId}>
-                                    {c.name || c.clientId}
+                                <SelectItem key={c.client_id} value={c.client_id}>
+                                    {c.name || c.client_id}
                                 </SelectItem>
                             ))}
                         </SelectContent>
@@ -672,7 +633,6 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
     const queryClient = useQueryClient()
     const { t } = useI18n()
 
-    const [etag, setEtag] = useState<string>("")
     const [isFieldsDialogOpen, setIsFieldsDialogOpen] = useState(false)
     const [editingFieldIdx, setEditingFieldIdx] = useState<number | null>(null)
     const [fieldForm, setFieldForm] = useState<UserFieldDefinition>({
@@ -687,32 +647,41 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
     const [hasFieldChanges, setHasFieldChanges] = useState(false)
 
     const {
-        data: settings,
+        data: settingsWithEtag,
         isLoading,
         isError,
         error,
-    } = useQuery<TenantSettings>({
+    } = useQuery<TenantSettings & { _etag?: string }>({
         queryKey: ["tenant-users-settings", tenantId],
         queryFn: async () => {
             const { data, headers } = await api.getWithHeaders<TenantSettings>(`/v2/admin/tenants/${tenantId}/settings`)
             const etagHeader = headers.get("ETag")
-            if (etagHeader) {
-                setEtag(etagHeader)
-            }
-            return data
+            // Embed ETag in data so it persists in the React Query cache
+            return { ...data, _etag: etagHeader || undefined }
         },
         enabled: !!tenantId && !!token,
     })
 
+    // Extract settings without _etag for local use
+    const settings = settingsWithEtag ? (() => {
+        const { _etag, ...rest } = settingsWithEtag
+        return rest as TenantSettings
+    })() : undefined
+
     useEffect(() => {
         if (settings) {
-            setLocalFields(settings.user_fields || [])
+            // Backend uses camelCase (userFields)
+            setLocalFields(settings.userFields || [])
             setHasFieldChanges(false)
         }
-    }, [settings])
+    }, [settingsWithEtag]) // Use settingsWithEtag as dependency since settings is derived
 
     const updateSettingsMutation = useMutation({
         mutationFn: async (data: TenantSettings) => {
+            const etag = settingsWithEtag?._etag
+            if (!etag) {
+                throw new Error("Missing ETag. Please refresh the page.")
+            }
             const currentSettings = settings || {}
             const payload = {
                 ...currentSettings,
@@ -732,7 +701,7 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
             toast({
                 variant: "destructive",
                 title: t("common.error"),
-                description: err.response?.data?.error_description || err.message,
+                description: err?.error_description || err?.message || "Error updating settings",
             })
         },
     })
@@ -798,13 +767,15 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
     }
 
     const handleSaveAllFields = () => {
+        // Backend expects camelCase (userFields)
         updateSettingsMutation.mutate({
-            user_fields: localFields,
-        })
+            userFields: localFields,
+        } as any)
     }
 
     const handleCancelFieldChanges = () => {
-        setLocalFields(settings?.user_fields || [])
+        // Backend uses camelCase (userFields)
+        setLocalFields(settings?.userFields || [])
         setHasFieldChanges(false)
     }
 
@@ -1003,7 +974,7 @@ function UserDetails({ user, tenantId, token, clients, onUpdate }: {
     user: UserType,
     tenantId: string,
     token: string | null,
-    clients: Array<{ clientId: string, name: string, type: string }>,
+    clients: Array<{ client_id: string, name: string, type: string }>,
     onUpdate: () => void
 }) {
     const { toast } = useToast()
@@ -1014,13 +985,13 @@ function UserDetails({ user, tenantId, token, clients, onUpdate }: {
     const handleSaveClient = async () => {
         if (!token) return
         try {
-            const res = await fetch(`/v2/admin/tenants/${tenantId}/users/${user.id}`, {
-                method: "PATCH",
+            const res = await apiFetchWithTenant(`/v2/admin/tenants/${tenantId}/users/${user.id}`, tenantId, {
+                method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
                     "Authorization": `Bearer ${token}`
                 },
-                body: JSON.stringify({ source_client_id: selectedClientId })
+                body: JSON.stringify({ source_client_id: selectedClientId === "_none" ? null : selectedClientId })
             })
             if (!res.ok) {
                 throw new Error("Error actualizando cliente")
@@ -1060,7 +1031,7 @@ function UserDetails({ user, tenantId, token, clients, onUpdate }: {
         }
         setIsResending(true)
         try {
-            const res = await fetch(`/v1/admin/users/resend-verification`, {
+            const res = await apiFetchWithTenant(`/v2/admin/users/resend-verification`, tenantId, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -1164,8 +1135,8 @@ function UserDetails({ user, tenantId, token, clients, onUpdate }: {
                                     <SelectContent>
                                         <SelectItem value="_none">Sin cliente asociado</SelectItem>
                                         {clients.map((c) => (
-                                            <SelectItem key={c.clientId} value={c.clientId}>
-                                                {c.name || c.clientId}
+                                            <SelectItem key={c.client_id} value={c.client_id}>
+                                                {c.name || c.client_id}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -1184,7 +1155,7 @@ function UserDetails({ user, tenantId, token, clients, onUpdate }: {
                             </div>
                         ) : (
                             <span className="font-medium font-mono text-xs block break-all">
-                                {clients.find(c => c.clientId === (user as any).source_client_id)?.name || (user as any).source_client_id || <span className="text-muted-foreground italic">No asociado</span>}
+                                {clients.find(c => c.client_id === (user as any).source_client_id)?.name || (user as any).source_client_id || <span className="text-muted-foreground italic">No asociado</span>}
                             </span>
                         )}
                     </div>

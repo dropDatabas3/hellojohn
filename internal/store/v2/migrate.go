@@ -49,7 +49,8 @@ type MigrationResult struct {
 }
 
 // migrationFilePattern patrón para nombres de archivo de migración.
-var migrationFilePattern = regexp.MustCompile(`^(\d+)_(.+)\.sql$`)
+// Solo capturamos archivos _up.sql (ignoramos _down.sql)
+var migrationFilePattern = regexp.MustCompile(`^(\d+)_(.+)_up\.sql$`)
 
 // ParseMigrations lee y parsea las migraciones del FS embebido.
 func (m *Migrator) ParseMigrations() ([]Migration, error) {
@@ -270,4 +271,85 @@ func (m *Migrator) tableExists(ctx context.Context, exec SQLExecutor, driver, ta
 	var exists bool
 	err := exec.QueryRowContext(ctx, query, table).Scan(&exists)
 	return exists, err
+}
+
+// ─── PGX Pool Support ───
+
+// PgxPoolExecutor interfaz para pgxpool que permite ejecutar migraciones.
+// pgxpool.Pool implementa esta interfaz nativamente.
+type PgxPoolExecutor interface {
+	Exec(ctx context.Context, sql string, args ...any) (interface{ RowsAffected() int64 }, error)
+	QueryRow(ctx context.Context, sql string, args ...any) interface{ Scan(dest ...any) error }
+}
+
+// RunWithPgxPool aplica migraciones usando pgxpool directamente.
+// Esta es la versión preferida para usar con pgx/v5.
+func (m *Migrator) RunWithPgxPool(ctx context.Context, pool PgxPoolExecutor) (*MigrationResult, error) {
+	start := time.Now()
+	result := &MigrationResult{}
+
+	// Asegurar que existe la tabla de migraciones
+	createSQL := `
+		CREATE TABLE IF NOT EXISTS _migrations (
+			version INT PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			applied_at TIMESTAMPTZ DEFAULT NOW()
+		)`
+	if _, err := pool.Exec(ctx, createSQL); err != nil {
+		result.Error = fmt.Errorf("creating migrations table: %w", err)
+		result.Duration = time.Since(start)
+		return result, result.Error
+	}
+
+	// Obtener versiones aplicadas
+	applied := make(map[int]bool)
+	var maxVersion int
+	row := pool.QueryRow(ctx, "SELECT COALESCE(MAX(version), 0) FROM _migrations")
+	if err := row.Scan(&maxVersion); err != nil {
+		if !strings.Contains(err.Error(), "no rows") {
+			result.Error = fmt.Errorf("getting applied migrations: %w", err)
+			result.Duration = time.Since(start)
+			return result, result.Error
+		}
+	}
+	for i := 1; i <= maxVersion; i++ {
+		applied[i] = true
+	}
+
+	// Parsear migraciones disponibles
+	migrations, err := m.ParseMigrations()
+	if err != nil {
+		result.Error = fmt.Errorf("parsing migrations: %w", err)
+		result.Duration = time.Since(start)
+		return result, result.Error
+	}
+
+	// Aplicar pendientes
+	for _, mig := range migrations {
+		if applied[mig.Version] {
+			result.Skipped = append(result.Skipped, mig.Version)
+			continue
+		}
+
+		// Ejecutar SQL de migración
+		if _, err := pool.Exec(ctx, mig.SQL); err != nil {
+			result.Failed = &mig.Version
+			result.Error = fmt.Errorf("applying migration %d_%s: %w", mig.Version, mig.Name, err)
+			result.Duration = time.Since(start)
+			return result, result.Error
+		}
+
+		// Registrar en tabla de migraciones
+		if _, err := pool.Exec(ctx, "INSERT INTO _migrations (version, name) VALUES ($1, $2)", mig.Version, mig.Name); err != nil {
+			result.Failed = &mig.Version
+			result.Error = fmt.Errorf("recording migration %d: %w", mig.Version, err)
+			result.Duration = time.Since(start)
+			return result, result.Error
+		}
+
+		result.Applied = append(result.Applied, mig.Version)
+	}
+
+	result.Duration = time.Since(start)
+	return result, nil
 }

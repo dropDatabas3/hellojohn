@@ -131,6 +131,30 @@ func (s *tenantsService) Create(ctx context.Context, req dto.CreateTenantRequest
 	}
 
 	resp := mapTenantToResponse(t)
+
+	// Bootstrap DB if tenant has database configured
+	if t.Settings.UserDB != nil && (t.Settings.UserDB.DSN != "" || t.Settings.UserDB.DSNEnc != "") {
+		log.Info("bootstrapping tenant DB", logger.String("slug", t.Slug))
+
+		// Check if DAL implements BootstrapTenantDB (Manager does)
+		if mgr, ok := s.dal.(*store.Manager); ok {
+			bootstrapResult, err := mgr.BootstrapTenantDB(ctx, t.Slug)
+			if err != nil {
+				log.Warn("tenant DB bootstrap failed", logger.Err(err), logger.String("slug", t.Slug))
+				resp.BootstrapError = fmt.Sprintf("Base de datos no se pudo configurar: %v. Revisa la conexión en Storage & Cache.", err)
+			} else if len(bootstrapResult.Warnings) > 0 {
+				log.Warn("tenant DB bootstrap completed with warnings",
+					logger.String("slug", t.Slug),
+					logger.String("warnings", fmt.Sprintf("%v", bootstrapResult.Warnings)))
+			} else {
+				log.Info("tenant DB bootstrap completed",
+					logger.String("slug", t.Slug),
+					logger.Int("migrations_applied", len(bootstrapResult.MigrationResult.Applied)),
+					logger.Int("fields_synced", len(bootstrapResult.SyncedFields)))
+			}
+		}
+	}
+
 	return &resp, nil
 }
 
@@ -328,31 +352,100 @@ func (s *tenantsService) UpdateSettings(ctx context.Context, slugOrID string, se
 		return "", fmt.Errorf("failed to encrypt secrets: %w", err)
 	}
 
-	// 4. Update
+	// 4. Detect if DB configuration changed
+	oldHasDB := t.Settings.UserDB != nil && (t.Settings.UserDB.DSN != "" || t.Settings.UserDB.DSNEnc != "")
+	newHasDB := settings.UserDB != nil && (settings.UserDB.DSN != "" || settings.UserDB.DSNEnc != "")
+	dbChanged := dbSettingsChanged(t.Settings.UserDB, settings.UserDB)
+
+	// 5. Update settings in control plane (FS)
 	if err := repos.UpdateSettings(ctx, t.Slug, &settings); err != nil {
 		log.Error("update settings failed", logger.Err(err))
 		return "", err
 	}
 
-	// 5. Sync UserFields if needed
-	if settings.UserFields != nil {
-		// Use MigrateTenant for sync
-		log.Info("syncing user fields schema")
-		if _, err := s.dal.MigrateTenant(ctx, t.Slug); err != nil {
-			log.Error("user fields sync failed", logger.Err(err))
-			// We don't fail the request, but log it. Or maybe we should allow it to be async or explicit?
-			// Prompt says: "Ejecutar SyncUserFields bajo lock/migrate-lock...".
-			// If `MigrateTenant` handles locking, we are good.
+	// 6. Handle DB connection changes
+	if mgr, ok := s.dal.(*store.Manager); ok {
+		// If DB config changed, refresh the cached connection
+		if dbChanged && oldHasDB {
+			log.Info("DB configuration changed, refreshing tenant connection", logger.String("slug", t.Slug))
+			if err := mgr.RefreshTenant(ctx, t.Slug); err != nil {
+				log.Warn("failed to refresh tenant connection", logger.Err(err), logger.String("slug", t.Slug))
+			}
+		}
+
+		// Bootstrap DB if:
+		// - Tenant now has DB configured (new or changed)
+		// - Or if UserFields changed and DB exists
+		shouldBootstrap := newHasDB && (dbChanged || !oldHasDB || userFieldsChanged(t.Settings.UserFields, settings.UserFields))
+		if shouldBootstrap {
+			// Clear tenant cache to force reload with new settings
+			mgr.ClearTenant(t.Slug)
+
+			log.Info("bootstrapping tenant DB after settings update", logger.String("slug", t.Slug))
+			if result, err := mgr.BootstrapTenantDB(ctx, t.Slug); err != nil {
+				log.Warn("tenant DB bootstrap failed after settings update", logger.Err(err))
+				// Don't fail the request, settings were saved successfully
+			} else {
+				migrationsApplied := 0
+				if result.MigrationResult != nil {
+					migrationsApplied = len(result.MigrationResult.Applied)
+				}
+				log.Info("tenant DB bootstrap completed",
+					logger.String("slug", t.Slug),
+					logger.Int("migrations_applied", migrationsApplied),
+					logger.Int("fields_synced", len(result.SyncedFields)))
+			}
 		}
 	}
 
-	// 6. Return new ETag
+	// 7. Return new ETag
 	newETag, err := computeETag(settings)
 	if err != nil {
 		return "", err
 	}
 
 	return newETag, nil
+}
+
+// dbSettingsChanged compares two UserDB settings to detect changes.
+func dbSettingsChanged(old, new *repository.UserDBSettings) bool {
+	if old == nil && new == nil {
+		return false
+	}
+	if old == nil || new == nil {
+		return true
+	}
+	// Compare DSNEnc (encrypted DSN is the canonical source)
+	// DSN is transient and gets encrypted to DSNEnc
+	if old.DSNEnc != new.DSNEnc {
+		return true
+	}
+	// If new DSN is provided (will be encrypted), consider it a change
+	if new.DSN != "" {
+		return true
+	}
+	if old.Driver != new.Driver {
+		return true
+	}
+	if old.Schema != new.Schema {
+		return true
+	}
+	return false
+}
+
+// userFieldsChanged compares UserFields slices.
+func userFieldsChanged(old, new []repository.UserFieldDefinition) bool {
+	if len(old) != len(new) {
+		return true
+	}
+	for i, f := range old {
+		if f.Name != new[i].Name || f.Type != new[i].Type ||
+			f.Required != new[i].Required || f.Unique != new[i].Unique ||
+			f.Indexed != new[i].Indexed {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *tenantsService) RotateKeys(ctx context.Context, slugOrID string, graceSeconds int64) (string, error) {

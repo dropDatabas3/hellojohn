@@ -338,4 +338,16 @@ var (
 		Message:    "El servidor tardó demasiado en responder.",
 		HTTPStatus: http.StatusGatewayTimeout,
 	}
+
+	ErrBadGateway = &AppError{
+		Code:       "BAD_GATEWAY",
+		Message:    "No se pudo establecer conexión con el servicio externo.",
+		HTTPStatus: http.StatusBadGateway,
+	}
+
+	ErrConnectionFailed = &AppError{
+		Code:       "CONNECTION_FAILED",
+		Message:    "La conexión al servidor de destino fue rechazada.",
+		HTTPStatus: http.StatusBadGateway,
+	}
 )

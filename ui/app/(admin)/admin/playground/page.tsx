@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Play, Copy, Check, Code } from "lucide-react"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
+import { apiFetch } from "@/lib/routes"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card } from "@/components/ui/card"
@@ -32,12 +33,12 @@ export default function PlaygroundPage() {
 
   const { data: tenants } = useQuery({
     queryKey: ["tenants"],
-    queryFn: () => api.get<Tenant[]>("/v1/tenants"),
+    queryFn: () => api.get<Tenant[]>("/v2/admin/tenants"),
   })
 
   const { data: clients } = useQuery({
     queryKey: ["clients", selectedTenant],
-    queryFn: () => api.get<Client[]>(`/v1/tenants/${selectedTenant}/clients`),
+    queryFn: () => api.get<Client[]>(`/v2/admin/clients?tenant_id=${selectedTenant}`),
     enabled: !!selectedTenant,
   })
 
@@ -62,7 +63,7 @@ export default function PlaygroundPage() {
       nonce: nonce || Math.random().toString(36).substring(7),
     })
 
-    const url = `${window.location.origin}/v1/tenants/${selectedTenant}/authorize?${params.toString()}`
+    const url = `${window.location.origin}/oauth2/authorize?${params.toString()}`
     setAuthUrl(url)
   }
 
@@ -77,7 +78,7 @@ export default function PlaygroundPage() {
     }
 
     try {
-      const response = await fetch(`/v1/tenants/${selectedTenant}/token`, {
+      const response = await apiFetch(`/v2/tenants/${selectedTenant}/token`, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",

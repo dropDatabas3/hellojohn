@@ -55,7 +55,7 @@ export default function LoginPage() {
         try {
           const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080"
           const api = new ApiClient(apiBase, () => null, () => { }, () => { })
-          const cfg = await api.get<AuthConfigResponse>(`/v1/auth/config?client_id=${clientId}`)
+          const cfg = await api.get<AuthConfigResponse>(`/v2/auth/config?client_id=${clientId}`)
           setAuthConfig(cfg)
         } catch (e) {
           console.error("Failed to load branding", e)
@@ -88,7 +88,7 @@ export default function LoginPage() {
         }
 
         // Use a specialized session login call
-        await api.post("/v1/session/login", {
+        await api.post("/v2/session/login", {
           email: data.email,
           password: data.password,
           tenant_id: targetTenant,
@@ -105,7 +105,7 @@ export default function LoginPage() {
         () => { },
       )
 
-      const loginResponse = await api.post<LoginResponse>("/v1/auth/login", {
+      const loginResponse = await api.post<LoginResponse>("/v2/auth/login", {
         ...data,
         tenant_id: data.tenant_id ?? "", // Send empty if undefined, let backend handle global admin
         client_id: data.client_id ?? ""
@@ -118,7 +118,7 @@ export default function LoginPage() {
         () => { },
         () => { },
       )
-      const userInfo = await tempApi.get<MeResponse>("/v1/me")
+      const userInfo = await tempApi.get<MeResponse>("/v2/me")
 
       const expiresAt = Date.now() + (loginResponse.expires_in ? loginResponse.expires_in * 1000 : 0)
       return { token: loginResponse.access_token, user: userInfo, refreshToken: loginResponse.refresh_token, expiresAt, returnToUrl: null }

@@ -197,3 +197,46 @@ export function buildApiUrl(route: string): string {
   const mappedRoute = mapRoute(route)
   return `${API_BASE_URL}${mappedRoute}`
 }
+
+/**
+ * Wrapper for fetch that automatically uses API_BASE_URL and mapRoute
+ * 
+ * @example
+ * const res = await apiFetch('/v2/admin/tenants/123/users', { headers: { Authorization: 'Bearer ...' } })
+ * // Calls http://localhost:8080/v2/admin/tenants/123/users
+ */
+export function apiFetch(route: string, options?: RequestInit): Promise<Response> {
+  const url = buildApiUrl(route)
+  return fetch(url, {
+    ...options,
+    credentials: options?.credentials || "include", // Required for cross-site cookies
+  })
+}
+
+/**
+ * Wrapper for fetch with automatic X-Tenant-ID header injection
+ * 
+ * This is the RECOMMENDED way to call admin endpoints that require tenant context.
+ * The backend middleware WithTenantResolution() looks for the tenant in headers.
+ * 
+ * @param route - API route (e.g., '/v2/admin/users')
+ * @param tenantId - Tenant ID to inject in X-Tenant-ID header
+ * @param options - Standard fetch options
+ * 
+ * @example
+ * const res = await apiFetchWithTenant('/v2/admin/users', tenantId, {
+ *   headers: { Authorization: 'Bearer ...' }
+ * })
+ * // Automatically adds X-Tenant-ID header
+ */
+export function apiFetchWithTenant(route: string, tenantId: string, options?: RequestInit): Promise<Response> {
+  const url = buildApiUrl(route)
+  return fetch(url, {
+    ...options,
+    credentials: options?.credentials || "include",
+    headers: {
+      ...options?.headers,
+      'X-Tenant-ID': tenantId,
+    },
+  })
+}

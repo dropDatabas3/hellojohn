@@ -9,6 +9,7 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/cache/v2"
 	"github.com/dropDatabas3/hellojohn/internal/domain/repository"
+	"github.com/dropDatabas3/hellojohn/internal/security/secretbox"
 )
 
 // Factory crea y configura el DataAccessLayer completo.
@@ -218,14 +219,20 @@ func (f *Factory) MigrateTenant(ctx context.Context, slugOrID string) (*Migratio
 		return nil, ErrNoDBForTenant
 	}
 
-	// TODO: Ejecutar migraciones reales con pgx pool
-	// Por ahora retornamos un resultado vacío indicando que no hay migraciones pendientes.
-	// En implementación completa, se usaría un adapter SQL compatible.
-	return &MigrationResult{
-		Applied:  []int{},
-		Skipped:  []int{},
-		Duration: 0,
-	}, nil
+	// Verificar si la conexión soporta migraciones
+	migratable, ok := dataConn.(MigratableConnection)
+	if !ok {
+		return &MigrationResult{}, nil // Conexión no soporta migraciones (ej: FS)
+	}
+
+	// Obtener executor y ejecutar migraciones
+	executor := migratable.GetMigrationExecutor()
+	result, err := f.migrator.RunWithPgxPool(ctx, executor)
+	if err != nil {
+		return result, err
+	}
+
+	return result, nil
 }
 
 // ─── Helpers internos ───
@@ -252,10 +259,8 @@ func (f *Factory) resolveTenant(ctx context.Context, slugOrID string) (*reposito
 }
 
 func (f *Factory) getDataConnection(ctx context.Context, tenant *repository.Tenant) (AdapterConnection, error) {
-	// En modo FS-only, no hay conexión de datos
-	if f.mode == ModeFSOnly {
-		return nil, nil
-	}
+	// Nota: No hacemos early-return para ModeFSOnly porque un tenant individual
+	// puede tener su propia DB configurada aunque no haya GlobalDB ni DefaultTenantDB.
 
 	// Determinar configuración de DB
 	var dbCfg *DBConfig
@@ -267,10 +272,17 @@ func (f *Factory) getDataConnection(ctx context.Context, tenant *repository.Tena
 			DSN:    tenant.Settings.UserDB.DSN,
 			Schema: tenant.Settings.UserDB.Schema,
 		}
-		// Si tiene DSNEnc, intentar descifrar
+		// Si tiene DSNEnc, descifrar con secretbox
 		if dbCfg.DSN == "" && tenant.Settings.UserDB.DSNEnc != "" {
-			// TODO: Descifrar con secretbox
-			dbCfg.DSN = tenant.Settings.UserDB.DSNEnc // temporal
+			decrypted, err := decryptDSN(tenant.Settings.UserDB.DSNEnc)
+			if err != nil {
+				if f.cfg.Logger != nil {
+					f.cfg.Logger.Printf("store/v2: failed to decrypt DSN for tenant %s: %v", tenant.Slug, err)
+				}
+				// Propagar el error en lugar de fallar silenciosamente
+				return nil, fmt.Errorf("failed to decrypt DSN for tenant %s: %w", tenant.Slug, err)
+			}
+			dbCfg.DSN = decrypted
 		}
 	} else if f.cfg.DefaultTenantDB != nil {
 		dbCfg = f.cfg.DefaultTenantDB
@@ -512,4 +524,13 @@ func (t *tenantAccess) InfraStats(ctx context.Context) (*TenantInfraStats, error
 	}
 
 	return stats, nil
+}
+
+// decryptDSN descifra un DSN encriptado usando secretbox.
+// Retorna error si el formato no es válido o la clave no está configurada.
+func decryptDSN(encryptedDSN string) (string, error) {
+	if encryptedDSN == "" {
+		return "", fmt.Errorf("empty encrypted DSN")
+	}
+	return secretbox.Decrypt(encryptedDSN)
 }

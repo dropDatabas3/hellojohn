@@ -17,6 +17,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    # URL de conexión: postgresql://user:password@localhost:5432/login
+    # JDBC: jdbc:postgresql://localhost:5432/login?user=user&password=password
     # ───────────────────── Redis for Caching ─────────────────────
   redis-dev:
     image: redis:7-alpine

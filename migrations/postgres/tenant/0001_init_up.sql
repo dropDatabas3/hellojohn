@@ -57,7 +57,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_identity_user_provider ON identity(user_id,
 CREATE TABLE IF NOT EXISTS refresh_token (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
-  client_id TEXT,
+  client_id_text TEXT,
   token_hash TEXT NOT NULL UNIQUE,
   issued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at TIMESTAMPTZ NOT NULL,
@@ -66,9 +66,17 @@ CREATE TABLE IF NOT EXISTS refresh_token (
   metadata JSONB DEFAULT '{}'
 );
 
--- Ensure client_id column exists for legacy databases
-ALTER TABLE refresh_token ADD COLUMN IF NOT EXISTS client_id TEXT;
-UPDATE refresh_token SET client_id = '' WHERE client_id IS NULL;
+-- Ensure columns exist for legacy databases
+ALTER TABLE refresh_token ADD COLUMN IF NOT EXISTS client_id_text TEXT;
+
+-- Migrate old client_id to client_id_text if exists
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'refresh_token' AND column_name = 'client_id') THEN
+        UPDATE refresh_token SET client_id_text = client_id WHERE client_id_text IS NULL AND client_id IS NOT NULL;
+        ALTER TABLE refresh_token DROP COLUMN IF EXISTS client_id;
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_refresh_token_user ON refresh_token(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_token_expires ON refresh_token(expires_at) WHERE revoked_at IS NULL;

@@ -55,12 +55,13 @@ type CreateUserInput struct {
 
 // UpdateUserInput contiene los campos actualizables de un usuario.
 type UpdateUserInput struct {
-	Name         *string
-	GivenName    *string
-	FamilyName   *string
-	Picture      *string
-	Locale       *string
-	CustomFields map[string]any
+	Name           *string
+	GivenName      *string
+	FamilyName     *string
+	Picture        *string
+	Locale         *string
+	SourceClientID *string
+	CustomFields   map[string]any
 }
 
 // ListUsersFilter opciones para listar usuarios.

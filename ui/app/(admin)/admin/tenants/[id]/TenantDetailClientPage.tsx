@@ -48,12 +48,12 @@ export default function TenantDetailClientPage() {
   const { data: clients } = useQuery({
     queryKey: ["tenant-clients", tenantId],
     enabled: !!tenantId,
-    queryFn: () => api.get<any[]>(`/v1/admin/clients?tenant_id=${tenantId}`),
+    queryFn: () => api.get<any[]>(`/v2/admin/clients?tenant_id=${tenantId}`),
   })
   const { data: scopes } = useQuery({
     queryKey: ["tenant-scopes", tenantId],
     enabled: !!tenantId,
-    queryFn: () => api.get<any[]>(`/v1/admin/scopes?tenant_id=${tenantId}`),
+    queryFn: () => api.get<any[]>(`/v2/admin/scopes?tenant_id=${tenantId}`),
   })
 
   // Per-tenant OIDC discovery

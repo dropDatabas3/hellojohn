@@ -1,5 +1,7 @@
 "use client"
 
+import { useState } from "react"
+
 import { useQuery } from "@tanstack/react-query"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -12,11 +14,13 @@ import { API_ROUTES } from "@/lib/routes"
 import type { ReadyzResponse, Tenant } from "@/lib/types"
 import { Activity, AlertCircle, CheckCircle, Server, Key, Building2 } from "lucide-react"
 import Link from "next/link"
+import { CreateTenantWizard } from "@/components/tenant/CreateTenantWizard"
 
 export default function DashboardPage() {
   const api = useApi()
   const locale = useUIStore((state) => state.locale)
   const t = getTranslations(locale)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
 
   // Fetch system health
   const { data: health, isLoading: healthLoading } = useQuery({
@@ -240,9 +244,15 @@ export default function DashboardPage() {
             <CardTitle>{t.tenants.title}</CardTitle>
             <CardDescription>Tenants configurados en el sistema</CardDescription>
           </div>
-          <Button asChild>
-            <Link href="/admin/tenants">Ver todos</Link>
-          </Button>
+          {tenants && tenants.length > 0 ? (
+            <Button asChild>
+              <Link href="/admin/tenants">Ver todos</Link>
+            </Button>
+          ) : (
+            <Button onClick={() => setCreateDialogOpen(true)}>
+              Crear Organización
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           {tenantsLoading ? (
@@ -319,6 +329,12 @@ export default function DashboardPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Create Tenant Wizard */}
+      <CreateTenantWizard
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+      />
     </div>
   )
 }

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"embed"
+	"fmt"
 	"log"
 	"sync"
 
@@ -177,9 +178,100 @@ func (m *Manager) ClearTenant(slug string) {
 	m.tenants.Delete(slug)
 }
 
+// RefreshTenant cierra la conexión existente y la recrea con la configuración actualizada.
+// Útil cuando se cambia la configuración de DB de un tenant.
+func (m *Manager) RefreshTenant(ctx context.Context, slug string) error {
+	// 1. Limpiar cache del TDA
+	m.tenants.Delete(slug)
+
+	// 2. Cerrar conexión del pool (si existe)
+	if m.factory != nil && m.factory.pool != nil {
+		if err := m.factory.pool.Close(slug); err != nil {
+			return fmt.Errorf("failed to close pool connection: %w", err)
+		}
+	}
+
+	// La próxima llamada a ForTenant creará una nueva conexión
+	return nil
+}
+
 // MigrateTenant ejecuta migraciones para un tenant específico.
 func (m *Manager) MigrateTenant(ctx context.Context, slugOrID string) (*MigrationResult, error) {
 	return m.factory.MigrateTenant(ctx, slugOrID)
+}
+
+// BootstrapResult contiene el resultado de hacer bootstrap de una DB de tenant.
+type BootstrapResult struct {
+	MigrationResult *MigrationResult // Resultado de migraciones SQL
+	SyncedFields    []string         // Campos custom sincronizados
+	Warnings        []string         // Warnings no fatales
+	Error           error            // Error fatal (no se pudo conectar/migrar)
+}
+
+// BootstrapTenantDB inicializa la DB de un tenant: ejecuta migraciones y sincroniza custom fields.
+// Retorna un BootstrapResult con info detallada. Si Error != nil, el bootstrap falló.
+func (m *Manager) BootstrapTenantDB(ctx context.Context, slugOrID string) (result *BootstrapResult, err error) {
+	result = &BootstrapResult{
+		MigrationResult: &MigrationResult{}, // Initialize to avoid nil pointer
+	}
+
+	// Recover from panics
+	defer func() {
+		if r := recover(); r != nil {
+			result.Error = fmt.Errorf("panic during bootstrap: %v", r)
+			err = result.Error
+		}
+	}()
+
+	// 1. Obtener TDA (esto conecta a la DB)
+	tda, tdaErr := m.ForTenant(ctx, slugOrID)
+	if tdaErr != nil {
+		result.Error = fmt.Errorf("failed to connect to tenant DB: %w", tdaErr)
+		return result, result.Error
+	}
+
+	// Verificar que tiene DB
+	if !tda.HasDB() {
+		result.Warnings = append(result.Warnings, "tenant has no database configured, skipping bootstrap")
+		return result, nil // No es error, simplemente no hay DB
+	}
+
+	// 2. Ejecutar migraciones SQL
+	migResult, migErr := m.MigrateTenant(ctx, slugOrID)
+	if migResult != nil {
+		result.MigrationResult = migResult
+	}
+	if migErr != nil {
+		result.Error = fmt.Errorf("migration failed: %w", migErr)
+		return result, result.Error
+	}
+
+	// 3. Sincronizar custom fields desde settings del tenant
+	settings := tda.Settings()
+	if settings != nil && len(settings.UserFields) > 0 {
+		schema := tda.Schema()
+		if schema != nil {
+			// Convertir TenantSettings.UserFields a repository.UserFieldDefinition
+			var fields []repository.UserFieldDefinition
+			for _, f := range settings.UserFields {
+				fields = append(fields, repository.UserFieldDefinition{
+					Name:     f.Name,
+					Type:     f.Type,
+					Required: f.Required,
+					Unique:   f.Unique,
+					Indexed:  f.Indexed,
+				})
+				result.SyncedFields = append(result.SyncedFields, f.Name)
+			}
+
+			if syncErr := schema.SyncUserFields(ctx, tda.ID(), fields); syncErr != nil {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("sync user fields partial error: %v", syncErr))
+				// No retornamos error, solo warning
+			}
+		}
+	}
+
+	return result, nil
 }
 
 // Close cierra el manager y todas sus conexiones.

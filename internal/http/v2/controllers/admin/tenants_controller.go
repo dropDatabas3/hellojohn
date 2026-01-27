@@ -259,15 +259,30 @@ func (c *TenantsController) TestConnection(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if strings.TrimSpace(req.DSN) == "" {
+		httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("DSN es requerido"))
+		return
+	}
+
 	if err := c.service.TestConnection(ctx, req.DSN); err != nil {
 		log.Error("test connection failed", logger.Err(err))
-		// Return 400 or 422? Or 200 with error?
-		// Prompt says 200 {"status":"ok"} on success.
-		// On failure usually 400 if DSN invalid or 502/503.
-		// Let's use 400 for bad DSN, 503 for connection failed?
-		// Actually typical "test connection" might return 200 with {success:false, error: ...} OR http error.
-		// Given httperrors usage, I'll return http error.
-		httperrors.WriteError(w, httperrors.ErrBadRequest.WithCause(err))
+		errMsg := err.Error()
+
+		// Classify the error type for better user feedback
+		switch {
+		case strings.Contains(errMsg, "dial error") || strings.Contains(errMsg, "connection refused") ||
+			strings.Contains(errMsg, "connectex") || strings.Contains(errMsg, "no such host"):
+			// Connection was refused by the target server
+			httperrors.WriteError(w, httperrors.ErrConnectionFailed.WithDetail("El servidor de base de datos rechazó la conexión. Verifica que esté ejecutándose y accesible."))
+		case strings.Contains(errMsg, "authentication failed") || strings.Contains(errMsg, "password"):
+			httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("Credenciales inválidas. Verifica usuario y contraseña."))
+		case strings.Contains(errMsg, "database") && strings.Contains(errMsg, "does not exist"):
+			httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("La base de datos especificada no existe."))
+		case strings.Contains(errMsg, "timeout"):
+			httperrors.WriteError(w, httperrors.ErrGatewayTimeout.WithDetail("Tiempo de espera agotado al conectar con el servidor."))
+		default:
+			httperrors.WriteError(w, httperrors.ErrBadGateway.WithDetail("Error al conectar: "+errMsg))
+		}
 		return
 	}
 
@@ -439,6 +454,8 @@ func mapTenantError(err error) *httperrors.AppError {
 		return app
 	}
 
+	errMsg := err.Error()
+
 	switch {
 	case errors.Is(err, store.ErrTenantNotFound):
 		return httperrors.ErrNotFound.WithDetail("tenant not found")
@@ -450,6 +467,19 @@ func mapTenantError(err error) *httperrors.AppError {
 		return httperrors.ErrServiceUnavailable.WithDetail("not leader")
 	case store.IsNoDBForTenant(err):
 		return httperrors.ErrServiceUnavailable.WithDetail("tenant has no database configured")
+
+	// SMTP/Email errors
+	case strings.Contains(errMsg, "Username and Password not accepted") ||
+		strings.Contains(errMsg, "authentication failed") ||
+		strings.Contains(errMsg, "535 "):
+		return httperrors.ErrBadRequest.WithDetail("Credenciales SMTP rechazadas. Verifica usuario y contraseña.")
+	case strings.Contains(errMsg, "decrypt") || strings.Contains(errMsg, "formato inválido"):
+		return httperrors.ErrBadRequest.WithDetail("Error de configuración SMTP: la contraseña no está correctamente encriptada. Guarda la configuración nuevamente.")
+	case strings.Contains(errMsg, "smtp send") || strings.Contains(errMsg, "dial tcp"):
+		return httperrors.ErrConnectionFailed.WithDetail("No se pudo conectar al servidor SMTP. Verifica host y puerto.")
+	case strings.Contains(errMsg, "email"):
+		return httperrors.ErrBadGateway.WithDetail("Error al enviar email: " + errMsg)
+
 	default:
 		return httperrors.ErrInternalServerError.WithCause(err)
 	}

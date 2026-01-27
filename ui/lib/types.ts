@@ -13,30 +13,48 @@ export type Tenant = {
 export type TenantSettings = {
   logoUrl?: string
   brandColor?: string
-  session_lifetime_seconds?: number
-  refresh_token_lifetime_seconds?: number
-  mfa_enabled?: boolean
-  social_login_enabled?: boolean
+  sessionLifetimeSeconds?: number
+  refreshTokenLifetimeSeconds?: number
+  mfaEnabled?: boolean
+  socialLoginEnabled?: boolean
   smtp?: {
     host: string
     port: number
     username?: string
     password?: string
+    passwordEnc?: string
     fromEmail?: string
     useTLS?: boolean
   }
   userDb?: {
     driver?: string
     dsn?: string
+    dsnEnc?: string
     schema?: string
+  }
+  cache?: {
+    enabled: boolean
+    driver: string
+    host?: string
+    port?: number
+    password?: string
+    passEnc?: string
+    db?: number
+    prefix?: string
   }
   security?: {
     passwordMinLength?: number
     mfaRequired?: boolean
   }
+  socialProviders?: {
+    googleEnabled?: boolean
+    googleClient?: string
+    googleSecret?: string
+    googleSecretEnc?: string
+  }
   issuerMode?: "global" | "path" | "domain"
   issuerOverride?: string
-  user_fields?: UserFieldDefinition[]
+  userFields?: UserFieldDefinition[]
   mailing?: MailingSettings
 }
 

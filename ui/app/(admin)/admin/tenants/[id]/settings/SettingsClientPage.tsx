@@ -308,8 +308,8 @@ export default function SettingsClientPage() {
                   <p className="text-sm text-muted-foreground">{t("tenants.mfaEnabledDesc")}</p>
                 </div>
                 <Switch
-                  checked={settingsData.mfa_enabled || false}
-                  onCheckedChange={(checked) => setSettingsData({ ...settingsData, mfa_enabled: checked })}
+                  checked={settingsData.mfaEnabled || false}
+                  onCheckedChange={(checked) => setSettingsData({ ...settingsData, mfaEnabled: checked })}
                 />
               </div>
               <div className="flex items-center justify-between rounded-lg border p-4">
@@ -318,11 +318,11 @@ export default function SettingsClientPage() {
                   <p className="text-sm text-muted-foreground">{t("tenants.socialLoginEnabledDesc")}</p>
                 </div>
                 <Switch
-                  checked={settingsData.social_login_enabled || false}
+                  checked={settingsData.socialLoginEnabled || false}
                   onCheckedChange={(checked) =>
                     setSettingsData({
                       ...settingsData,
-                      social_login_enabled: checked,
+                      socialLoginEnabled: checked,
                     })
                   }
                 />

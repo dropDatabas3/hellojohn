@@ -8,6 +8,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/domain/repository"
 	dto "github.com/dropDatabas3/hellojohn/internal/http/v2/dto/admin"
 	"github.com/dropDatabas3/hellojohn/internal/observability/logger"
+	"github.com/dropDatabas3/hellojohn/internal/security/password"
 	store "github.com/dropDatabas3/hellojohn/internal/store/v2"
 )
 
@@ -36,11 +37,11 @@ func NewUserCRUDService(deps UserCRUDDeps) UserCRUDService {
 
 // Errores del servicio
 var (
-	ErrUserInvalidInput     = fmt.Errorf("invalid user input")
-	ErrUserNotFound         = fmt.Errorf("user not found")
-	ErrUserEmailDuplicate   = fmt.Errorf("email already exists")
-	ErrUserTenantNotFound   = fmt.Errorf("tenant not found")
-	ErrUserTenantNoDB       = fmt.Errorf("tenant has no database configured")
+	ErrUserInvalidInput   = fmt.Errorf("invalid user input")
+	ErrUserNotFound       = fmt.Errorf("user not found")
+	ErrUserEmailDuplicate = fmt.Errorf("email already exists")
+	ErrUserTenantNotFound = fmt.Errorf("tenant not found")
+	ErrUserTenantNoDB     = fmt.Errorf("tenant has no database configured")
 )
 
 // Create crea un nuevo usuario en el tenant.
@@ -52,11 +53,24 @@ func (s *userCRUDService) Create(ctx context.Context, tenantID string, req dto.C
 	if req.Email == "" {
 		return nil, fmt.Errorf("%w: email is required", ErrUserInvalidInput)
 	}
-	if req.PasswordHash == "" {
-		return nil, fmt.Errorf("%w: password_hash is required", ErrUserInvalidInput)
+	if req.Password == "" {
+		return nil, fmt.Errorf("%w: password is required", ErrUserInvalidInput)
 	}
 
-	// 2. Obtener acceso al tenant
+	// 2. Validar política de contraseña
+	policy := password.Policy{MinLength: 8}
+	if ok, reasons := policy.Validate(req.Password); !ok {
+		return nil, fmt.Errorf("%w: password policy violation: %v", ErrUserInvalidInput, reasons)
+	}
+
+	// 3. Hash de la contraseña usando Argon2id
+	passwordHash, err := password.Hash(password.Default, req.Password)
+	if err != nil {
+		log.Error("failed to hash password", logger.Err(err))
+		return nil, fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// 4. Obtener acceso al tenant
 	tda, err := s.deps.DAL.ForTenant(ctx, tenantID)
 	if err != nil {
 		if store.IsTenantNotFound(err) {
@@ -65,23 +79,24 @@ func (s *userCRUDService) Create(ctx context.Context, tenantID string, req dto.C
 		return nil, err
 	}
 
-	// 3. Verificar que tenant tenga DB (Data Plane)
+	// 5. Verificar que tenant tenga DB (Data Plane)
 	if err := tda.RequireDB(); err != nil {
 		log.Warn("tenant has no database", logger.TenantID(tenantID))
 		return nil, ErrUserTenantNoDB
 	}
 
-	// 4. Crear usuario
+	// 6. Crear usuario
 	user, _, err := tda.Users().Create(ctx, repository.CreateUserInput{
-		TenantID:     tda.ID(),
-		Email:        req.Email,
-		PasswordHash: req.PasswordHash,
-		Name:         req.Name,
-		GivenName:    req.GivenName,
-		FamilyName:   req.FamilyName,
-		Picture:      req.Picture,
-		Locale:       req.Locale,
-		CustomFields: req.CustomFields,
+		TenantID:       tda.ID(),
+		Email:          req.Email,
+		PasswordHash:   passwordHash,
+		Name:           req.Name,
+		GivenName:      req.GivenName,
+		FamilyName:     req.FamilyName,
+		Picture:        req.Picture,
+		Locale:         req.Locale,
+		CustomFields:   req.CustomFields,
+		SourceClientID: req.SourceClientID,
 	})
 	if err != nil {
 		if repository.IsConflict(err) {
@@ -224,12 +239,13 @@ func (s *userCRUDService) Update(ctx context.Context, tenantID, userID string, r
 	}
 
 	err = tda.Users().Update(ctx, userID, repository.UpdateUserInput{
-		Name:         req.Name,
-		GivenName:    req.GivenName,
-		FamilyName:   req.FamilyName,
-		Picture:      req.Picture,
-		Locale:       req.Locale,
-		CustomFields: customFields,
+		Name:           req.Name,
+		GivenName:      req.GivenName,
+		FamilyName:     req.FamilyName,
+		Picture:        req.Picture,
+		Locale:         req.Locale,
+		SourceClientID: req.SourceClientID,
+		CustomFields:   customFields,
 	})
 	if err != nil {
 		if repository.IsNotFound(err) {
@@ -286,17 +302,18 @@ func (s *userCRUDService) Delete(ctx context.Context, tenantID, userID string) e
 // mapUserToResponse convierte un repository.User a dto.UserResponse.
 func mapUserToResponse(user *repository.User) *dto.UserResponse {
 	return &dto.UserResponse{
-		ID:            user.ID,
-		TenantID:      user.TenantID,
-		Email:         user.Email,
-		Name:          user.Name,
-		GivenName:     user.GivenName,
-		FamilyName:    user.FamilyName,
-		Picture:       user.Picture,
-		Locale:        user.Locale,
-		EmailVerified: user.EmailVerified,
-		CreatedAt:     user.CreatedAt,
-		DisabledAt:    user.DisabledAt,
-		CustomFields:  user.CustomFields,
+		ID:             user.ID,
+		TenantID:       user.TenantID,
+		Email:          user.Email,
+		Name:           user.Name,
+		GivenName:      user.GivenName,
+		FamilyName:     user.FamilyName,
+		Picture:        user.Picture,
+		Locale:         user.Locale,
+		EmailVerified:  user.EmailVerified,
+		SourceClientID: user.SourceClientID,
+		CreatedAt:      user.CreatedAt,
+		DisabledAt:     user.DisabledAt,
+		CustomFields:   user.CustomFields,
 	}
 }

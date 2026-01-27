@@ -39,7 +39,7 @@ export default function RegisterPage() {
                 try {
                     const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080"
                     const api = new ApiClient(apiBase, () => null, () => { }, () => { })
-                    const cfg = await api.get<AuthConfigResponse>(`/v1/auth/config?client_id=${clientId}`)
+                    const cfg = await api.get<AuthConfigResponse>(`/v2/auth/config?client_id=${clientId}`)
                     setAuthConfig(cfg)
                 } catch (e) {
                     console.error("Failed to load branding", e)
@@ -56,7 +56,7 @@ export default function RegisterPage() {
 
             // Registration is always public/tenant scoped if client_id is present
             // If we have clientId, we should use it to inform backend (though /register might not check it yet, good to send)
-            // Standard endpoint: /v1/auth/register
+            // Standard endpoint: /v2/auth/register
             const payload = {
                 email: data.email,
                 password: data.password,
@@ -64,7 +64,7 @@ export default function RegisterPage() {
                 client_id: clientId || undefined
             }
 
-            await api.post("/v1/auth/register", payload)
+            await api.post("/v2/auth/register", payload)
             return true
         },
         onSuccess: () => {

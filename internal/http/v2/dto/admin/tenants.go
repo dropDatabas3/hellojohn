@@ -16,6 +16,9 @@ type TenantResponse struct {
 	Settings    *repository.TenantSettings `json:"settings,omitempty"`
 	CreatedAt   time.Time                  `json:"created_at"`
 	UpdatedAt   time.Time                  `json:"updated_at"`
+	// BootstrapError is set when tenant was created but DB bootstrap failed.
+	// Frontend should show a warning toast with this message.
+	BootstrapError string `json:"bootstrap_error,omitempty"`
 }
 
 // CreateTenantRequest represents the payload to create a new tenant.

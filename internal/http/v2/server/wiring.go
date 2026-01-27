@@ -24,6 +24,7 @@ import (
 	socialsvc "github.com/dropDatabas3/hellojohn/internal/http/v2/services/social"
 	jwtx "github.com/dropDatabas3/hellojohn/internal/jwt"
 	store "github.com/dropDatabas3/hellojohn/internal/store/v2"
+	migrations "github.com/dropDatabas3/hellojohn/migrations/postgres"
 )
 
 // BuildV2Handler builds the HTTP V2 handler with all dependencies wired.
@@ -63,6 +64,9 @@ func buildV2HandlerInternal() (http.Handler, func() error, store.DataAccessLayer
 		FSRoot:           fsRoot,
 		SigningMasterKey: masterKey,
 		Logger:           log.Default(), // Use standard logger for store debug
+		// Migraciones per-tenant embebidas
+		MigrationsFS:  migrations.TenantFS,
+		MigrationsDir: migrations.TenantDir,
 		// DB configs could be loaded here if needed for Hybrid mode
 	})
 	if err != nil {

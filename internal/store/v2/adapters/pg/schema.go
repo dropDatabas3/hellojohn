@@ -15,10 +15,14 @@ type pgSchemaRepo struct {
 }
 
 func (r *pgSchemaRepo) SyncUserFields(ctx context.Context, tenantID string, fields []repository.UserFieldDefinition) error {
+	if r.conn == nil || r.conn.pool == nil {
+		return fmt.Errorf("pg schema repo: connection not initialized")
+	}
+
 	// 1. Obtener columnas existentes
 	rows, err := r.conn.pool.Query(ctx, `
-		SELECT column_name 
-		FROM information_schema.columns 
+		SELECT column_name
+		FROM information_schema.columns
 		WHERE table_name = 'app_user'
 	`)
 	if err != nil {
@@ -38,8 +42,10 @@ func (r *pgSchemaRepo) SyncUserFields(ctx context.Context, tenantID string, fiel
 	// 2. Iterar campos y aplicar cambios
 	newFieldNames := make(map[string]bool)
 	for _, field := range fields {
-		fieldName := strings.ToLower(strings.TrimSpace(field.Name))
+		// Use pgIdentifier to normalize field names (spaces -> underscores, remove accents, etc.)
+		fieldName := pgIdentifier(field.Name)
 		if fieldName == "" {
+			log.Printf("Tenant %s: Skipping invalid field name: %s", tenantID, field.Name)
 			continue
 		}
 		newFieldNames[fieldName] = true
@@ -56,40 +62,40 @@ func (r *pgSchemaRepo) SyncUserFields(ctx context.Context, tenantID string, fiel
 			continue
 		}
 
-		// ADD COLUMN
+		// ADD COLUMN (use fieldName directly since pgIdentifier already validated it)
 		if !existingCols[fieldName] {
 			log.Printf("Tenant %s: Adding column %s (%s)", tenantID, fieldName, sqlType)
-			query := fmt.Sprintf("ALTER TABLE app_user ADD COLUMN IF NOT EXISTS %s %s", pgIdentifier(fieldName), sqlType)
+			query := fmt.Sprintf("ALTER TABLE app_user ADD COLUMN IF NOT EXISTS %s %s", fieldName, sqlType)
 			if _, err := r.conn.pool.Exec(ctx, query); err != nil {
 				return fmt.Errorf("failed to add column %s: %w", fieldName, err)
 			}
 		}
 
 		// NOT NULL constraint - DISABLED to support social login flow
-		_, _ = r.conn.pool.Exec(ctx, fmt.Sprintf("ALTER TABLE app_user ALTER COLUMN %s DROP NOT NULL", pgIdentifier(fieldName)))
+		_, _ = r.conn.pool.Exec(ctx, fmt.Sprintf("ALTER TABLE app_user ALTER COLUMN %s DROP NOT NULL", fieldName))
 
 		// UNIQUE constraint
 		uqName := fmt.Sprintf("uq_app_user_%s", fieldName)
 		if field.Unique {
-			query := fmt.Sprintf("ALTER TABLE app_user ADD CONSTRAINT %s UNIQUE (%s)", pgIdentifier(uqName), pgIdentifier(fieldName))
+			query := fmt.Sprintf("ALTER TABLE app_user ADD CONSTRAINT %s UNIQUE (%s)", uqName, fieldName)
 			_, err := r.conn.pool.Exec(ctx, query)
 			if err != nil && !strings.Contains(err.Error(), "already exists") {
 				log.Printf("Tenant %s: Failed to add unique constraint %s: %v", tenantID, uqName, err)
 			}
 		} else {
 			// Drop constraint if exists
-			_, _ = r.conn.pool.Exec(ctx, fmt.Sprintf("ALTER TABLE app_user DROP CONSTRAINT IF EXISTS %s", pgIdentifier(uqName)))
+			_, _ = r.conn.pool.Exec(ctx, fmt.Sprintf("ALTER TABLE app_user DROP CONSTRAINT IF EXISTS %s", uqName))
 		}
 
 		// INDEX
 		idxName := fmt.Sprintf("idx_app_user_%s", fieldName)
 		if field.Indexed && !field.Unique {
-			query := fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON app_user (%s)", pgIdentifier(idxName), pgIdentifier(fieldName))
+			query := fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON app_user (%s)", idxName, fieldName)
 			if _, err := r.conn.pool.Exec(ctx, query); err != nil {
 				log.Printf("Tenant %s: Failed to create index %s: %v", tenantID, idxName, err)
 			}
 		} else if !field.Indexed {
-			_, _ = r.conn.pool.Exec(ctx, fmt.Sprintf("DROP INDEX IF EXISTS %s", pgIdentifier(idxName)))
+			_, _ = r.conn.pool.Exec(ctx, fmt.Sprintf("DROP INDEX IF EXISTS %s", idxName))
 		}
 	}
 
@@ -100,7 +106,7 @@ func (r *pgSchemaRepo) SyncUserFields(ctx context.Context, tenantID string, fiel
 		}
 		if !newFieldNames[col] {
 			log.Printf("Tenant %s: Dropping removed column %s", tenantID, col)
-			if _, err := r.conn.pool.Exec(ctx, fmt.Sprintf("ALTER TABLE app_user DROP COLUMN IF EXISTS %s", pgIdentifier(col))); err != nil {
+			if _, err := r.conn.pool.Exec(ctx, fmt.Sprintf("ALTER TABLE app_user DROP COLUMN IF EXISTS %s", col)); err != nil {
 				return fmt.Errorf("failed to drop column %s: %w", col, err)
 			}
 		}
@@ -147,13 +153,7 @@ func (r *pgSchemaRepo) IntrospectColumns(ctx context.Context, tenantID, tableNam
 
 // ─── Helpers ───
 
-func isSystemColumn(name string) bool {
-	switch name {
-	case "id", "email", "email_verified", "status", "profile", "metadata", "disabled_at", "disabled_reason", "disabled_until", "created_at", "updated_at", "password_hash":
-		return true
-	}
-	return false
-}
+// isSystemColumn is defined in adapter.go
 
 func mapFieldTypeToSQL(t string) string {
 	switch t {
@@ -168,8 +168,4 @@ func mapFieldTypeToSQL(t string) string {
 	default:
 		return "TEXT"
 	}
-}
-
-func pgIdentifier(s string) string {
-	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }

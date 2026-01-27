@@ -665,6 +665,18 @@ type tenantSettingsYAML struct {
 		GoogleClient    string `yaml:"googleClient,omitempty"`
 		GoogleSecretEnc string `yaml:"googleSecretEnc,omitempty"`
 	} `yaml:"socialProviders,omitempty"`
+
+	UserFields []userFieldYAML `yaml:"userFields,omitempty"`
+}
+
+// userFieldYAML representa un campo custom de usuario para serialización YAML.
+type userFieldYAML struct {
+	Name        string `yaml:"name"`
+	Type        string `yaml:"type"`
+	Required    bool   `yaml:"required,omitempty"`
+	Unique      bool   `yaml:"unique,omitempty"`
+	Indexed     bool   `yaml:"indexed,omitempty"`
+	Description string `yaml:"description,omitempty"`
 }
 
 func (t *tenantYAML) toRepository(slug string) *repository.Tenant {
@@ -726,6 +738,21 @@ func (t *tenantYAML) toRepository(slug string) *repository.Tenant {
 			GoogleEnabled:   t.Settings.SocialProviders.GoogleEnabled,
 			GoogleClient:    t.Settings.SocialProviders.GoogleClient,
 			GoogleSecretEnc: t.Settings.SocialProviders.GoogleSecretEnc,
+		}
+	}
+
+	// UserFields
+	if len(t.Settings.UserFields) > 0 {
+		tenant.Settings.UserFields = make([]repository.UserFieldDefinition, len(t.Settings.UserFields))
+		for i, uf := range t.Settings.UserFields {
+			tenant.Settings.UserFields[i] = repository.UserFieldDefinition{
+				Name:        uf.Name,
+				Type:        uf.Type,
+				Required:    uf.Required,
+				Unique:      uf.Unique,
+				Indexed:     uf.Indexed,
+				Description: uf.Description,
+			}
 		}
 	}
 
@@ -820,6 +847,21 @@ func toTenantYAML(t *repository.Tenant) *tenantYAML {
 			GoogleEnabled:   t.Settings.SocialProviders.GoogleEnabled,
 			GoogleClient:    t.Settings.SocialProviders.GoogleClient,
 			GoogleSecretEnc: t.Settings.SocialProviders.GoogleSecretEnc,
+		}
+	}
+
+	// UserFields
+	if len(t.Settings.UserFields) > 0 {
+		y.Settings.UserFields = make([]userFieldYAML, len(t.Settings.UserFields))
+		for i, uf := range t.Settings.UserFields {
+			y.Settings.UserFields[i] = userFieldYAML{
+				Name:        uf.Name,
+				Type:        uf.Type,
+				Required:    uf.Required,
+				Unique:      uf.Unique,
+				Indexed:     uf.Indexed,
+				Description: uf.Description,
+			}
 		}
 	}
 

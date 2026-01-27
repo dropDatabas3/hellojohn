@@ -46,7 +46,7 @@ export function useAuthRefresh() {
             tenantID = (json["tid"] as string | undefined) || (json["tenant_id"] as string | undefined)
           }
         } catch {}
-        const resp = await client.post<LoginResponse>("/v1/auth/refresh", {
+        const resp = await client.post<LoginResponse>("/v2/auth/refresh", {
           client_id: clientID,
           tenant_id: tenantID,
           refresh_token: refreshToken,
