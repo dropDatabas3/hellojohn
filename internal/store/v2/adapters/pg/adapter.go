@@ -67,7 +67,7 @@ func pgIdentifier(name string) string {
 			normalized.WriteRune('n')
 		case r == 'ç':
 			normalized.WriteRune('c')
-		// Skip other characters
+			// Skip other characters
 		}
 	}
 	name = normalized.String()
