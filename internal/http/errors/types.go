@@ -281,6 +281,18 @@ var (
 )
 
 // ---------------------------------------------------------------------------------
+// 424 Failed Dependency - Dependencia no configurada
+// ---------------------------------------------------------------------------------
+
+var (
+	ErrTenantNoDatabase = &AppError{
+		Code:       "TENANT_NO_DATABASE",
+		Message:    "El tenant no tiene una base de datos configurada para gestión de usuarios.",
+		HTTPStatus: http.StatusFailedDependency,
+	}
+)
+
+// ---------------------------------------------------------------------------------
 // 412 Precondition Failed & 428 Precondition Required - Concurrency Control
 // ---------------------------------------------------------------------------------
 

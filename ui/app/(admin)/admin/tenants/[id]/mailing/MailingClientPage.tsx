@@ -140,7 +140,7 @@ export default function MailingClientPage() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["tenant-settings", tenantId, "mailing"] })
-            toast({ title: "✓ Guardado", description: "Configuración actualizada correctamente." })
+            toast({ title: "✓ Guardado", description: "Configuración actualizada correctamente.", variant: "info" })
         },
         onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
     })
@@ -150,7 +150,7 @@ export default function MailingClientPage() {
         onSuccess: () => {
             setTestEmailOpen(false)
             setTestEmailTo("")
-            toast({ title: "✓ Enviado", description: `Email de prueba enviado a ${testEmailTo}` })
+            toast({ title: "✓ Enviado", description: `Email de prueba enviado a ${testEmailTo}`, variant: "success" })
         },
         onError: (e: any) => toast({ title: "Error", description: e.message || "No se pudo enviar", variant: "destructive" }),
     })
@@ -179,7 +179,7 @@ export default function MailingClientPage() {
         const def = DEFAULT_TEMPLATES[type as keyof typeof DEFAULT_TEMPLATES]
         if (!def) return
         setTemplatesData(prev => ({ ...prev, [type]: { subject: def.subject, body: def.body } }))
-        toast({ title: "Restaurado", description: "Plantilla restaurada. Recuerda guardar." })
+        toast({ title: "Restaurado", description: "Plantilla restaurada. Recuerda guardar.", variant: "info" })
     }
 
     const copyToClipboard = (text: string) => {

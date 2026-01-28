@@ -83,8 +83,9 @@ export class ApiClient {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
         const error: ApiError = {
-          error: errorData.error || "server_error",
-          error_description: errorData.error_description || response.statusText,
+          // Support both OAuth2 style (error) and v2 API style (code)
+          error: errorData.code || errorData.error || "server_error",
+          error_description: errorData.detail || errorData.message || errorData.error_description || response.statusText,
           status: response.status,
         }
         throw error
@@ -141,8 +142,9 @@ export class ApiClient {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
         const error: ApiError = {
-          error: errorData.error || "server_error",
-          error_description: errorData.error_description || response.statusText,
+          // Support both OAuth2 style (error) and v2 API style (code)
+          error: errorData.code || errorData.error || "server_error",
+          error_description: errorData.detail || errorData.message || errorData.error_description || response.statusText,
           status: response.status,
         }
         throw error

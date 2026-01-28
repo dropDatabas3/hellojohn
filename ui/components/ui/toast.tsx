@@ -33,7 +33,11 @@ const toastVariants = cva(
         destructive:
           'destructive group border-destructive bg-destructive text-destructive-foreground',
         success:
-          'success group border-success bg-[#725deb] text-white',
+          'success group border-green-600 bg-green-600 text-white',
+        info:
+          'info group border-[#725deb] bg-[#725deb] text-white',
+        warning:
+          'warning group border-amber-500 bg-amber-500 text-white',
       },
     },
     defaultVariants: {
@@ -46,6 +50,8 @@ const toastIcons = {
   default: AlertCircle,
   destructive: AlertCircle,
   success: CheckCircle2,
+  info: CheckCircle2,
+  warning: AlertCircle,
 }
 
 const Toast = React.forwardRef<

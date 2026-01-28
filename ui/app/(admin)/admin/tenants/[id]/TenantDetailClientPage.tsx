@@ -227,7 +227,7 @@ export default function TenantDetailClientPage() {
               </Link>
             </Button>
             <Button variant="outline" className="w-full justify-start bg-transparent" asChild>
-              <Link href={`/admin/tenants/users?id=${tenantId}`}>
+              <Link href={`/admin/users?id=${tenantId}`}>
                 <Users className="mr-2 h-4 w-4" />
                 {t("users.manage")}
               </Link>

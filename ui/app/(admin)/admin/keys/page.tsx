@@ -47,6 +47,7 @@ export default function KeysPage() {
       toast({
         title: t("keys.rotated"),
         description: t("keys.rotatedDesc", { kid: data.kid }),
+        variant: "info",
       })
     },
     onError: (error: any) => {
@@ -65,6 +66,7 @@ export default function KeysPage() {
     toast({
       title: t("common.copied"),
       description: t("keys.kidCopied"),
+      variant: "info",
     })
   }
 

@@ -37,7 +37,7 @@ export default function RBACPage() {
       api.post<UserRolesResponse>(API_ROUTES.ADMIN_RBAC_USER_ROLES(userId), { add: [role], remove: [] }),
     onSuccess: (res) => {
       setNewUserRole("")
-      toast({ title: t("common.saved"), description: t("rbac.userRolesUpdated") })
+      toast({ title: t("common.saved"), description: t("rbac.userRolesUpdated"), variant: "info" })
     },
     onError: (e: any) => toast({ title: t("common.error"), description: e.message, variant: "destructive" }),
   })
@@ -45,7 +45,7 @@ export default function RBACPage() {
   const removeUserRole = useMutation({
     mutationFn: (role: string) =>
       api.post<UserRolesResponse>(API_ROUTES.ADMIN_RBAC_USER_ROLES(userId), { add: [], remove: [role] }),
-    onSuccess: () => toast({ title: t("common.saved"), description: t("rbac.userRolesUpdated") }),
+    onSuccess: () => toast({ title: t("common.saved"), description: t("rbac.userRolesUpdated"), variant: "info" }),
     onError: (e: any) => toast({ title: t("common.error"), description: e.message, variant: "destructive" }),
   })
 

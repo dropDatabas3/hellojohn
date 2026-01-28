@@ -466,7 +466,7 @@ func mapTenantError(err error) *httperrors.AppError {
 	case errors.Is(err, store.ErrNotLeader):
 		return httperrors.ErrServiceUnavailable.WithDetail("not leader")
 	case store.IsNoDBForTenant(err):
-		return httperrors.ErrServiceUnavailable.WithDetail("tenant has no database configured")
+		return httperrors.ErrTenantNoDatabase.WithDetail("tenant has no database configured")
 
 	// SMTP/Email errors
 	case strings.Contains(errMsg, "Username and Password not accepted") ||

@@ -260,6 +260,7 @@ export default function ClientsClientPage() {
 			toast({
 				title: t("clients.created"),
 				description: t("clients.createdDesc"),
+				variant: "success",
 			})
 		},
 		onError: (error: any) => {
@@ -282,6 +283,7 @@ export default function ClientsClientPage() {
 			toast({
 				title: t("clients.deleted"),
 				description: t("clients.deletedDesc"),
+				variant: "success",
 			})
 		},
 		onError: (error: any) => {
@@ -301,6 +303,7 @@ export default function ClientsClientPage() {
 			toast({
 				title: t("clients.revoked"),
 				description: t("clients.revokedDesc"),
+				variant: "info",
 			})
 		},
 		onError: (error: any) => {
@@ -342,7 +345,7 @@ export default function ClientsClientPage() {
 			toast({
 				title: t("common.error"),
 				description: "El nombre del cliente es obligatorio",
-				variant: "destructive",
+				variant: "warning",
 			})
 			return
 		}
@@ -350,7 +353,7 @@ export default function ClientsClientPage() {
 			toast({
 				title: t("common.error"),
 				description: "Las aplicaciones frontend requieren al menos una URI de redirección",
-				variant: "destructive",
+				variant: "warning",
 			})
 			return
 		}
@@ -403,6 +406,7 @@ export default function ClientsClientPage() {
 		toast({
 			title: t("common.copied"),
 			description: t("clients.secretCopied"),
+			variant: "info",
 		})
 	}
 

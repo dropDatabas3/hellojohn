@@ -45,7 +45,7 @@ export default function FormsClientPage() {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["tenant", tenantId] });
-            toast({ title: "Saved", description: "Form configuration saved successfully." });
+            toast({ title: "Saved", description: "Form configuration saved successfully.", variant: "info" });
         },
         onError: () => {
             toast({ title: "Error", description: "Failed to save configuration.", variant: "destructive" });

@@ -503,7 +503,7 @@ func (s *tenantsService) TestTenantDBConnection(ctx context.Context, slugOrID st
 
 	if err := tda.RequireDB(); err != nil {
 		if store.IsNoDBForTenant(err) {
-			return httperrors.ErrServiceUnavailable.WithDetail("tenant has no database configured")
+			return httperrors.ErrTenantNoDatabase.WithDetail("tenant has no database configured")
 		}
 		return err
 	}

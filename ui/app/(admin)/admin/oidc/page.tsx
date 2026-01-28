@@ -37,6 +37,7 @@ export default function OIDCPage() {
     toast({
       title: t("common.copied"),
       description: t("oidc.fieldCopied"),
+      variant: "info",
     })
   }
 

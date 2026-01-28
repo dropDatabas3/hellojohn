@@ -45,7 +45,9 @@ import {
     LayoutList,
     Sliders,
     Save,
-    X
+    X,
+    Database,
+    ArrowRight,
 } from "lucide-react"
 import {
     Dialog,
@@ -178,6 +180,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
     const { token } = useAuthStore()
     const { toast } = useToast()
     const queryClient = useQueryClient()
+    const router = useRouter()
 
     const [search, setSearch] = useState("")
     const [selectedUser, setSelectedUser] = useState<UserType | null>(null)
@@ -186,7 +189,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
     const [blockUser, setBlockUser] = useState<UserType | null>(null)
 
     // 1. Fetch Users
-    const { data: users, isLoading } = useQuery<UserType[]>({
+    const { data: users, isLoading, error: usersError } = useQuery<UserType[], any>({
         queryKey: ["users", tenantId],
         queryFn: async () => {
             const response = await api.get<{ users: UserType[], total_count: number }>(`/v2/admin/tenants/${tenantId}/users`, {
@@ -196,6 +199,13 @@ function UsersList({ tenantId }: { tenantId: string }) {
             return response?.users || []
         },
         enabled: !!tenantId && !!token,
+        retry: (failureCount, error) => {
+            // Don't retry if tenant has no database configured
+            if (error?.error === "TENANT_NO_DATABASE" || error?.status === 424) {
+                return false
+            }
+            return failureCount < 3
+        },
     })
 
     // 2. Fetch Field Definitions (Read-only for Create Form)
@@ -232,7 +242,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
             setIsCreateOpen(false)
-            toast({ title: "Usuario creado", description: "El usuario ha sido creado exitosamente." })
+            toast({ title: "Usuario creado", description: "El usuario ha sido creado exitosamente.", variant: "success" })
         },
         onError: (err: Error) => {
             toast({ title: "Error", description: err.message, variant: "destructive" })
@@ -248,7 +258,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
-            toast({ title: "Usuario eliminado", description: "El usuario ha sido eliminado." })
+            toast({ title: "Usuario eliminado", description: "El usuario ha sido eliminado.", variant: "success" })
         },
         onError: (err: Error) => {
             toast({ title: "Error", description: err.message, variant: "destructive" })
@@ -266,7 +276,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
             setBlockUser(null)
-            toast({ title: "Usuario bloqueado", description: "El usuario ha sido bloqueado exitosamente." })
+            toast({ title: "Usuario bloqueado", description: "El usuario ha sido bloqueado exitosamente.", variant: "success" })
         },
         onError: (err: Error) => {
             toast({ title: "Error", description: err.message, variant: "destructive" })
@@ -282,7 +292,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
-            toast({ title: "Usuario desbloqueado", description: "El usuario ha sido habilitado nuevamente." })
+            toast({ title: "Usuario desbloqueado", description: "El usuario ha sido habilitado nuevamente.", variant: "success" })
         },
         onError: (err: Error) => {
             toast({ title: "Error", description: err.message, variant: "destructive" })
@@ -298,6 +308,35 @@ function UsersList({ tenantId }: { tenantId: string }) {
     const handleDetails = (user: UserType) => {
         setSelectedUser(user)
         setIsDetailsOpen(true)
+    }
+
+    // Check if tenant has no database configured
+    const isNoDatabaseError = usersError?.error === "TENANT_NO_DATABASE" || usersError?.status === 424
+
+    if (isNoDatabaseError) {
+        return (
+            <div className="flex flex-col items-center justify-center py-20 px-6">
+                <div className="relative mb-8">
+                    <div className="absolute inset-0 bg-gradient-to-br from-amber-400/20 to-orange-400/20 rounded-full blur-2xl scale-150" />
+                    <div className="relative rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/50 p-5">
+                        <Database className="h-8 w-8 text-amber-600 dark:text-amber-400" />
+                    </div>
+                </div>
+                <h3 className="text-xl font-semibold text-center mb-2">
+                    Configura tu base de datos
+                </h3>
+                <p className="text-muted-foreground text-center max-w-sm mb-8 text-sm">
+                    Conecta una base de datos para comenzar a gestionar los usuarios de este tenant.
+                </p>
+                <Button
+                    onClick={() => router.push(`/admin/database?id=${tenantId}`)}
+                    className="gap-2 rounded-full px-6 shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all"
+                >
+                    Configurar
+                    <ArrowRight className="h-4 w-4" />
+                </Button>
+            </div>
+        )
     }
 
     return (
@@ -694,6 +733,7 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
             toast({
                 title: t("common.success"),
                 description: t("tenants.settingsUpdatedDesc"),
+                variant: "info",
             })
             setHasFieldChanges(false)
         },

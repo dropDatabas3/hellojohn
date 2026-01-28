@@ -187,7 +187,7 @@ func RequireTenantDB() Middleware {
 			}
 			if !tda.HasDB() {
 				log.Printf(`{"level":"warn","msg":"tenant_db_check_failed","reason":"no_db_configured","tenant":"%s","path":"%s"}`, tda.Slug(), r.URL.Path)
-				errors.WriteError(w, errors.ErrServiceUnavailable.WithDetail("tenant has no database configured"))
+				errors.WriteError(w, errors.ErrTenantNoDatabase.WithDetail("tenant has no database configured"))
 				return
 			}
 			next.ServeHTTP(w, r)

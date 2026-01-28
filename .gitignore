@@ -76,9 +76,6 @@ roadmap_v2.md
 /deployments/run-3nodes.ps1
 
 
-#handlers_description.md
-
-
 # -------- scripts --------
 
 /scripts/
@@ -88,3 +85,4 @@ roadmap_v2.md
 /.claude/
 CLAUDE.md
 .clauderc
+UI_SECTIONS_ROADMAP.md

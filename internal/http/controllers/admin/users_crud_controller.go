@@ -216,7 +216,7 @@ func (c *UsersCRUDController) writeUserCRUDError(w http.ResponseWriter, err erro
 	case errors.Is(err, svc.ErrUserTenantNotFound):
 		httperrors.WriteError(w, httperrors.ErrNotFound.WithDetail("tenant not found"))
 	case errors.Is(err, svc.ErrUserTenantNoDB):
-		httperrors.WriteError(w, httperrors.ErrServiceUnavailable.WithDetail("tenant has no database configured"))
+		httperrors.WriteError(w, httperrors.ErrTenantNoDatabase.WithDetail("tenant has no database configured"))
 	default:
 		httperrors.WriteError(w, httperrors.ErrInternalServerError)
 	}

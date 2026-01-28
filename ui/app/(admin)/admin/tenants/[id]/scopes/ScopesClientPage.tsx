@@ -70,6 +70,7 @@ export default function ScopesClientPage() {
       toast({
         title: t("scopes.created"),
         description: t("scopes.createdDesc"),
+        variant: "success",
       })
     },
     onError: (error: any) => {
@@ -91,6 +92,7 @@ export default function ScopesClientPage() {
       toast({
         title: t("scopes.deleted"),
         description: t("scopes.deletedDesc"),
+        variant: "success",
       })
     },
     onError: (error: any) => {
@@ -113,7 +115,7 @@ export default function ScopesClientPage() {
       toast({
         title: t("common.error"),
         description: t("scopes.fillRequired"),
-        variant: "destructive",
+        variant: "warning",
       })
       return
     }
@@ -123,7 +125,7 @@ export default function ScopesClientPage() {
       toast({
         title: t("common.error"),
         description: "El nombre del scope solo puede contener minúsculas, números, ':', '.', '_' y '-'.",
-        variant: "destructive",
+        variant: "warning",
       })
       return
     }

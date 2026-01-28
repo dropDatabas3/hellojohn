@@ -99,6 +99,7 @@ export default function PlaygroundPage() {
         toast({
           title: t("common.success"),
           description: t("playground.tokenExchanged"),
+          variant: "success",
         })
       } else {
         toast({
@@ -123,6 +124,7 @@ export default function PlaygroundPage() {
     toast({
       title: t("common.copied"),
       description: t("playground.urlCopied"),
+      variant: "info",
     })
   }
 
@@ -150,7 +152,7 @@ export default function PlaygroundPage() {
                     <SelectValue placeholder={t("playground.selectTenant")} />
                   </SelectTrigger>
                   <SelectContent>
-                    {tenants?.map((tenant) => (
+                    {tenants?.filter((t) => t.id).map((tenant) => (
                       <SelectItem key={tenant.id} value={tenant.id}>
                         {tenant.name}
                       </SelectItem>
@@ -166,7 +168,7 @@ export default function PlaygroundPage() {
                     <SelectValue placeholder={t("playground.selectClient")} />
                   </SelectTrigger>
                   <SelectContent>
-                    {clients?.map((client) => (
+                    {clients?.filter((c) => c.id).map((client) => (
                       <SelectItem key={client.id} value={client.id}>
                         {client.name}
                       </SelectItem>

@@ -424,7 +424,7 @@ export default function DatabasePage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tenant-storage", tenantId] })
-      toast({ title: t("common.success"), description: t("tenants.settingsUpdatedDesc") })
+      toast({ title: t("common.success"), description: t("tenants.settingsUpdatedDesc"), variant: "info" })
       setIsEditingDB(false)
       setIsEditingCache(false)
     },
@@ -459,7 +459,7 @@ export default function DatabasePage() {
       return api.post<{ applied_count: number }>(`/v2/admin/tenants/${tenantId}/user-store/migrate`, {})
     },
     onSuccess: (data) => {
-      toast({ title: t("database.migrationsApplied"), description: t("database.migrationsAppliedDesc", { count: data.applied_count || 0 }) })
+      toast({ title: t("database.migrationsApplied"), description: t("database.migrationsAppliedDesc", { count: data.applied_count || 0 }), variant: "success" })
     },
     onError: (err: any) => {
       toast({ variant: "destructive", title: t("common.error"), description: err.response?.data?.error_description || err.message })
@@ -472,7 +472,7 @@ export default function DatabasePage() {
       await api.post(`/v2/admin/tenants/${tenantId}/cache/test-connection`, {})
     },
     onSuccess: () => {
-      toast({ title: t("database.connectionSuccess"), description: "Cache connection verified." })
+      toast({ title: t("database.connectionSuccess"), description: "Cache connection verified.", variant: "success" })
     },
     onError: (err: any) => {
       toast({ variant: "destructive", title: t("common.error"), description: err.response?.data?.error_description || err.message })
@@ -498,7 +498,7 @@ export default function DatabasePage() {
 
   const handleRefresh = async () => {
     await Promise.all([refetchSettings(), refetchStats()])
-    toast({ title: "Refreshed", description: "Data updated successfully" })
+    toast({ title: "Refreshed", description: "Data updated successfully", variant: "info" })
   }
 
   // Computed

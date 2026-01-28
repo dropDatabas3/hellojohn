@@ -42,7 +42,7 @@ export default function SystemConfigPage() {
     mutationFn: async (payload: any) => api.put(`/v1/admin/config`, payload, etag),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["system-config"] })
-      toast({ title: t("config.saved"), description: t("config.savedDesc") })
+      toast({ title: t("config.saved"), description: t("config.savedDesc"), variant: "info" })
     },
     onError: (err: any) => {
       toast({ title: t("common.error"), description: err.message, variant: "destructive" })

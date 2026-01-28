@@ -79,7 +79,7 @@ export default function MetricsPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{health.version}</div>
-                <p className="text-xs text-muted-foreground">Commit: {health.commit.slice(0, 7)}</p>
+                <p className="text-xs text-muted-foreground">Commit: {health.commit?.slice(0, 7) || "Unknown"}</p>
               </CardContent>
             </Card>
 

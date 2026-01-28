@@ -75,6 +75,7 @@ export default function SettingsClientPage() {
       toast({
         title: t("tenants.updated"),
         description: t("tenants.updatedDesc"),
+        variant: "info",
       })
     },
     onError: (error: any) => {
@@ -99,6 +100,7 @@ export default function SettingsClientPage() {
       toast({
         title: t("tenants.settingsUpdated"),
         description: t("tenants.settingsUpdatedDesc"),
+        variant: "info",
       })
     },
     onError: (error: any) => {
@@ -148,6 +150,7 @@ export default function SettingsClientPage() {
       toast({
         title: "Exportación exitosa",
         description: "La configuración se ha descargado correctamente.",
+        variant: "info",
       })
     } catch (e) {
       toast({
