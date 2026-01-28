@@ -310,7 +310,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                     <nav className="space-y-1">
                       <NavItem href={`/admin/tenants/detail?id=${currentTenantId}`} icon={LayoutDashboard} label="Overview" />
                       <NavItem href={`/admin/tenants/settings?id=${currentTenantId}`} icon={Settings} label="Settings" />
-                      <NavItem href={`/admin/tenants/${currentTenantId}/mailing`} icon={Mail} label="Mailing" />
+                      <NavItem href={`/admin/tenants/mailing?id=${currentTenantId}`} icon={Mail} label="Mailing" />
                       <NavItem href={`/admin/database?id=${currentTenantId}`} icon={Database} label="Storage & Cache" />
                     </nav>
                   </div>
