@@ -314,6 +314,9 @@ func mapUserToResponse(user *repository.User) *dto.UserResponse {
 		SourceClientID: user.SourceClientID,
 		CreatedAt:      user.CreatedAt,
 		DisabledAt:     user.DisabledAt,
+		DisabledUntil:  user.DisabledUntil,
+		DisabledReason: user.DisabledReason,
+		DisabledBy:     nil, // TODO: Agregar DisabledBy al repository.User si no existe
 		CustomFields:   user.CustomFields,
 	}
 }

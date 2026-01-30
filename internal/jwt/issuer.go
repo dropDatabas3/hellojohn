@@ -169,8 +169,20 @@ func (i *Issuer) IssueIDToken(sub, aud string, std map[string]any, extra map[str
 // IssueAccessForTenant emite un Access Token para un tenant específico usando su clave activa
 // y un issuer efectivo resuelto por configuración.
 func (i *Issuer) IssueAccessForTenant(tenant, iss, sub, aud string, std map[string]any, custom map[string]any) (string, time.Time, error) {
+	return i.IssueAccessForTenantWithTTL(tenant, iss, sub, aud, std, custom, 0)
+}
+
+// IssueAccessForTenantWithTTL emite un Access Token con TTL personalizado.
+// Si ttlSeconds <= 0, usa el TTL por defecto del issuer.
+func (i *Issuer) IssueAccessForTenantWithTTL(tenant, iss, sub, aud string, std map[string]any, custom map[string]any, ttlSeconds int) (string, time.Time, error) {
 	now := time.Now().UTC()
-	exp := now.Add(i.AccessTTL)
+
+	// Use custom TTL if provided, otherwise use default
+	ttl := i.AccessTTL
+	if ttlSeconds > 0 {
+		ttl = time.Duration(ttlSeconds) * time.Second
+	}
+	exp := now.Add(ttl)
 
 	kid, priv, _, err := i.Keys.ActiveForTenant(tenant)
 	if err != nil {
@@ -204,8 +216,20 @@ func (i *Issuer) IssueAccessForTenant(tenant, iss, sub, aud string, std map[stri
 
 // IssueIDTokenForTenant emite un ID Token OIDC para un tenant específico.
 func (i *Issuer) IssueIDTokenForTenant(tenant, iss, sub, aud string, std map[string]any, extra map[string]any) (string, time.Time, error) {
+	return i.IssueIDTokenForTenantWithTTL(tenant, iss, sub, aud, std, extra, 0)
+}
+
+// IssueIDTokenForTenantWithTTL emite un ID Token OIDC con TTL personalizado.
+// Si ttlSeconds <= 0, usa el TTL por defecto del issuer.
+func (i *Issuer) IssueIDTokenForTenantWithTTL(tenant, iss, sub, aud string, std map[string]any, extra map[string]any, ttlSeconds int) (string, time.Time, error) {
 	now := time.Now().UTC()
-	exp := now.Add(i.AccessTTL)
+
+	// Use custom TTL if provided, otherwise use default
+	ttl := i.AccessTTL
+	if ttlSeconds > 0 {
+		ttl = time.Duration(ttlSeconds) * time.Second
+	}
+	exp := now.Add(ttl)
 
 	kid, priv, _, err := i.Keys.ActiveForTenant(tenant)
 	if err != nil {

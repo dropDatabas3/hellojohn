@@ -8,6 +8,12 @@ type OIDCMetadata struct {
 	TokenEndpoint                     string   `json:"token_endpoint"`
 	UserinfoEndpoint                  string   `json:"userinfo_endpoint"`
 	JWKSURI                           string   `json:"jwks_uri"`
+
+	// Endpoints opcionales (RFC 7009, RFC 7662, OIDC Session Management)
+	RevocationEndpoint                string   `json:"revocation_endpoint,omitempty"`
+	IntrospectionEndpoint             string   `json:"introspection_endpoint,omitempty"`
+	EndSessionEndpoint                string   `json:"end_session_endpoint,omitempty"`
+
 	ResponseTypesSupported            []string `json:"response_types_supported"`
 	GrantTypesSupported               []string `json:"grant_types_supported,omitempty"`
 	SubjectTypesSupported             []string `json:"subject_types_supported"`

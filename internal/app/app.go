@@ -91,7 +91,7 @@ func New(cfg Config, deps Deps) (*App, error) {
 
 	// 2. Build Controllers
 	authControllers := authctrl.NewControllers(svcs.Auth)
-	adminControllers := adminctrl.NewControllers(svcs.Admin)
+	adminControllers := adminctrl.NewControllers(svcs.Admin, adminctrl.ControllerDeps{DAL: deps.DAL})
 	oidcControllers := oidcctrl.NewControllers(svcs.OIDC)
 
 	oauthControllers := oauthctrl.NewControllers(svcs.OAuth, oauthctrl.ControllerDeps{

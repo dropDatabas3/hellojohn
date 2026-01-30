@@ -11,15 +11,29 @@ type Scope struct {
 	TenantID    string
 	Name        string
 	Description string
-	System      bool // true para scopes built-in (openid, email, profile)
+	DisplayName string   // Nombre amigable para consent screen
+	Claims      []string // Claims incluidos cuando se otorga este scope
+	DependsOn   string   // Scope del que depende (ej: openid)
+	System      bool     // true para scopes built-in (openid, email, profile)
 	CreatedAt   time.Time
+	UpdatedAt   *time.Time // Timestamp de última actualización
+}
+
+// ScopeInput contiene los datos para crear/actualizar un scope.
+type ScopeInput struct {
+	Name        string
+	Description string
+	DisplayName string
+	Claims      []string
+	DependsOn   string
+	System      bool
 }
 
 // ScopeRepository define operaciones sobre OAuth scopes.
 type ScopeRepository interface {
 	// Create crea un nuevo scope.
 	// Retorna ErrConflict si el nombre ya existe.
-	Create(ctx context.Context, tenantID, name, description string) (*Scope, error)
+	Create(ctx context.Context, tenantID string, input ScopeInput) (*Scope, error)
 
 	// GetByName busca un scope por nombre dentro de un tenant.
 	GetByName(ctx context.Context, tenantID, name string) (*Scope, error)
@@ -27,15 +41,15 @@ type ScopeRepository interface {
 	// List lista todos los scopes de un tenant.
 	List(ctx context.Context, tenantID string) ([]Scope, error)
 
-	// UpdateDescription actualiza solo la descripción de un scope.
+	// Update actualiza un scope existente.
 	// El nombre no se puede cambiar para preservar consents existentes.
-	UpdateDescription(ctx context.Context, tenantID, scopeID, description string) error
+	Update(ctx context.Context, tenantID string, input ScopeInput) (*Scope, error)
 
 	// Delete elimina un scope.
 	// Retorna error si el scope está en uso por algún client.
 	Delete(ctx context.Context, tenantID, scopeID string) error
 
-	// Upsert crea un scope si no existe, o actualiza su descripción si ya existe.
+	// Upsert crea un scope si no existe, o actualiza si ya existe.
 	// Retorna el scope resultante.
-	Upsert(ctx context.Context, tenantID, name, description string) (*Scope, error)
+	Upsert(ctx context.Context, tenantID string, input ScopeInput) (*Scope, error)
 }

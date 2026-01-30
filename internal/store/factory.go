@@ -362,6 +362,10 @@ func (c *factoryConfigAccess) Scopes(tenantSlug string) repository.ScopeReposito
 	return c.fs.Scopes()
 }
 
+func (c *factoryConfigAccess) Claims(tenantSlug string) repository.ClaimRepository {
+	return c.fs.Claims()
+}
+
 func (c *factoryConfigAccess) Keys() repository.KeyRepository {
 	return c.fs.Keys()
 }
@@ -453,6 +457,13 @@ func (t *tenantAccess) Identities() repository.IdentityRepository {
 		return nil
 	}
 	return t.dataConn.Identities()
+}
+
+func (t *tenantAccess) Sessions() repository.SessionRepository {
+	if t.dataConn == nil {
+		return nil
+	}
+	return t.dataConn.Sessions()
 }
 
 // Config repos (desde fsConn - control plane)

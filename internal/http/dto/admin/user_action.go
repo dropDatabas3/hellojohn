@@ -13,3 +13,13 @@ type UserActionRequest struct {
 type UserActionResponse struct {
 	Status string `json:"status"`
 }
+
+// SetEmailVerifiedRequest para marcar email como verificado manualmente.
+type SetEmailVerifiedRequest struct {
+	Verified bool `json:"verified"`
+}
+
+// SetPasswordRequest para cambiar contraseña de un usuario.
+type SetPasswordRequest struct {
+	Password string `json:"password"`
+}

@@ -29,6 +29,9 @@ type DataAccessLayer interface {
 	// Stats retorna estadísticas de conexiones.
 	Stats() FactoryStats
 
+	// Cluster retorna el repositorio de cluster (nil si no configurado).
+	Cluster() repository.ClusterRepository
+
 	// MigrateTenant ejecuta migraciones para un tenant específico.
 	MigrateTenant(ctx context.Context, slugOrID string) (*MigrationResult, error)
 
@@ -53,6 +56,7 @@ type TenantDataAccess interface {
 	Schema() repository.SchemaRepository
 	EmailTokens() repository.EmailTokenRepository
 	Identities() repository.IdentityRepository
+	Sessions() repository.SessionRepository
 
 	// Control plane (siempre disponibles vía FS)
 	Clients() repository.ClientRepository
@@ -76,6 +80,7 @@ type ConfigAccess interface {
 	Tenants() repository.TenantRepository
 	Clients(tenantSlug string) repository.ClientRepository
 	Scopes(tenantSlug string) repository.ScopeRepository
+	Claims(tenantSlug string) repository.ClaimRepository
 	Keys() repository.KeyRepository
 	Admins() repository.AdminRepository
 	AdminRefreshTokens() repository.AdminRefreshTokenRepository
@@ -156,6 +161,11 @@ func (m *Manager) ConfigAccess() ConfigAccess {
 // Mode retorna el modo operacional.
 func (m *Manager) Mode() OperationalMode {
 	return m.factory.Mode()
+}
+
+// Cluster retorna el repositorio de cluster (nil si no configurado).
+func (m *Manager) Cluster() repository.ClusterRepository {
+	return m.factory.Cluster()
 }
 
 // Capabilities retorna las capacidades del modo.

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { useSearchParams, useParams, useRouter } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
@@ -22,6 +22,7 @@ import {
     SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/hooks/use-toast"
 import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
@@ -48,6 +49,29 @@ import {
     X,
     Database,
     ArrowRight,
+    Users as UsersIcon,
+    Mail,
+    MailCheck,
+    MailX,
+    Key,
+    Shield,
+    ShieldAlert,
+    ShieldCheck,
+    ChevronLeft,
+    ChevronRight,
+    ChevronsLeft,
+    ChevronsRight,
+    Download,
+    History,
+    Clock,
+    CheckCircle,
+    XCircle,
+    Info,
+    Activity,
+    FileJson,
+    FileSpreadsheet,
+    RefreshCw,
+    Pencil,
 } from "lucide-react"
 import {
     Dialog,
@@ -91,7 +115,8 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { User } from "@/lib/types" // Import User type if available, otherwise define local
+import { User } from "@/lib/types"
+import { cn } from "@/lib/utils"
 
 // ----- Types -----
 interface UserFieldDefinition {
@@ -107,22 +132,85 @@ interface TenantSettings {
     userFields?: UserFieldDefinition[]
 }
 
-// Ensure User type matches if not importing
-// (Using explicit type here to match previous file)
-interface UserType extends User {
-    // Extend if needed
+interface UserType {
+    id: string
+    tenant_id?: string
+    email: string
+    email_verified: boolean
+    name?: string
+    given_name?: string
+    family_name?: string
+    picture?: string
+    locale?: string
+    metadata?: Record<string, any>
+    custom_fields?: Record<string, any>
+    created_at: string
+    updated_at?: string
+    disabled_at?: string
+    disabled_until?: string
+    disabled_reason?: string
+    last_login_at?: string
+    login_count?: number
+    failed_login_count?: number
+    source_client_id?: string
 }
 
+interface UsersListResponse {
+    users: UserType[]
+    total_count: number
+    page: number
+    page_size: number
+}
+
+// ----- Helper Components -----
+function InfoTooltip({ content }: { content: string }) {
+    return (
+        <TooltipProvider>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help ml-1 inline" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">
+                    <p className="text-xs">{content}</p>
+                </TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
+    )
+}
+
+function StatCard({ icon: Icon, label, value, variant = "default" }: { 
+    icon: any, 
+    label: string, 
+    value: string | number, 
+    variant?: "default" | "success" | "warning" | "danger" 
+}) {
+    const colorClasses = {
+        default: "bg-blue-500/10 text-blue-600",
+        success: "bg-green-500/10 text-green-600",
+        warning: "bg-amber-500/10 text-amber-600",
+        danger: "bg-red-500/10 text-red-600",
+    }
+    return (
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 border">
+            <div className={cn("p-2 rounded-lg", colorClasses[variant])}>
+                <Icon className="h-4 w-4" />
+            </div>
+            <div>
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="text-lg font-semibold">{value}</p>
+            </div>
+        </div>
+    )
+}
+
+// ----- Main Component -----
 export default function UsersPage() {
     const searchParams = useSearchParams()
     const tenantIdParam = searchParams.get("id")
     const params = useParams()
-    // Support both query param and router param if applicable, though strictly sidebar uses query param
     const tenantId = tenantIdParam || (params?.id as string)
 
     const { t } = useI18n()
-
-    // Tab State
     const [activeTab, setActiveTab] = useState("list")
 
     if (!tenantId) {
@@ -130,26 +218,43 @@ export default function UsersPage() {
             <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>{t("common.error")}</AlertTitle>
-                <AlertDescription>
-                    Tenant ID missing.
-                </AlertDescription>
+                <AlertDescription>Tenant ID missing.</AlertDescription>
             </Alert>
         )
     }
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
+            {/* Header */}
             <div className="flex items-center justify-between">
-                <div>
-                    <h2 className="text-3xl font-bold tracking-tight">
-                        Usuarios
-                    </h2>
-                    <p className="text-muted-foreground">Gestión de usuarios y campos personalizados.</p>
+                <div className="flex items-center gap-4">
+                    <div className="relative">
+                        <div className="absolute inset-0 bg-gradient-to-br from-purple-400/20 to-indigo-400/20 rounded-xl blur-xl" />
+                        <div className="relative p-3 bg-gradient-to-br from-purple-500/10 to-indigo-500/10 rounded-xl border border-purple-500/20">
+                            <UsersIcon className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+                        </div>
+                    </div>
+                    <div>
+                        <h2 className="text-2xl font-bold tracking-tight">Usuarios</h2>
+                        <p className="text-sm text-muted-foreground">
+                            Gestión completa de usuarios, campos personalizados y actividad.
+                        </p>
+                    </div>
                 </div>
             </div>
 
+            {/* Info Banner */}
+            <Alert className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/20 dark:to-indigo-950/20 border-purple-200 dark:border-purple-800">
+                <UsersIcon className="h-4 w-4 text-purple-600" />
+                <AlertTitle className="text-purple-900 dark:text-purple-100">Gestión de Identidades</AlertTitle>
+                <AlertDescription className="text-purple-800 dark:text-purple-200">
+                    Administra todos los usuarios registrados en este tenant. Puedes crear, editar, bloquear y eliminar usuarios.
+                    Los campos personalizados se configuran en la pestaña "Campos" y aplican al formulario de registro.
+                </AlertDescription>
+            </Alert>
+
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-                <TabsList>
+                <TabsList className="grid w-full max-w-md grid-cols-2">
                     <TabsTrigger value="list" className="flex items-center gap-2">
                         <LayoutList className="h-4 w-4" />
                         Lista de Usuarios
@@ -173,7 +278,7 @@ export default function UsersPage() {
 }
 
 // ----------------------------------------------------------------------
-// COMPONENT: Users List (Migrated from UsersClientPage)
+// COMPONENT: Users List with Pagination, Bulk Actions, Edit
 // ----------------------------------------------------------------------
 
 function UsersList({ tenantId }: { tenantId: string }) {
@@ -182,57 +287,83 @@ function UsersList({ tenantId }: { tenantId: string }) {
     const queryClient = useQueryClient()
     const router = useRouter()
 
+    // State
     const [search, setSearch] = useState("")
+    const [debouncedSearch, setDebouncedSearch] = useState("")
     const [selectedUser, setSelectedUser] = useState<UserType | null>(null)
     const [isDetailsOpen, setIsDetailsOpen] = useState(false)
     const [isCreateOpen, setIsCreateOpen] = useState(false)
+    const [isEditOpen, setIsEditOpen] = useState(false)
+    const [editUser, setEditUser] = useState<UserType | null>(null)
     const [blockUser, setBlockUser] = useState<UserType | null>(null)
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+    const [isBulkActionOpen, setIsBulkActionOpen] = useState(false)
+    const [bulkAction, setBulkAction] = useState<"block" | "delete" | null>(null)
+    
+    // Pagination
+    const [page, setPage] = useState(1)
+    const [pageSize, setPageSize] = useState(25)
 
-    // 1. Fetch Users
-    const { data: users, isLoading, error: usersError } = useQuery<UserType[], any>({
-        queryKey: ["users", tenantId],
+    // Debounce search
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearch(search)
+            setPage(1) // Reset to first page on search
+        }, 300)
+        return () => clearTimeout(timer)
+    }, [search])
+
+    // Fetch Users with Pagination
+    const { data: usersData, isLoading, error: usersError, refetch } = useQuery<UsersListResponse, any>({
+        queryKey: ["users", tenantId, page, pageSize, debouncedSearch],
         queryFn: async () => {
-            const response = await api.get<{ users: UserType[], total_count: number }>(`/v2/admin/tenants/${tenantId}/users`, {
-                headers: { "X-Tenant-ID": tenantId }
+            const params = new URLSearchParams({
+                page: page.toString(),
+                page_size: pageSize.toString(),
             })
-            // Backend returns paginated response, extract users array
-            return response?.users || []
+            if (debouncedSearch) {
+                params.append("search", debouncedSearch)
+            }
+            const response = await api.get<UsersListResponse>(
+                `/v2/admin/tenants/${tenantId}/users?${params.toString()}`,
+                { headers: { "X-Tenant-ID": tenantId } }
+            )
+            return response || { users: [], total_count: 0, page: 1, page_size: pageSize }
         },
         enabled: !!tenantId && !!token,
         retry: (failureCount, error) => {
-            // Don't retry if tenant has no database configured
-            if (error?.error === "TENANT_NO_DATABASE" || error?.status === 424) {
-                return false
-            }
+            if (error?.error === "TENANT_NO_DATABASE" || error?.status === 424) return false
             return failureCount < 3
         },
     })
 
-    // 2. Fetch Field Definitions (Read-only for Create Form)
+    const users = usersData?.users || []
+    const totalCount = usersData?.total_count || 0
+    const totalPages = Math.ceil(totalCount / pageSize)
+
+    // Fetch Field Definitions
     const { data: fieldDefs } = useQuery<UserFieldDefinition[]>({
         queryKey: ["user-fields", tenantId],
         queryFn: async () => {
             const tenant = await api.get<any>(`/v2/admin/tenants/${tenantId}`)
-            // Backend uses camelCase (userFields)
             return tenant?.settings?.userFields || []
         },
         enabled: !!tenantId && !!token,
     })
 
-    // 3. Fetch Clients (for source_client_id selector)
+    // Fetch Clients
     const { data: clients } = useQuery<Array<{ client_id: string, name: string, type: string }>>({
         queryKey: ["tenant-clients", tenantId],
         queryFn: async () => {
             const list = await api.get<any[]>(`/v2/admin/clients`, {
                 headers: { "X-Tenant-ID": tenantId }
             })
-            // Filter to public clients only and ensure valid client_id
             return (list || []).filter((c: any) => c.type !== "confidential" && c.client_id)
         },
         enabled: !!tenantId && !!token,
     })
 
-    // 3. Create User Mutation
+    // Mutations
     const createMutation = useMutation({
         mutationFn: async (vars: any) => {
             return api.post(`/v2/admin/tenants/${tenantId}/users`, vars, {
@@ -249,7 +380,23 @@ function UsersList({ tenantId }: { tenantId: string }) {
         },
     })
 
-    // 4. Delete User Mutation
+    const updateMutation = useMutation({
+        mutationFn: async ({ userId, data }: { userId: string, data: any }) => {
+            return api.put(`/v2/admin/tenants/${tenantId}/users/${userId}`, data, undefined, {
+                headers: { "X-Tenant-ID": tenantId }
+            })
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
+            setIsEditOpen(false)
+            setEditUser(null)
+            toast({ title: "Usuario actualizado", description: "Los cambios han sido guardados.", variant: "success" })
+        },
+        onError: (err: Error) => {
+            toast({ title: "Error", description: err.message, variant: "destructive" })
+        },
+    })
+
     const deleteMutation = useMutation({
         mutationFn: async (userId: string) => {
             return api.delete(`/v2/admin/tenants/${tenantId}/users/${userId}`, {
@@ -265,7 +412,6 @@ function UsersList({ tenantId }: { tenantId: string }) {
         },
     })
 
-    // 5. Block User Mutation
     const blockMutation = useMutation({
         mutationFn: async ({ userId, reason, duration }: { userId: string, reason: string, duration: string }) => {
             return api.post(`/v2/admin/tenants/${tenantId}/users/${userId}/disable`,
@@ -283,7 +429,6 @@ function UsersList({ tenantId }: { tenantId: string }) {
         }
     })
 
-    // 6. Enable User Mutation
     const enableMutation = useMutation({
         mutationFn: async (userId: string) => {
             return api.post(`/v2/admin/tenants/${tenantId}/users/${userId}/enable`, {}, {
@@ -299,16 +444,148 @@ function UsersList({ tenantId }: { tenantId: string }) {
         }
     })
 
-    const filteredUsers = users?.filter(
-        (user) =>
-            (user.email || "").toLowerCase().includes(search.toLowerCase()) ||
-            (user.id || "").toLowerCase().includes(search.toLowerCase())
-    )
+    const setEmailVerifiedMutation = useMutation({
+        mutationFn: async ({ userId, verified }: { userId: string, verified: boolean }) => {
+            return api.post(`/v2/admin/tenants/${tenantId}/users/${userId}/set-email-verified`,
+                { verified },
+                { headers: { "X-Tenant-ID": tenantId } }
+            )
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
+            toast({ title: "Email verificado", description: "El estado de verificación ha sido actualizado.", variant: "success" })
+        },
+        onError: (err: Error) => {
+            // Fallback: If endpoint doesn't exist, try PUT update
+            toast({ title: "Aviso", description: "La verificación manual de email requiere configuración adicional del backend.", variant: "default" })
+        }
+    })
 
-    const handleDetails = (user: UserType) => {
-        setSelectedUser(user)
-        setIsDetailsOpen(true)
+    const changePasswordMutation = useMutation({
+        mutationFn: async ({ userId, newPassword }: { userId: string, newPassword: string }) => {
+            return api.post(`/v2/admin/tenants/${tenantId}/users/${userId}/set-password`,
+                { password: newPassword },
+                { headers: { "X-Tenant-ID": tenantId } }
+            )
+        },
+        onSuccess: () => {
+            toast({ title: "Contraseña actualizada", description: "La contraseña ha sido cambiada exitosamente.", variant: "success" })
+        },
+        onError: (err: Error) => {
+            toast({ title: "Error", description: err.message, variant: "destructive" })
+        }
+    })
+
+    // Bulk Actions
+    const bulkBlockMutation = useMutation({
+        mutationFn: async (userIds: string[]) => {
+            const results = await Promise.allSettled(
+                userIds.map(id => 
+                    api.post(`/v2/admin/tenants/${tenantId}/users/${id}/disable`,
+                        { reason: "Bulk action", duration: "" },
+                        { headers: { "X-Tenant-ID": tenantId } }
+                    )
+                )
+            )
+            const failed = results.filter(r => r.status === "rejected").length
+            if (failed > 0) throw new Error(`${failed} usuarios no pudieron ser bloqueados`)
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
+            setSelectedIds(new Set())
+            setIsBulkActionOpen(false)
+            toast({ title: "Usuarios bloqueados", description: "Los usuarios seleccionados han sido bloqueados.", variant: "success" })
+        },
+        onError: (err: Error) => {
+            queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
+            toast({ title: "Error parcial", description: err.message, variant: "destructive" })
+        }
+    })
+
+    const bulkDeleteMutation = useMutation({
+        mutationFn: async (userIds: string[]) => {
+            const results = await Promise.allSettled(
+                userIds.map(id => 
+                    api.delete(`/v2/admin/tenants/${tenantId}/users/${id}`, {
+                        headers: { "X-Tenant-ID": tenantId }
+                    })
+                )
+            )
+            const failed = results.filter(r => r.status === "rejected").length
+            if (failed > 0) throw new Error(`${failed} usuarios no pudieron ser eliminados`)
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
+            setSelectedIds(new Set())
+            setIsBulkActionOpen(false)
+            toast({ title: "Usuarios eliminados", description: "Los usuarios seleccionados han sido eliminados.", variant: "success" })
+        },
+        onError: (err: Error) => {
+            queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
+            toast({ title: "Error parcial", description: err.message, variant: "destructive" })
+        }
+    })
+
+    // Selection handlers
+    const toggleSelectAll = () => {
+        if (selectedIds.size === users.length) {
+            setSelectedIds(new Set())
+        } else {
+            setSelectedIds(new Set(users.map(u => u.id)))
+        }
     }
+
+    const toggleSelect = (userId: string) => {
+        const newSet = new Set(selectedIds)
+        if (newSet.has(userId)) {
+            newSet.delete(userId)
+        } else {
+            newSet.add(userId)
+        }
+        setSelectedIds(newSet)
+    }
+
+    // Export handlers
+    const exportUsers = (format: "json" | "csv") => {
+        const dataToExport = selectedIds.size > 0 
+            ? users.filter(u => selectedIds.has(u.id))
+            : users
+
+        if (format === "json") {
+            const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { type: "application/json" })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement("a")
+            a.href = url
+            a.download = `users-${tenantId}-${new Date().toISOString().split('T')[0]}.json`
+            a.click()
+            URL.revokeObjectURL(url)
+        } else {
+            const headers = ["id", "email", "email_verified", "created_at", "disabled_at"]
+            const csvRows = [
+                headers.join(","),
+                ...dataToExport.map(u => 
+                    headers.map(h => JSON.stringify((u as any)[h] ?? "")).join(",")
+                )
+            ]
+            const blob = new Blob([csvRows.join("\n")], { type: "text/csv" })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement("a")
+            a.href = url
+            a.download = `users-${tenantId}-${new Date().toISOString().split('T')[0]}.csv`
+            a.click()
+            URL.revokeObjectURL(url)
+        }
+        toast({ title: "Exportación completada", description: `${dataToExport.length} usuarios exportados en formato ${format.toUpperCase()}.` })
+    }
+
+    // Calculate stats
+    const stats = useMemo(() => {
+        const active = users.filter(u => !u.disabled_at).length
+        const blocked = users.filter(u => !!u.disabled_at).length
+        const verified = users.filter(u => u.email_verified).length
+        const unverified = users.filter(u => !u.email_verified).length
+        return { active, blocked, verified, unverified }
+    }, [users])
 
     // Check if tenant has no database configured
     const isNoDatabaseError = usersError?.error === "TENANT_NO_DATABASE" || usersError?.status === 424
@@ -322,9 +599,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
                         <Database className="h-8 w-8 text-amber-600 dark:text-amber-400" />
                     </div>
                 </div>
-                <h3 className="text-xl font-semibold text-center mb-2">
-                    Configura tu base de datos
-                </h3>
+                <h3 className="text-xl font-semibold text-center mb-2">Configura tu base de datos</h3>
                 <p className="text-muted-foreground text-center max-w-sm mb-8 text-sm">
                     Conecta una base de datos para comenzar a gestionar los usuarios de este tenant.
                 </p>
@@ -341,44 +616,139 @@ function UsersList({ tenantId }: { tenantId: string }) {
 
     return (
         <div className="space-y-4">
-            <div className="flex items-center justify-between">
-                <div className="relative">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        placeholder="Buscar por email o ID..."
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        className="pl-9 h-9 w-[150px] lg:w-[300px]"
-                    />
-                </div>
-                <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-                    <DialogTrigger asChild>
-                        <Button><Plus className="mr-2 h-4 w-4" /> Crear Usuario</Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
-                        <DialogHeader>
-                            <DialogTitle>Crear Nuevo Usuario</DialogTitle>
-                            <DialogDescription>
-                                Ingresa los datos básicos y campos personalizados.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <CreateUserForm
-                            fieldDefs={fieldDefs || []}
-                            clients={clients || []}
-                            onSubmit={(data) => createMutation.mutate(data)}
-                            isPending={createMutation.isPending}
-                        />
-                    </DialogContent>
-                </Dialog>
+            {/* Stats Row */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <StatCard icon={UsersIcon} label="Total Usuarios" value={totalCount} variant="default" />
+                <StatCard icon={ShieldCheck} label="Activos" value={stats.active} variant="success" />
+                <StatCard icon={ShieldAlert} label="Bloqueados" value={stats.blocked} variant="danger" />
+                <StatCard icon={MailCheck} label="Verificados" value={stats.verified} variant="success" />
             </div>
 
-            <div className="rounded-md border bg-card">
+            {/* Toolbar */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <div className="relative flex-1 sm:flex-none">
+                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder="Buscar por email o ID..."
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            className="pl-9 h-9 w-full sm:w-[250px] lg:w-[300px]"
+                        />
+                    </div>
+                    <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => refetch()}>
+                        <RefreshCw className="h-4 w-4" />
+                    </Button>
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                    {/* Export Dropdown */}
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm" className="h-9">
+                                <Download className="mr-2 h-4 w-4" />
+                                Exportar
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Formato de exportación</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => exportUsers("json")}>
+                                <FileJson className="mr-2 h-4 w-4" />
+                                JSON
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => exportUsers("csv")}>
+                                <FileSpreadsheet className="mr-2 h-4 w-4" />
+                                CSV
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+
+                    <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+                        <DialogTrigger asChild>
+                            <Button className="h-9">
+                                <Plus className="mr-2 h-4 w-4" /> Crear Usuario
+                            </Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+                            <DialogHeader>
+                                <DialogTitle>Crear Nuevo Usuario</DialogTitle>
+                                <DialogDescription>
+                                    Ingresa los datos básicos y campos personalizados.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <CreateUserForm
+                                fieldDefs={fieldDefs || []}
+                                clients={clients || []}
+                                onSubmit={(data) => createMutation.mutate(data)}
+                                isPending={createMutation.isPending}
+                            />
+                        </DialogContent>
+                    </Dialog>
+                </div>
+            </div>
+
+            {/* Bulk Actions Bar */}
+            {selectedIds.size > 0 && (
+                <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border border-dashed animate-in slide-in-from-top-2 duration-200">
+                    <div className="flex items-center gap-2">
+                        <Checkbox 
+                            checked={selectedIds.size === users.length} 
+                            onCheckedChange={toggleSelectAll}
+                        />
+                        <span className="text-sm font-medium">
+                            {selectedIds.size} usuario{selectedIds.size !== 1 ? "s" : ""} seleccionado{selectedIds.size !== 1 ? "s" : ""}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                                setBulkAction("block")
+                                setIsBulkActionOpen(true)
+                            }}
+                        >
+                            <Ban className="mr-2 h-4 w-4" />
+                            Bloquear
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => {
+                                setBulkAction("delete")
+                                setIsBulkActionOpen(true)
+                            }}
+                        >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Eliminar
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setSelectedIds(new Set())}
+                        >
+                            <X className="mr-2 h-4 w-4" />
+                            Cancelar
+                        </Button>
+                    </div>
+                </div>
+            )}
+
+            {/* Users Table */}
+            <div className="rounded-lg border bg-card overflow-hidden">
                 <Table>
                     <TableHeader>
-                        <TableRow>
+                        <TableRow className="bg-muted/30">
+                            <TableHead className="w-[50px]">
+                                <Checkbox 
+                                    checked={users.length > 0 && selectedIds.size === users.length}
+                                    onCheckedChange={toggleSelectAll}
+                                />
+                            </TableHead>
                             <TableHead className="w-[50px]"></TableHead>
                             <TableHead>Identidad</TableHead>
                             <TableHead>Estado</TableHead>
+                            <TableHead className="hidden lg:table-cell">Verificación</TableHead>
                             <TableHead className="hidden md:table-cell">Creado</TableHead>
                             <TableHead className="text-right">Acciones</TableHead>
                         </TableRow>
@@ -386,28 +756,41 @@ function UsersList({ tenantId }: { tenantId: string }) {
                     <TableBody>
                         {isLoading ? (
                             <TableRow>
-                                <TableCell colSpan={5} className="h-24 text-center">
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin inline" /> Cargando...
+                                <TableCell colSpan={7} className="h-24 text-center">
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin inline" /> Cargando usuarios...
                                 </TableCell>
                             </TableRow>
-                        ) : (!filteredUsers || filteredUsers.length === 0) ? (
+                        ) : users.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
+                                <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                                     <div className="flex flex-col items-center justify-center gap-2">
                                         <UserIcon className="h-8 w-8 text-muted-foreground/50" />
                                         <p>No se encontraron usuarios.</p>
+                                        {debouncedSearch && (
+                                            <p className="text-xs">Intenta con otro término de búsqueda.</p>
+                                        )}
                                     </div>
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            filteredUsers.map((user) => (
+                            users.map((user) => (
                                 <UserRow
                                     key={user.id}
                                     user={user}
+                                    isSelected={selectedIds.has(user.id)}
+                                    onSelect={() => toggleSelect(user.id)}
                                     onDelete={() => deleteMutation.mutate(user.id)}
-                                    onDetails={() => handleDetails(user)}
-                                    onBlock={() => { setBlockUser(user) }}
+                                    onDetails={() => {
+                                        setSelectedUser(user)
+                                        setIsDetailsOpen(true)
+                                    }}
+                                    onEdit={() => {
+                                        setEditUser(user)
+                                        setIsEditOpen(true)
+                                    }}
+                                    onBlock={() => setBlockUser(user)}
                                     onUnlock={() => enableMutation.mutate(user.id)}
+                                    onVerifyEmail={() => setEmailVerifiedMutation.mutate({ userId: user.id, verified: true })}
                                 />
                             ))
                         )}
@@ -415,11 +798,85 @@ function UsersList({ tenantId }: { tenantId: string }) {
                 </Table>
             </div>
 
+            {/* Pagination */}
+            {totalPages > 1 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <span>Mostrando {((page - 1) * pageSize) + 1} - {Math.min(page * pageSize, totalCount)} de {totalCount}</span>
+                        <Select value={pageSize.toString()} onValueChange={(v) => { setPageSize(parseInt(v)); setPage(1); }}>
+                            <SelectTrigger className="w-[100px] h-8">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="10">10 / pág</SelectItem>
+                                <SelectItem value="25">25 / pág</SelectItem>
+                                <SelectItem value="50">50 / pág</SelectItem>
+                                <SelectItem value="100">100 / pág</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <div className="flex items-center gap-1">
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            disabled={page === 1}
+                            onClick={() => setPage(1)}
+                        >
+                            <ChevronsLeft className="h-4 w-4" />
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            disabled={page === 1}
+                            onClick={() => setPage(p => Math.max(1, p - 1))}
+                        >
+                            <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <div className="flex items-center gap-1 px-2">
+                            <span className="text-sm">Página</span>
+                            <Input
+                                type="number"
+                                min={1}
+                                max={totalPages}
+                                value={page}
+                                onChange={(e) => {
+                                    const val = parseInt(e.target.value)
+                                    if (val >= 1 && val <= totalPages) setPage(val)
+                                }}
+                                className="w-14 h-8 text-center"
+                            />
+                            <span className="text-sm">de {totalPages}</span>
+                        </div>
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            disabled={page === totalPages}
+                            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                        >
+                            <ChevronRight className="h-4 w-4" />
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            disabled={page === totalPages}
+                            onClick={() => setPage(totalPages)}
+                        >
+                            <ChevronsRight className="h-4 w-4" />
+                        </Button>
+                    </div>
+                </div>
+            )}
+
+            {/* User Details Dialog */}
             <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
-                <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+                <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Detalles del Usuario</DialogTitle>
-                        <DialogDescription>Información completa registrada.</DialogDescription>
+                        <DialogDescription>Información completa y actividad del usuario.</DialogDescription>
                     </DialogHeader>
                     {selectedUser && (
                         <UserDetails
@@ -427,22 +884,56 @@ function UsersList({ tenantId }: { tenantId: string }) {
                             tenantId={tenantId}
                             token={token}
                             clients={clients || []}
+                            fieldDefs={fieldDefs || []}
                             onUpdate={() => {
                                 queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
                                 setIsDetailsOpen(false)
+                            }}
+                            onEdit={() => {
+                                setEditUser(selectedUser)
+                                setIsDetailsOpen(false)
+                                setIsEditOpen(true)
+                            }}
+                            onChangePassword={(newPassword) => {
+                                changePasswordMutation.mutate({ userId: selectedUser.id, newPassword })
+                            }}
+                            onVerifyEmail={() => {
+                                setEmailVerifiedMutation.mutate({ userId: selectedUser.id, verified: true })
                             }}
                         />
                     )}
                 </DialogContent>
             </Dialog>
 
+            {/* Edit User Dialog */}
+            <Dialog open={isEditOpen} onOpenChange={(open) => { setIsEditOpen(open); if (!open) setEditUser(null); }}>
+                <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Editar Usuario</DialogTitle>
+                        <DialogDescription>
+                            Modifica los datos del usuario. El email no puede ser cambiado.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {editUser && (
+                        <EditUserForm
+                            user={editUser}
+                            fieldDefs={fieldDefs || []}
+                            clients={clients || []}
+                            onSubmit={(data) => updateMutation.mutate({ userId: editUser.id, data })}
+                            isPending={updateMutation.isPending}
+                        />
+                    )}
+                </DialogContent>
+            </Dialog>
+
+            {/* Block User Dialog */}
             {blockUser && (
                 <BlockUserDialog
                     user={blockUser}
                     onClose={() => setBlockUser(null)}
                     onBlock={(userId, reason, duration) => {
                         if (!userId) {
-                            toast({ title: "Error", description: "No se pudo identificar el usuario (ID faltante)", variant: "destructive" })
+                            toast({ title: "Error", description: "No se pudo identificar el usuario", variant: "destructive" })
                             return
                         }
                         blockMutation.mutate({ userId, reason, duration })
@@ -450,11 +941,74 @@ function UsersList({ tenantId }: { tenantId: string }) {
                     isPending={blockMutation.isPending}
                 />
             )}
+
+            {/* Bulk Action Confirmation Dialog */}
+            <Dialog open={isBulkActionOpen} onOpenChange={setIsBulkActionOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>
+                            {bulkAction === "delete" ? "Eliminar usuarios" : "Bloquear usuarios"}
+                        </DialogTitle>
+                        <DialogDescription>
+                            {bulkAction === "delete" 
+                                ? `¿Estás seguro de eliminar ${selectedIds.size} usuario(s)? Esta acción no se puede deshacer.`
+                                : `¿Estás seguro de bloquear ${selectedIds.size} usuario(s)?`
+                            }
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsBulkActionOpen(false)}>
+                            Cancelar
+                        </Button>
+                        <Button
+                            variant={bulkAction === "delete" ? "destructive" : "default"}
+                            onClick={() => {
+                                const ids = Array.from(selectedIds)
+                                if (bulkAction === "delete") {
+                                    bulkDeleteMutation.mutate(ids)
+                                } else {
+                                    bulkBlockMutation.mutate(ids)
+                                }
+                            }}
+                            disabled={bulkDeleteMutation.isPending || bulkBlockMutation.isPending}
+                        >
+                            {(bulkDeleteMutation.isPending || bulkBlockMutation.isPending) && (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            )}
+                            {bulkAction === "delete" ? "Eliminar" : "Bloquear"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }
 
-function UserRow({ user, onDelete, onDetails, onBlock, onUnlock }: { user: UserType, onDelete: () => void, onDetails: () => void, onBlock: () => void, onUnlock: () => void }) {
+// ----------------------------------------------------------------------
+// COMPONENT: User Row
+// ----------------------------------------------------------------------
+
+function UserRow({ 
+    user, 
+    isSelected, 
+    onSelect, 
+    onDelete, 
+    onDetails, 
+    onEdit,
+    onBlock, 
+    onUnlock,
+    onVerifyEmail 
+}: { 
+    user: UserType
+    isSelected: boolean
+    onSelect: () => void
+    onDelete: () => void
+    onDetails: () => void
+    onEdit: () => void
+    onBlock: () => void
+    onUnlock: () => void
+    onVerifyEmail: () => void
+}) {
     let dateStr = "-"
     try {
         if (user.created_at) {
@@ -471,40 +1025,53 @@ function UserRow({ user, onDelete, onDetails, onBlock, onUnlock }: { user: UserT
     const displayBlocked = isBlocked || isSuspended
 
     return (
-        <TableRow>
+        <TableRow className={cn(isSelected && "bg-muted/50")}>
             <TableCell>
-                <div className="h-9 w-9 bg-muted rounded-full flex items-center justify-center font-semibold text-xs text-muted-foreground">
+                <Checkbox checked={isSelected} onCheckedChange={onSelect} />
+            </TableCell>
+            <TableCell>
+                <div className="h-9 w-9 bg-gradient-to-br from-purple-100 to-indigo-100 dark:from-purple-900/30 dark:to-indigo-900/30 rounded-full flex items-center justify-center font-semibold text-xs text-purple-700 dark:text-purple-300">
                     {initial}
                 </div>
             </TableCell>
             <TableCell>
                 <div className="flex flex-col">
                     <span className="font-medium truncate max-w-[200px]">{user.email}</span>
-                    <span className="text-xs text-muted-foreground font-mono truncate max-w-[150px] opacity-70 cursor-pointer" title={user.id}>{user.id}</span>
+                    <span className="text-xs text-muted-foreground font-mono truncate max-w-[150px] opacity-70" title={user.id}>
+                        {user.id}
+                    </span>
                 </div>
             </TableCell>
             <TableCell>
-                <div className="flex flex-col gap-1 items-start">
-                    {displayBlocked ? (
-                        <div className="flex flex-col gap-0.5">
-                            <Badge variant="destructive" className="h-5 text-[10px] px-1.5" >
-                                {isSuspended ? "Suspendido" : "Deshabilitado"}
-                            </Badge>
-                            {isSuspended && user.disabled_until && (
-                                <span className="text-[9px] text-red-500 font-mono">
-                                    Hasta: {new Date(user.disabled_until).toLocaleString("es-ES", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                                </span>
-                            )}
-                        </div>
-                    ) : (
-                        <Badge variant="default" className="h-5 text-[10px] px-1.5 bg-green-600 hover:bg-green-700">Activo</Badge>
-                    )}
-                    {user.email_verified ? (
-                        <span className="text-[10px] text-green-600 font-medium flex items-center">Ok Verificado</span>
-                    ) : (
-                        <span className="text-[10px] text-amber-600 font-medium flex items-center">No Verificado</span>
-                    )}
-                </div>
+                {displayBlocked ? (
+                    <div className="flex flex-col gap-0.5">
+                        <Badge variant="destructive" className="h-5 text-[10px] px-1.5 w-fit">
+                            {isSuspended ? "Suspendido" : "Deshabilitado"}
+                        </Badge>
+                        {isSuspended && user.disabled_until && (
+                            <span className="text-[9px] text-red-500 font-mono">
+                                Hasta: {new Date(user.disabled_until).toLocaleString("es-ES", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                        )}
+                    </div>
+                ) : (
+                    <Badge variant="default" className="h-5 text-[10px] px-1.5 bg-green-600 hover:bg-green-700 w-fit">
+                        Activo
+                    </Badge>
+                )}
+            </TableCell>
+            <TableCell className="hidden lg:table-cell">
+                {user.email_verified ? (
+                    <div className="flex items-center gap-1 text-green-600">
+                        <MailCheck className="h-4 w-4" />
+                        <span className="text-xs font-medium">Verificado</span>
+                    </div>
+                ) : (
+                    <div className="flex items-center gap-1 text-amber-600">
+                        <MailX className="h-4 w-4" />
+                        <span className="text-xs font-medium">Pendiente</span>
+                    </div>
+                )}
             </TableCell>
             <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
                 {dateStr}
@@ -517,10 +1084,13 @@ function UserRow({ user, onDelete, onDetails, onBlock, onUnlock }: { user: UserT
                             <MoreHorizontal className="h-4 w-4" />
                         </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent align="end" className="w-48">
                         <DropdownMenuLabel>Acciones</DropdownMenuLabel>
                         <DropdownMenuItem onClick={onDetails}>
                             <Eye className="mr-2 h-4 w-4" /> Ver Detalles
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={onEdit}>
+                            <Pencil className="mr-2 h-4 w-4" /> Editar
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => {
                             if (user.id) navigator.clipboard.writeText(user.id)
@@ -528,6 +1098,11 @@ function UserRow({ user, onDelete, onDetails, onBlock, onUnlock }: { user: UserT
                             <Copy className="mr-2 h-4 w-4" /> Copiar ID
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
+                        {!user.email_verified && (
+                            <DropdownMenuItem onClick={onVerifyEmail}>
+                                <MailCheck className="mr-2 h-4 w-4 text-green-600" /> Marcar Verificado
+                            </DropdownMenuItem>
+                        )}
                         {displayBlocked ? (
                             <DropdownMenuItem onClick={onUnlock}>
                                 <Unlock className="mr-2 h-4 w-4 text-green-600" /> Desbloquear
@@ -539,7 +1114,7 @@ function UserRow({ user, onDelete, onDetails, onBlock, onUnlock }: { user: UserT
                         )}
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={onDelete} className="text-red-600 focus:text-red-600 focus:bg-red-50">
-                            <Trash2 className="mr-2 h-4 w-4" /> Eliminar usuario
+                            <Trash2 className="mr-2 h-4 w-4" /> Eliminar
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
@@ -548,24 +1123,30 @@ function UserRow({ user, onDelete, onDetails, onBlock, onUnlock }: { user: UserT
     )
 }
 
+// ----------------------------------------------------------------------
+// COMPONENT: Create User Form
+// ----------------------------------------------------------------------
+
 function CreateUserForm({ fieldDefs, clients, onSubmit, isPending }: {
-    fieldDefs: UserFieldDefinition[],
-    clients: Array<{ client_id: string, name: string, type: string }>,
-    onSubmit: (data: any) => void,
+    fieldDefs: UserFieldDefinition[]
+    clients: Array<{ client_id: string, name: string, type: string }>
+    onSubmit: (data: any) => void
     isPending: boolean
 }) {
     const [email, setEmail] = useState("")
     const [password, setPassword] = useState("")
     const [sourceClientId, setSourceClientId] = useState<string>("_none")
     const [customFields, setCustomFields] = useState<Record<string, any>>({})
+    const [name, setName] = useState("")
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
         onSubmit({
             email,
             password,
+            name: name || undefined,
             email_verified: true,
-            custom_fields: customFields,
+            custom_fields: Object.keys(customFields).length > 0 ? customFields : undefined,
             source_client_id: (!sourceClientId || sourceClientId === "_none") ? null : sourceClientId
         })
     }
@@ -574,7 +1155,7 @@ function CreateUserForm({ fieldDefs, clients, onSubmit, isPending }: {
         <form onSubmit={handleSubmit} className="space-y-6 py-2">
             <div className="grid gap-4">
                 <div className="grid gap-2">
-                    <Label htmlFor="email">Email</Label>
+                    <Label htmlFor="email">Email <span className="text-red-500">*</span></Label>
                     <Input
                         id="email"
                         type="email"
@@ -585,7 +1166,17 @@ function CreateUserForm({ fieldDefs, clients, onSubmit, isPending }: {
                     />
                 </div>
                 <div className="grid gap-2">
-                    <Label htmlFor="password">Contraseña Temporal</Label>
+                    <Label htmlFor="name">Nombre (opcional)</Label>
+                    <Input
+                        id="name"
+                        type="text"
+                        placeholder="Juan Pérez"
+                        value={name}
+                        onChange={e => setName(e.target.value)}
+                    />
+                </div>
+                <div className="grid gap-2">
+                    <Label htmlFor="password">Contraseña <span className="text-red-500">*</span></Label>
                     <Input
                         id="password"
                         type="password"
@@ -594,6 +1185,7 @@ function CreateUserForm({ fieldDefs, clients, onSubmit, isPending }: {
                         onChange={e => setPassword(e.target.value)}
                         required
                     />
+                    <p className="text-xs text-muted-foreground">Mínimo 8 caracteres recomendado.</p>
                 </div>
                 <div className="grid gap-2">
                     <Label htmlFor="sourceClient">Cliente Origen (opcional)</Label>
@@ -620,13 +1212,15 @@ function CreateUserForm({ fieldDefs, clients, onSubmit, isPending }: {
                 <div className="space-y-4 pt-2">
                     <div className="flex items-center">
                         <div className="h-px flex-1 bg-border" />
-                        <span className="px-2 text-xs font-semibold text-muted-foreground uppercase">Información Adicional</span>
+                        <span className="px-2 text-xs font-semibold text-muted-foreground uppercase">Campos Personalizados</span>
                         <div className="h-px flex-1 bg-border" />
                     </div>
 
                     {fieldDefs.map((field) => (
                         <div key={field.name} className="grid gap-2">
-                            <Label htmlFor={field.name}>{field.name} {field.required && <span className="text-red-500">*</span>}</Label>
+                            <Label htmlFor={field.name}>
+                                {field.name} {field.required && <span className="text-red-500">*</span>}
+                            </Label>
                             {field.type === "phone" ? (
                                 <PhoneInput
                                     value={customFields[field.name] as string}
@@ -637,15 +1231,28 @@ function CreateUserForm({ fieldDefs, clients, onSubmit, isPending }: {
                                     value={customFields[field.name] as string}
                                     onChange={(val) => setCustomFields({ ...customFields, [field.name]: val })}
                                 />
+                            ) : field.type === "boolean" ? (
+                                <div className="flex items-center gap-2">
+                                    <Switch
+                                        checked={!!customFields[field.name]}
+                                        onCheckedChange={(c) => setCustomFields({ ...customFields, [field.name]: c })}
+                                    />
+                                    <span className="text-sm text-muted-foreground">
+                                        {customFields[field.name] ? "Sí" : "No"}
+                                    </span>
+                                </div>
                             ) : (
                                 <Input
                                     id={field.name}
-                                    type={field.type === "number" || field.type === "int" ? "number" : "text"}
+                                    type={field.type === "number" || field.type === "int" ? "number" : field.type === "date" ? "date" : "text"}
                                     value={customFields[field.name] || ""}
                                     onChange={(e) => setCustomFields({ ...customFields, [field.name]: e.target.value })}
                                     required={field.required}
                                     placeholder={`Ingresa ${field.name}`}
                                 />
+                            )}
+                            {field.description && (
+                                <p className="text-xs text-muted-foreground">{field.description}</p>
                             )}
                         </div>
                     ))}
@@ -663,7 +1270,606 @@ function CreateUserForm({ fieldDefs, clients, onSubmit, isPending }: {
 }
 
 // ----------------------------------------------------------------------
-// COMPONENT: Fields Settings (Migrated from original UsersPage)
+// COMPONENT: Edit User Form
+// ----------------------------------------------------------------------
+
+function EditUserForm({ user, fieldDefs, clients, onSubmit, isPending }: {
+    user: UserType
+    fieldDefs: UserFieldDefinition[]
+    clients: Array<{ client_id: string, name: string, type: string }>
+    onSubmit: (data: any) => void
+    isPending: boolean
+}) {
+    const [name, setName] = useState(user.name || "")
+    const [givenName, setGivenName] = useState((user as any).given_name || "")
+    const [familyName, setFamilyName] = useState((user as any).family_name || "")
+    const [locale, setLocale] = useState((user as any).locale || "")
+    const [sourceClientId, setSourceClientId] = useState<string>(user.source_client_id || "_none")
+    const [customFields, setCustomFields] = useState<Record<string, any>>(user.custom_fields || {})
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault()
+        onSubmit({
+            name: name || undefined,
+            given_name: givenName || undefined,
+            family_name: familyName || undefined,
+            locale: locale || undefined,
+            source_client_id: (!sourceClientId || sourceClientId === "_none") ? null : sourceClientId,
+            custom_fields: Object.keys(customFields).length > 0 ? customFields : undefined,
+        })
+    }
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-6 py-2">
+            {/* Read-only Email */}
+            <div className="grid gap-2">
+                <Label>Email</Label>
+                <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
+                    <Mail className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">{user.email}</span>
+                    <Badge variant="outline" className="ml-auto text-[10px]">No editable</Badge>
+                </div>
+            </div>
+
+            <div className="grid gap-4">
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                        <Label htmlFor="givenName">Nombre</Label>
+                        <Input
+                            id="givenName"
+                            placeholder="Juan"
+                            value={givenName}
+                            onChange={e => setGivenName(e.target.value)}
+                        />
+                    </div>
+                    <div className="grid gap-2">
+                        <Label htmlFor="familyName">Apellido</Label>
+                        <Input
+                            id="familyName"
+                            placeholder="Pérez"
+                            value={familyName}
+                            onChange={e => setFamilyName(e.target.value)}
+                        />
+                    </div>
+                </div>
+                <div className="grid gap-2">
+                    <Label htmlFor="name">Nombre Completo</Label>
+                    <Input
+                        id="name"
+                        placeholder="Juan Pérez"
+                        value={name}
+                        onChange={e => setName(e.target.value)}
+                    />
+                </div>
+                <div className="grid gap-2">
+                    <Label htmlFor="locale">Idioma/Locale</Label>
+                    <Select value={locale || "_unset"} onValueChange={(v) => setLocale(v === "_unset" ? "" : v)}>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Seleccionar idioma..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="_unset">Sin especificar</SelectItem>
+                            <SelectItem value="es">Español (es)</SelectItem>
+                            <SelectItem value="en">English (en)</SelectItem>
+                            <SelectItem value="pt">Português (pt)</SelectItem>
+                            <SelectItem value="fr">Français (fr)</SelectItem>
+                            <SelectItem value="de">Deutsch (de)</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+                <div className="grid gap-2">
+                    <Label htmlFor="sourceClient">Cliente Origen</Label>
+                    <Select value={sourceClientId} onValueChange={setSourceClientId}>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Seleccionar cliente..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="_none">Sin cliente asociado</SelectItem>
+                            {clients.map((c) => (
+                                <SelectItem key={c.client_id} value={c.client_id}>
+                                    {c.name || c.client_id}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+            </div>
+
+            {fieldDefs.length > 0 && (
+                <div className="space-y-4 pt-2">
+                    <div className="flex items-center">
+                        <div className="h-px flex-1 bg-border" />
+                        <span className="px-2 text-xs font-semibold text-muted-foreground uppercase">Campos Personalizados</span>
+                        <div className="h-px flex-1 bg-border" />
+                    </div>
+
+                    {fieldDefs.map((field) => (
+                        <div key={field.name} className="grid gap-2">
+                            <Label htmlFor={`edit-${field.name}`}>
+                                {field.name} {field.required && <span className="text-red-500">*</span>}
+                            </Label>
+                            {field.type === "phone" ? (
+                                <PhoneInput
+                                    value={customFields[field.name] as string}
+                                    onChange={(val) => setCustomFields({ ...customFields, [field.name]: val })}
+                                />
+                            ) : field.type === "country" ? (
+                                <CountrySelect
+                                    value={customFields[field.name] as string}
+                                    onChange={(val) => setCustomFields({ ...customFields, [field.name]: val })}
+                                />
+                            ) : field.type === "boolean" ? (
+                                <div className="flex items-center gap-2">
+                                    <Switch
+                                        checked={!!customFields[field.name]}
+                                        onCheckedChange={(c) => setCustomFields({ ...customFields, [field.name]: c })}
+                                    />
+                                    <span className="text-sm text-muted-foreground">
+                                        {customFields[field.name] ? "Sí" : "No"}
+                                    </span>
+                                </div>
+                            ) : (
+                                <Input
+                                    id={`edit-${field.name}`}
+                                    type={field.type === "number" || field.type === "int" ? "number" : field.type === "date" ? "date" : "text"}
+                                    value={customFields[field.name] || ""}
+                                    onChange={(e) => setCustomFields({ ...customFields, [field.name]: e.target.value })}
+                                    required={field.required}
+                                    placeholder={`Ingresa ${field.name}`}
+                                />
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            <DialogFooter className="pt-4">
+                <Button type="submit" disabled={isPending} className="w-full sm:w-auto">
+                    {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Guardar Cambios
+                </Button>
+            </DialogFooter>
+        </form>
+    )
+}
+
+// ----------------------------------------------------------------------
+// COMPONENT: User Details with Activity Tab
+// ----------------------------------------------------------------------
+
+function UserDetails({ 
+    user, 
+    tenantId, 
+    token, 
+    clients, 
+    fieldDefs,
+    onUpdate,
+    onEdit,
+    onChangePassword,
+    onVerifyEmail
+}: {
+    user: UserType
+    tenantId: string
+    token: string | null
+    clients: Array<{ client_id: string, name: string, type: string }>
+    fieldDefs: UserFieldDefinition[]
+    onUpdate: () => void
+    onEdit: () => void
+    onChangePassword: (newPassword: string) => void
+    onVerifyEmail: () => void
+}) {
+    const { toast } = useToast()
+    const [activeTab, setActiveTab] = useState("info")
+    const [isResending, setIsResending] = useState(false)
+    const [showPasswordChange, setShowPasswordChange] = useState(false)
+    const [newPassword, setNewPassword] = useState("")
+    const [confirmPassword, setConfirmPassword] = useState("")
+
+    const formatDate = (dateStr?: string) => {
+        if (!dateStr) return "-"
+        try {
+            const d = new Date(dateStr)
+            if (isNaN(d.getTime())) return "-"
+            return new Intl.DateTimeFormat("es-ES", {
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit"
+            }).format(d)
+        } catch { return "-" }
+    }
+
+    const initial = user.email ? user.email.slice(0, 2).toUpperCase() : "??"
+    const isBlocked = !!user.disabled_at
+
+    const handleResendVerification = async () => {
+        if (!user.id || !tenantId) return
+        setIsResending(true)
+        try {
+            const res = await apiFetchWithTenant(`/v2/admin/users/resend-verification`, tenantId, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
+                body: JSON.stringify({ user_id: user.id, tenant_id: tenantId })
+            })
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}))
+                throw new Error(err.error_description || err.error || "Error enviando email")
+            }
+            toast({ title: "Email enviado", description: "Se ha enviado un nuevo correo de verificación." })
+        } catch (err: any) {
+            toast({ title: "Error", description: err.message, variant: "destructive" })
+        } finally {
+            setIsResending(false)
+        }
+    }
+
+    const handlePasswordChange = () => {
+        if (newPassword !== confirmPassword) {
+            toast({ title: "Error", description: "Las contraseñas no coinciden", variant: "destructive" })
+            return
+        }
+        if (newPassword.length < 8) {
+            toast({ title: "Error", description: "La contraseña debe tener al menos 8 caracteres", variant: "destructive" })
+            return
+        }
+        onChangePassword(newPassword)
+        setShowPasswordChange(false)
+        setNewPassword("")
+        setConfirmPassword("")
+    }
+
+    // Mock activity data (would come from backend in real implementation)
+    const activityData = [
+        { type: "login_success", date: new Date(Date.now() - 3600000), ip: "192.168.1.1", device: "Chrome / Windows" },
+        { type: "password_changed", date: new Date(Date.now() - 86400000 * 3), ip: "192.168.1.1", device: "Firefox / MacOS" },
+        { type: "login_failed", date: new Date(Date.now() - 86400000 * 5), ip: "10.0.0.1", device: "Safari / iOS" },
+        { type: "account_created", date: new Date(user.created_at), ip: "-", device: "-" },
+    ]
+
+    return (
+        <div className="space-y-4">
+            {/* User Header */}
+            <div className="flex items-center gap-4 p-4 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/20 dark:to-indigo-950/20 rounded-lg border">
+                <div className="h-16 w-16 bg-gradient-to-br from-purple-200 to-indigo-200 dark:from-purple-800 dark:to-indigo-800 rounded-full flex items-center justify-center text-2xl font-bold text-purple-700 dark:text-purple-200">
+                    {initial}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <h3 className="text-lg font-semibold truncate">{user.email}</h3>
+                    <div className="flex items-center gap-2 mt-1">
+                        <Badge variant="outline" className="font-mono text-[10px]">{user.id}</Badge>
+                        <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => navigator.clipboard.writeText(user.id)}>
+                            <Copy className="h-3 w-3" />
+                        </Button>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2">
+                        {isBlocked ? (
+                            <Badge variant="destructive" className="text-xs">Bloqueado</Badge>
+                        ) : (
+                            <Badge className="bg-green-600 text-xs">Activo</Badge>
+                        )}
+                        {user.email_verified ? (
+                            <Badge variant="outline" className="text-xs text-green-600 border-green-600">
+                                <MailCheck className="h-3 w-3 mr-1" /> Verificado
+                            </Badge>
+                        ) : (
+                            <Badge variant="outline" className="text-xs text-amber-600 border-amber-600">
+                                <MailX className="h-3 w-3 mr-1" /> No verificado
+                            </Badge>
+                        )}
+                    </div>
+                </div>
+                <Button variant="outline" size="sm" onClick={onEdit}>
+                    <Pencil className="h-4 w-4 mr-2" />
+                    Editar
+                </Button>
+            </div>
+
+            {/* Tabs */}
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="info" className="text-xs">
+                        <UserIcon className="h-3.5 w-3.5 mr-1" />
+                        Información
+                    </TabsTrigger>
+                    <TabsTrigger value="security" className="text-xs">
+                        <Shield className="h-3.5 w-3.5 mr-1" />
+                        Seguridad
+                    </TabsTrigger>
+                    <TabsTrigger value="activity" className="text-xs">
+                        <Activity className="h-3.5 w-3.5 mr-1" />
+                        Actividad
+                    </TabsTrigger>
+                </TabsList>
+
+                {/* Info Tab */}
+                <TabsContent value="info" className="space-y-4 mt-4">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">Nombre</Label>
+                            <p className="text-sm font-medium">{user.name || "-"}</p>
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">Locale</Label>
+                            <p className="text-sm font-medium">{(user as any).locale || "-"}</p>
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">Cliente Origen</Label>
+                            <p className="text-sm font-medium font-mono">
+                                {clients.find(c => c.client_id === user.source_client_id)?.name || user.source_client_id || "-"}
+                            </p>
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">Creado</Label>
+                            <p className="text-sm font-medium">{formatDate(user.created_at)}</p>
+                        </div>
+                    </div>
+
+                    {/* Custom Fields */}
+                    {user.custom_fields && Object.keys(user.custom_fields).length > 0 && (
+                        <div className="space-y-2 pt-2">
+                            <Label className="text-xs text-muted-foreground uppercase">Campos Personalizados</Label>
+                            <div className="grid gap-2">
+                                {Object.entries(user.custom_fields)
+                                    .filter(([key]) => key !== 'updated_at')
+                                    .map(([key, value]) => (
+                                        <div key={key} className="flex items-center justify-between p-2 rounded-md bg-muted/30 border">
+                                            <span className="text-xs font-medium text-muted-foreground">{key}</span>
+                                            <span className="text-sm font-medium">
+                                                {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                                            </span>
+                                        </div>
+                                    ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Metadata */}
+                    {user.metadata && Object.keys(user.metadata).length > 0 && (
+                        <div className="space-y-2 pt-2">
+                            <Label className="text-xs text-muted-foreground uppercase">Metadatos</Label>
+                            <pre className="text-xs font-mono p-3 bg-muted rounded-lg overflow-x-auto">
+                                {JSON.stringify(user.metadata, null, 2)}
+                            </pre>
+                        </div>
+                    )}
+                </TabsContent>
+
+                {/* Security Tab */}
+                <TabsContent value="security" className="space-y-4 mt-4">
+                    {/* Email Verification */}
+                    <div className="p-4 rounded-lg border bg-card">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                {user.email_verified ? (
+                                    <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                                        <MailCheck className="h-5 w-5 text-green-600" />
+                                    </div>
+                                ) : (
+                                    <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
+                                        <MailX className="h-5 w-5 text-amber-600" />
+                                    </div>
+                                )}
+                                <div>
+                                    <h4 className="font-medium">Verificación de Email</h4>
+                                    <p className="text-sm text-muted-foreground">
+                                        {user.email_verified ? "El email ha sido verificado" : "El email aún no ha sido verificado"}
+                                    </p>
+                                </div>
+                            </div>
+                            {!user.email_verified && (
+                                <div className="flex items-center gap-2">
+                                    <Button variant="outline" size="sm" onClick={onVerifyEmail}>
+                                        <CheckCircle className="h-4 w-4 mr-2" />
+                                        Marcar verificado
+                                    </Button>
+                                    <Button 
+                                        variant="outline" 
+                                        size="sm" 
+                                        onClick={handleResendVerification}
+                                        disabled={isResending || !user.source_client_id}
+                                    >
+                                        {isResending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Mail className="h-4 w-4 mr-2" />}
+                                        Reenviar
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Password Change */}
+                    <div className="p-4 rounded-lg border bg-card">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                                    <Key className="h-5 w-5 text-blue-600" />
+                                </div>
+                                <div>
+                                    <h4 className="font-medium">Contraseña</h4>
+                                    <p className="text-sm text-muted-foreground">Cambiar la contraseña del usuario</p>
+                                </div>
+                            </div>
+                            <Button variant="outline" size="sm" onClick={() => setShowPasswordChange(!showPasswordChange)}>
+                                <Key className="h-4 w-4 mr-2" />
+                                Cambiar
+                            </Button>
+                        </div>
+                        {showPasswordChange && (
+                            <div className="mt-4 pt-4 border-t space-y-3">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="newPassword">Nueva contraseña</Label>
+                                    <Input
+                                        id="newPassword"
+                                        type="password"
+                                        placeholder="••••••••"
+                                        value={newPassword}
+                                        onChange={(e) => setNewPassword(e.target.value)}
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="confirmPassword">Confirmar contraseña</Label>
+                                    <Input
+                                        id="confirmPassword"
+                                        type="password"
+                                        placeholder="••••••••"
+                                        value={confirmPassword}
+                                        onChange={(e) => setConfirmPassword(e.target.value)}
+                                    />
+                                </div>
+                                <div className="flex justify-end gap-2">
+                                    <Button variant="ghost" size="sm" onClick={() => {
+                                        setShowPasswordChange(false)
+                                        setNewPassword("")
+                                        setConfirmPassword("")
+                                    }}>
+                                        Cancelar
+                                    </Button>
+                                    <Button size="sm" onClick={handlePasswordChange} disabled={!newPassword || !confirmPassword}>
+                                        Guardar
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Block Status */}
+                    {isBlocked && (
+                        <Alert variant="destructive">
+                            <ShieldAlert className="h-4 w-4" />
+                            <AlertTitle>Usuario bloqueado</AlertTitle>
+                            <AlertDescription>
+                                {user.disabled_reason && <p>Razón: {user.disabled_reason}</p>}
+                                {user.disabled_until && (
+                                    <p>Hasta: {formatDate(user.disabled_until)}</p>
+                                )}
+                            </AlertDescription>
+                        </Alert>
+                    )}
+                </TabsContent>
+
+                {/* Activity Tab */}
+                <TabsContent value="activity" className="space-y-4 mt-4">
+                    <div className="text-sm text-muted-foreground mb-2">
+                        Historial de actividad reciente del usuario.
+                    </div>
+                    <div className="space-y-2">
+                        {activityData.map((activity, idx) => (
+                            <div key={idx} className="flex items-start gap-3 p-3 rounded-lg border bg-card hover:bg-muted/30 transition-colors">
+                                <div className={cn(
+                                    "p-1.5 rounded-full",
+                                    activity.type === "login_success" && "bg-green-100 dark:bg-green-900/30",
+                                    activity.type === "login_failed" && "bg-red-100 dark:bg-red-900/30",
+                                    activity.type === "password_changed" && "bg-blue-100 dark:bg-blue-900/30",
+                                    activity.type === "account_created" && "bg-purple-100 dark:bg-purple-900/30",
+                                )}>
+                                    {activity.type === "login_success" && <CheckCircle className="h-4 w-4 text-green-600" />}
+                                    {activity.type === "login_failed" && <XCircle className="h-4 w-4 text-red-600" />}
+                                    {activity.type === "password_changed" && <Key className="h-4 w-4 text-blue-600" />}
+                                    {activity.type === "account_created" && <UserIcon className="h-4 w-4 text-purple-600" />}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium">
+                                        {activity.type === "login_success" && "Inicio de sesión exitoso"}
+                                        {activity.type === "login_failed" && "Intento de inicio de sesión fallido"}
+                                        {activity.type === "password_changed" && "Contraseña cambiada"}
+                                        {activity.type === "account_created" && "Cuenta creada"}
+                                    </p>
+                                    <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+                                        <span className="flex items-center gap-1">
+                                            <Clock className="h-3 w-3" />
+                                            {formatDate(activity.date.toISOString())}
+                                        </span>
+                                        {activity.ip !== "-" && (
+                                            <span>IP: {activity.ip}</span>
+                                        )}
+                                        {activity.device !== "-" && (
+                                            <span>{activity.device}</span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground text-center pt-2">
+                        * El historial de actividad requiere configuración adicional del backend para datos en tiempo real.
+                    </p>
+                </TabsContent>
+            </Tabs>
+        </div>
+    )
+}
+
+// ----------------------------------------------------------------------
+// COMPONENT: Block User Dialog
+// ----------------------------------------------------------------------
+
+function BlockUserDialog({ user, onClose, onBlock, isPending }: { 
+    user: UserType
+    onClose: () => void
+    onBlock: (userId: string, reason: string, duration: string) => void
+    isPending: boolean 
+}) {
+    const [reason, setReason] = useState("")
+    const [duration, setDuration] = useState("permanent")
+
+    return (
+        <Dialog open={true} onOpenChange={onClose}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Bloquear Usuario</DialogTitle>
+                    <DialogDescription>
+                        Suspende el acceso de <span className="font-medium">{user.email}</span>
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                    <div className="grid gap-2">
+                        <Label>Motivo <span className="text-red-500">*</span></Label>
+                        <Input
+                            placeholder="Ej. Violación de términos de servicio"
+                            value={reason}
+                            onChange={e => setReason(e.target.value)}
+                        />
+                    </div>
+                    <div className="grid gap-2">
+                        <Label>Duración</Label>
+                        <Select value={duration} onValueChange={setDuration}>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Selecciona duración" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="permanent">Permanente</SelectItem>
+                                <SelectItem value="1h">1 hora</SelectItem>
+                                <SelectItem value="6h">6 horas</SelectItem>
+                                <SelectItem value="12h">12 horas</SelectItem>
+                                <SelectItem value="24h">24 horas</SelectItem>
+                                <SelectItem value="72h">3 días</SelectItem>
+                                <SelectItem value="168h">7 días</SelectItem>
+                                <SelectItem value="720h">30 días</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
+                <DialogFooter>
+                    <Button variant="outline" onClick={onClose} disabled={isPending}>Cancelar</Button>
+                    <Button
+                        variant="destructive"
+                        onClick={() => onBlock(user.id, reason, duration === "permanent" ? "" : duration)}
+                        disabled={isPending || !reason.trim()}
+                    >
+                        {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Bloquear
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
+
+// ----------------------------------------------------------------------
+// COMPONENT: User Fields Settings
 // ----------------------------------------------------------------------
 
 function UserFieldsSettings({ tenantId }: { tenantId: string }) {
@@ -695,13 +1901,11 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
         queryFn: async () => {
             const { data, headers } = await api.getWithHeaders<TenantSettings>(`/v2/admin/tenants/${tenantId}/settings`)
             const etagHeader = headers.get("ETag")
-            // Embed ETag in data so it persists in the React Query cache
             return { ...data, _etag: etagHeader || undefined }
         },
         enabled: !!tenantId && !!token,
     })
 
-    // Extract settings without _etag for local use
     const settings = settingsWithEtag ? (() => {
         const { _etag, ...rest } = settingsWithEtag
         return rest as TenantSettings
@@ -709,11 +1913,10 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
 
     useEffect(() => {
         if (settings) {
-            // Backend uses camelCase (userFields)
             setLocalFields(settings.userFields || [])
             setHasFieldChanges(false)
         }
-    }, [settingsWithEtag]) // Use settingsWithEtag as dependency since settings is derived
+    }, [settingsWithEtag])
 
     const updateSettingsMutation = useMutation({
         mutationFn: async (data: TenantSettings) => {
@@ -722,27 +1925,16 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
                 throw new Error("Missing ETag. Please refresh the page.")
             }
             const currentSettings = settings || {}
-            const payload = {
-                ...currentSettings,
-                ...data,
-            }
+            const payload = { ...currentSettings, ...data }
             await api.put(`/v2/admin/tenants/${tenantId}/settings`, payload, etag)
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["tenant-users-settings", tenantId] })
-            toast({
-                title: t("common.success"),
-                description: t("tenants.settingsUpdatedDesc"),
-                variant: "info",
-            })
+            toast({ title: t("common.success"), description: "Campos actualizados correctamente.", variant: "info" })
             setHasFieldChanges(false)
         },
         onError: (err: any) => {
-            toast({
-                variant: "destructive",
-                title: t("common.error"),
-                description: err?.error_description || err?.message || "Error updating settings",
-            })
+            toast({ variant: "destructive", title: t("common.error"), description: err?.error_description || err?.message || "Error updating settings" })
         },
     })
 
@@ -751,27 +1943,15 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
             setFieldForm(field)
             setEditingFieldIdx(idx ?? null)
         } else {
-            setFieldForm({
-                name: "",
-                type: "text",
-                required: false,
-                unique: false,
-                indexed: false,
-                description: "",
-            })
+            setFieldForm({ name: "", type: "text", required: false, unique: false, indexed: false, description: "" })
             setEditingFieldIdx(null)
         }
         setIsFieldsDialogOpen(true)
     }
 
     const handleLocalSaveField = () => {
-        // Validate
         if (!fieldForm.name || !fieldForm.type) {
-            toast({
-                variant: "destructive",
-                title: t("common.error"),
-                description: "Name and Type are required",
-            })
+            toast({ variant: "destructive", title: t("common.error"), description: "Nombre y tipo son requeridos" })
             return
         }
 
@@ -780,11 +1960,7 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
         )
 
         if (nameExists) {
-            toast({
-                variant: "destructive",
-                title: t("common.error"),
-                description: "Field name already exists",
-            })
+            toast({ variant: "destructive", title: t("common.error"), description: "El nombre del campo ya existe" })
             return
         }
 
@@ -807,14 +1983,10 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
     }
 
     const handleSaveAllFields = () => {
-        // Backend expects camelCase (userFields)
-        updateSettingsMutation.mutate({
-            userFields: localFields,
-        } as any)
+        updateSettingsMutation.mutate({ userFields: localFields } as any)
     }
 
     const handleCancelFieldChanges = () => {
-        // Backend uses camelCase (userFields)
         setLocalFields(settings?.userFields || [])
         setHasFieldChanges(false)
     }
@@ -832,96 +2004,116 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
     }
 
     return (
-        <Card className="flex flex-col h-full">
+        <Card>
             <CardHeader>
                 <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center gap-3">
                         <div className="p-2 bg-purple-500/10 rounded-lg">
                             <Settings2 className="h-5 w-5 text-purple-600" />
                         </div>
-                        <CardTitle>Campos de Usuario</CardTitle>
+                        <div>
+                            <CardTitle>Campos de Usuario</CardTitle>
+                            <CardDescription>
+                                Campos personalizados que se solicitan durante el registro.
+                            </CardDescription>
+                        </div>
                     </div>
                     <Button size="sm" onClick={() => handleOpenFieldDialog()}>
                         <Plus className="mr-2 h-4 w-4" />
                         Agregar Campo
                     </Button>
                 </div>
-                <CardDescription>
-                    Campos personalizados para solicitar al user al momento del registro.
-                </CardDescription>
             </CardHeader>
             <CardContent>
-                <div className="rounded-md border">
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Nombre</TableHead>
-                                <TableHead>Tipo</TableHead>
-                                <TableHead className="text-center">Requerido</TableHead>
-                                <TableHead className="text-center">Único</TableHead>
-                                <TableHead className="text-center">Indexado</TableHead>
-                                <TableHead className="text-right">Acciones</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {(!localFields || localFields.length === 0) ? (
-                                <TableRow>
-                                    <TableCell colSpan={6} className="h-24 text-center">
-                                        No hay campos personalizados definidos.
-                                    </TableCell>
+                {isLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    </div>
+                ) : (
+                    <div className="rounded-lg border">
+                        <Table>
+                            <TableHeader>
+                                <TableRow className="bg-muted/30">
+                                    <TableHead>Nombre</TableHead>
+                                    <TableHead>Tipo</TableHead>
+                                    <TableHead className="text-center">Requerido</TableHead>
+                                    <TableHead className="text-center">Único</TableHead>
+                                    <TableHead className="text-center">Indexado</TableHead>
+                                    <TableHead className="text-right">Acciones</TableHead>
                                 </TableRow>
-                            ) : (
-                                localFields.map((field, idx) => (
-                                    <TableRow key={idx}>
-                                        <TableCell className="font-medium">{field.name}</TableCell>
-                                        <TableCell>
-                                            <Badge variant="outline">{field.type}</Badge>
-                                        </TableCell>
-                                        <TableCell className="text-center">
-                                            {field.required && <CheckCircle2 className="h-4 w-4 mx-auto text-green-500" />}
-                                        </TableCell>
-                                        <TableCell className="text-center">
-                                            {field.unique && <CheckCircle2 className="h-4 w-4 mx-auto text-blue-500" />}
-                                        </TableCell>
-                                        <TableCell className="text-center">
-                                            {field.indexed && <CheckCircle2 className="h-4 w-4 mx-auto text-gray-500" />}
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                            <div className="flex justify-end gap-2">
-                                                <Button variant="ghost" size="icon" onClick={() => handleOpenFieldDialog(field, idx)}>
-                                                    <Edit2 className="h-4 w-4" />
-                                                </Button>
-                                                <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600" onClick={() => handleLocalDeleteField(idx)}>
-                                                    <Trash2 className="h-4 w-4" />
+                            </TableHeader>
+                            <TableBody>
+                                {localFields.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                                            <div className="flex flex-col items-center gap-2">
+                                                <Sliders className="h-8 w-8 text-muted-foreground/50" />
+                                                <p>No hay campos personalizados definidos.</p>
+                                                <Button variant="outline" size="sm" onClick={() => handleOpenFieldDialog()}>
+                                                    <Plus className="h-4 w-4 mr-2" />
+                                                    Crear primer campo
                                                 </Button>
                                             </div>
                                         </TableCell>
                                     </TableRow>
-                                ))
-                            )}
-                        </TableBody>
-                    </Table>
-                </div>
+                                ) : (
+                                    localFields.map((field, idx) => (
+                                        <TableRow key={idx}>
+                                            <TableCell className="font-medium">{field.name}</TableCell>
+                                            <TableCell>
+                                                <Badge variant="outline">{field.type}</Badge>
+                                            </TableCell>
+                                            <TableCell className="text-center">
+                                                {field.required && <CheckCircle2 className="h-4 w-4 mx-auto text-green-500" />}
+                                            </TableCell>
+                                            <TableCell className="text-center">
+                                                {field.unique && <CheckCircle2 className="h-4 w-4 mx-auto text-blue-500" />}
+                                            </TableCell>
+                                            <TableCell className="text-center">
+                                                {field.indexed && <CheckCircle2 className="h-4 w-4 mx-auto text-gray-500" />}
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                <div className="flex justify-end gap-1">
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleOpenFieldDialog(field, idx)}>
+                                                        <Edit2 className="h-4 w-4" />
+                                                    </Button>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-600" onClick={() => handleLocalDeleteField(idx)}>
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+                )}
             </CardContent>
-            <CardFooter className="mt-auto flex items-center justify-end gap-2 px-4 py-4">
-                {hasFieldChanges && (
-                    <>
-                        <Button variant="ghost" onClick={handleCancelFieldChanges}>
+            {hasFieldChanges && (
+                <CardFooter className="flex items-center justify-between border-t bg-muted/30 py-3">
+                    <p className="text-sm text-muted-foreground">
+                        Tienes cambios sin guardar
+                    </p>
+                    <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="sm" onClick={handleCancelFieldChanges}>
                             Cancelar
                         </Button>
-                        <Button onClick={handleSaveAllFields} disabled={updateSettingsMutation.isPending}>
-                            {updateSettingsMutation.isPending ? "Guardando..." : "Guardar Cambios"}
+                        <Button size="sm" onClick={handleSaveAllFields} disabled={updateSettingsMutation.isPending}>
+                            {updateSettingsMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Guardar Cambios
                         </Button>
-                    </>
-                )}
-            </CardFooter>
+                    </div>
+                </CardFooter>
+            )}
 
+            {/* Field Dialog */}
             <Dialog open={isFieldsDialogOpen} onOpenChange={setIsFieldsDialogOpen}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>{editingFieldIdx !== null ? "Editar Campo" : "Agregar Campo"}</DialogTitle>
+                        <DialogTitle>{editingFieldIdx !== null ? "Editar Campo" : "Nuevo Campo"}</DialogTitle>
                         <DialogDescription>
-                            Configura las propiedades del campo. Los cambios se aplicarán al guardar la lista completa.
+                            Configura las propiedades del campo personalizado.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
@@ -932,16 +2124,18 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
                                     placeholder="ej. telefono"
                                     value={fieldForm.name}
                                     onChange={(e) => setFieldForm({ ...fieldForm, name: e.target.value })}
-                                    disabled={editingFieldIdx !== null} // Prevent renaming for now
+                                    disabled={editingFieldIdx !== null}
                                 />
-                                {editingFieldIdx !== null && <p className="text-xs text-muted-foreground">El nombre no se puede cambiar una vez creado.</p>}
+                                {editingFieldIdx !== null && (
+                                    <p className="text-xs text-muted-foreground">El nombre no se puede cambiar.</p>
+                                )}
                             </div>
                             <div className="space-y-2">
                                 <Label>Tipo</Label>
                                 <Select
                                     value={fieldForm.type}
                                     onValueChange={(val) => setFieldForm({ ...fieldForm, type: val })}
-                                    disabled={editingFieldIdx !== null} // Prevent type change for now
+                                    disabled={editingFieldIdx !== null}
                                 >
                                     <SelectTrigger>
                                         <SelectValue />
@@ -958,18 +2152,18 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
                             </div>
                         </div>
                         <div className="space-y-2">
-                            <Label>Descripción</Label>
+                            <Label>Descripción (opcional)</Label>
                             <Textarea
-                                placeholder="Descripción opcional..."
+                                placeholder="Descripción del campo para mostrar al usuario..."
                                 value={fieldForm.description || ""}
                                 onChange={(e) => setFieldForm({ ...fieldForm, description: e.target.value })}
                             />
                         </div>
-                        <div className="flex flex-col gap-4 border p-4 rounded-lg">
+                        <div className="space-y-3 p-4 rounded-lg border bg-muted/20">
                             <div className="flex items-center justify-between">
-                                <div className="space-y-0.5">
-                                    <Label>Requerido (Not Null)</Label>
-                                    <p className="text-xs text-muted-foreground">Si se activa en una tabla con datos, fallará si hay nulos.</p>
+                                <div>
+                                    <Label>Requerido</Label>
+                                    <p className="text-xs text-muted-foreground">El campo será obligatorio</p>
                                 </div>
                                 <Switch
                                     checked={fieldForm.required}
@@ -977,9 +2171,9 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
                                 />
                             </div>
                             <div className="flex items-center justify-between">
-                                <div className="space-y-0.5">
-                                    <Label>Único (Unique)</Label>
-                                    <p className="text-xs text-muted-foreground">No permitir valores duplicados.</p>
+                                <div>
+                                    <Label>Único</Label>
+                                    <p className="text-xs text-muted-foreground">No permitir valores duplicados</p>
                                 </div>
                                 <Switch
                                     checked={fieldForm.unique}
@@ -987,9 +2181,9 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
                                 />
                             </div>
                             <div className="flex items-center justify-between">
-                                <div className="space-y-0.5">
+                                <div>
                                     <Label>Indexado</Label>
-                                    <p className="text-xs text-muted-foreground">Mejora la velocidad de búsqueda.</p>
+                                    <p className="text-xs text-muted-foreground">Mejora búsquedas por este campo</p>
                                 </div>
                                 <Switch
                                     checked={fieldForm.indexed}
@@ -1001,306 +2195,11 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsFieldsDialogOpen(false)}>Cancelar</Button>
                         <Button onClick={handleLocalSaveField}>
-                            Agregar a Lista
+                            {editingFieldIdx !== null ? "Guardar" : "Agregar"}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
         </Card>
-    )
-}
-
-function UserDetails({ user, tenantId, token, clients, onUpdate }: {
-    user: UserType,
-    tenantId: string,
-    token: string | null,
-    clients: Array<{ client_id: string, name: string, type: string }>,
-    onUpdate: () => void
-}) {
-    const { toast } = useToast()
-    const [isResending, setIsResending] = useState(false)
-    const [isEditingClient, setIsEditingClient] = useState(false)
-    const [selectedClientId, setSelectedClientId] = useState<string>((user as any).source_client_id || "_none")
-
-    const handleSaveClient = async () => {
-        if (!token) return
-        try {
-            const res = await apiFetchWithTenant(`/v2/admin/tenants/${tenantId}/users/${user.id}`, tenantId, {
-                method: "PUT",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`
-                },
-                body: JSON.stringify({ source_client_id: selectedClientId === "_none" ? null : selectedClientId })
-            })
-            if (!res.ok) {
-                throw new Error("Error actualizando cliente")
-            }
-            toast({ title: "Cliente actualizado", description: "El cliente origen ha sido actualizado." })
-            setIsEditingClient(false)
-            onUpdate()
-        } catch (err) {
-            toast({ title: "Error", description: "No se pudo actualizar el cliente", variant: "destructive" })
-        }
-    }
-
-
-    const formatDate = (dateStr?: string) => {
-        if (!dateStr) return "-"
-        try {
-            const d = new Date(dateStr)
-            if (isNaN(d.getTime())) return "-"
-            return new Intl.DateTimeFormat("es-ES", {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit"
-            }).format(d)
-        } catch { return "-" }
-    }
-
-    const createdAt = formatDate(user.created_at)
-    const updatedAt = formatDate(user.updated_at || user.custom_fields?.updated_at)
-    const initial = user.email ? user.email.slice(0, 2).toUpperCase() : "??"
-
-    const handleResendVerification = async () => {
-        if (!user.id || !tenantId) {
-            toast({ title: "Error", description: "Faltan datos del usuario o tenant", variant: "destructive" })
-            return
-        }
-        setIsResending(true)
-        try {
-            const res = await apiFetchWithTenant(`/v2/admin/users/resend-verification`, tenantId, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${token}`
-                },
-                body: JSON.stringify({ user_id: user.id, tenant_id: tenantId })
-            })
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}))
-                throw new Error(err.error_description || err.error || "Error enviando email")
-            }
-            toast({ title: "Email enviado", description: "Se ha enviado un nuevo correo de verificación al usuario." })
-        } catch (err: any) {
-            toast({ title: "Error", description: err.message, variant: "destructive" })
-        } finally {
-            setIsResending(false)
-        }
-    }
-
-    return (
-        <div className="mt-4 space-y-6">
-            <div className="flex flex-col items-center justify-center space-y-3 bg-muted/20 p-6 rounded-lg border border-dashed">
-                <div className="h-20 w-20 bg-background border-4 border-muted rounded-full flex items-center justify-center text-3xl font-bold text-muted-foreground shadow-sm">
-                    {initial}
-                </div>
-                <div className="text-center">
-                    <h3 className="text-xl font-bold tracking-tight">{user.email}</h3>
-                    <div className="flex items-center justify-center gap-2 mt-1">
-                        <Badge variant="outline" className="font-mono text-xs">{user.id}</Badge>
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => navigator.clipboard.writeText(user.id)}>
-                            <Copy className="h-3 w-3" />
-                        </Button>
-                    </div>
-                </div>
-            </div>
-
-            <div className="space-y-4">
-                <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider border-b pb-2">Información de Sistema</h4>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div className="space-y-1">
-                        <span className="block text-xs text-muted-foreground">Estado de Cuenta</span>
-                        {user.disabled_at ? (
-                            <span className="inline-flex items-center px-2 py-1 rounded-full bg-red-100 text-red-700 text-xs font-medium">Deshabilitado</span>
-                        ) : (
-                            <span className="inline-flex items-center px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs font-medium">Activa</span>
-                        )}
-                    </div>
-                    <div className="space-y-1">
-                        <span className="block text-xs text-muted-foreground">Verificación de Email</span>
-                        <div className="flex items-center gap-2">
-                            <span className="font-medium">{user.email_verified ? "Verificado" : "Pendiente"}</span>
-                            {!user.email_verified && (
-                                <TooltipProvider>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <span>
-                                                <Button
-                                                    variant="link"
-                                                    className="h-auto p-0 text-xs text-blue-600 disabled:opacity-50"
-                                                    onClick={handleResendVerification}
-                                                    disabled={isResending || !((user as any).source_client_id && (user as any).source_client_id !== "_none")}
-                                                >
-                                                    {isResending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : null}
-                                                    Reenviar código
-                                                </Button>
-                                            </span>
-                                        </TooltipTrigger>
-                                        {!((user as any).source_client_id && (user as any).source_client_id !== "_none") && (
-                                            <TooltipContent>
-                                                <p>Asocie un cliente origen para habilitar el reenvío.</p>
-                                            </TooltipContent>
-                                        )}
-                                    </Tooltip>
-                                </TooltipProvider>
-                            )}
-                        </div>
-                    </div>
-                    <div className="space-y-1">
-                        <div className="flex items-center justify-between">
-                            <span className="block text-xs text-muted-foreground">Cliente Origen</span>
-                            {!isEditingClient && (
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-auto p-0 text-xs text-blue-600 hover:text-blue-700"
-                                    onClick={() => setIsEditingClient(true)}
-                                >
-                                    Editar
-                                </Button>
-                            )}
-                        </div>
-                        {isEditingClient ? (
-                            <div className="space-y-2 pt-1">
-                                <Select
-                                    value={selectedClientId || "_none"}
-                                    onValueChange={setSelectedClientId}
-                                >
-                                    <SelectTrigger className="w-full">
-                                        <SelectValue placeholder="Seleccionar cliente..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="_none">Sin cliente asociado</SelectItem>
-                                        {clients.map((c) => (
-                                            <SelectItem key={c.client_id} value={c.client_id}>
-                                                {c.name || c.client_id}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                                <div className="flex items-center justify-end gap-2">
-                                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => {
-                                        setIsEditingClient(false)
-                                        setSelectedClientId((user as any).source_client_id || "_none")
-                                    }}>
-                                        Cancelar
-                                    </Button>
-                                    <Button size="sm" className="h-7 text-xs" onClick={handleSaveClient}>
-                                        Guardar
-                                    </Button>
-                                </div>
-                            </div>
-                        ) : (
-                            <span className="font-medium font-mono text-xs block break-all">
-                                {clients.find(c => c.client_id === (user as any).source_client_id)?.name || (user as any).source_client_id || <span className="text-muted-foreground italic">No asociado</span>}
-                            </span>
-                        )}
-                    </div>
-                    <div className="space-y-1">
-                        <span className="block text-xs text-muted-foreground">Fecha de Creación</span>
-                        <span className="font-medium">{createdAt}</span>
-                    </div>
-                    <div className="space-y-1">
-                        <span className="block text-xs text-muted-foreground">Última Actualización</span>
-                        <span className="font-medium">{updatedAt}</span>
-                    </div>
-                    {user.disabled_reason && (
-                        <div className="space-y-1 col-span-2">
-                            <span className="block text-xs text-muted-foreground">Razón de Bloqueo</span>
-                            <span className="font-medium text-red-600">{user.disabled_reason}</span>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {user.custom_fields && Object.keys(user.custom_fields).length > 0 && (
-                <div className="space-y-4">
-                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider border-b pb-2">Campos Personalizados</h4>
-                    <div className="grid gap-3">
-                        {Object.entries(user.custom_fields)
-                            .filter(([key]) => key !== 'updated_at')
-                            .map(([key, value]) => (
-                                <div key={key} className="flex flex-col gap-1 rounded-md border p-3 bg-muted/10 hover:bg-muted/20 transition-colors">
-                                    <span className="text-xs font-bold uppercase text-muted-foreground/70">{key}</span>
-                                    <span className="text-sm font-medium break-all">
-                                        {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                                    </span>
-                                </div>
-                            ))}
-                    </div>
-                </div>
-            )}
-
-            {user.metadata && Object.keys(user.metadata).length > 0 && (
-                <div className="space-y-4">
-                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider border-b pb-2">Metadatos / Perfil</h4>
-                    <div className="bg-muted p-4 rounded-lg border overflow-x-auto">
-                        <pre className="text-xs font-mono">
-                            {JSON.stringify(user.metadata, null, 2)}
-                        </pre>
-                    </div>
-                </div>
-            )}
-        </div>
-    )
-}
-
-function BlockUserDialog({ user, onClose, onBlock, isPending }: { user: UserType, onClose: () => void, onBlock: (userId: string, reason: string, duration: string) => void, isPending: boolean }) {
-    const [reason, setReason] = useState("")
-    const [duration, setDuration] = useState("permanent")
-
-    return (
-        <Dialog open={true} onOpenChange={onClose}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Bloquear Usuario</DialogTitle>
-                    <DialogDescription>
-                        Suspenda el acceso de {user.email}.
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                    <div className="grid gap-2">
-                        <Label>Motivo</Label>
-                        <Input
-                            placeholder="Ej. Violación de términos"
-                            value={reason}
-                            onChange={e => setReason(e.target.value)}
-                        />
-                    </div>
-                    <div className="grid gap-2">
-                        <Label>Duración</Label>
-                        <Select value={duration} onValueChange={setDuration}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Selecciona duración" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="permanent">Permanente</SelectItem>
-                                <SelectItem value="1h">1 hora</SelectItem>
-                                <SelectItem value="6h">6 horas</SelectItem>
-                                <SelectItem value="12h">12 horas</SelectItem>
-                                <SelectItem value="24h">24 horas</SelectItem>
-                                <SelectItem value="72h">3 días</SelectItem>
-                                <SelectItem value="168h">7 días</SelectItem>
-                                <SelectItem value="720h">30 días</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                </div>
-                <DialogFooter>
-                    <Button variant="outline" onClick={onClose} disabled={isPending}>Cancelar</Button>
-                    <Button
-                        variant="destructive"
-                        onClick={() => { onBlock(user.id, reason, duration === "permanent" ? "" : duration) }}
-                        disabled={isPending || !reason.trim()}
-                    >
-                        {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Bloquear
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
     )
 }

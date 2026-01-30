@@ -85,7 +85,7 @@ func (s *loginService) LoginPassword(ctx context.Context, in dto.LoginRequest) (
 	log = log.With(logger.TenantSlug(tenantSlug))
 
 	// Paso 2: Resolver client por FS y aplicar provider gating
-	client, err := tda.Clients().Get(ctx, tenantID, in.ClientID)
+	client, err := tda.Clients().Get(ctx, tenantSlug, in.ClientID)
 	if err != nil {
 		log.Debug("client not found", logger.Err(err))
 		return nil, ErrInvalidClient

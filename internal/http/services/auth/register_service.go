@@ -134,7 +134,7 @@ func (s *registerService) registerTenantUser(ctx context.Context, in dto.Registe
 	}
 
 	// Resolve client
-	client, err := tda.Clients().Get(ctx, tenantID, in.ClientID)
+	client, err := tda.Clients().Get(ctx, tenantSlug, in.ClientID)
 	if err != nil {
 		log.Debug("client not found", logger.Err(err))
 		return nil, ErrRegisterInvalidClient
@@ -146,10 +146,10 @@ func (s *registerService) registerTenantUser(ctx context.Context, in dto.Registe
 		return nil, ErrRegisterPasswordNotAllowed
 	}
 
-	// Password policy: blacklist check
-	if err := s.checkPasswordPolicy(ctx, in.Password); err != nil {
+	// Password policy: validate against tenant security policies
+	if err := s.checkPasswordPolicy(ctx, in.Password, tda.Settings().Security); err != nil {
 		log.Debug("password policy violation", logger.Err(err))
-		return nil, ErrRegisterPolicyViolation
+		return nil, err // Return the error directly to preserve the detailed message
 	}
 
 	// Hash password
@@ -302,21 +302,71 @@ func (s *registerService) issueTokens(ctx context.Context, tda store.TenantDataA
 }
 
 // checkPasswordPolicy validates the password against configured policies.
-func (s *registerService) checkPasswordPolicy(ctx context.Context, pwd string) error {
+// Now validates: blacklist, min length, uppercase, numbers, and special chars.
+func (s *registerService) checkPasswordPolicy(ctx context.Context, pwd string, policy *repository.SecurityPolicy) error {
+	// 1. Blacklist check (existing logic)
 	path := strings.TrimSpace(s.deps.BlacklistPath)
-	if path == "" {
-		return nil // No policy configured
+	if path != "" {
+		bl, err := password.GetCachedBlacklist(path)
+		if err != nil {
+			logger.From(ctx).Debug("failed to load password blacklist", logger.Err(err), logger.String("path", path))
+			// Ignore blacklist errors, continue with other validations
+		} else if bl.Contains(pwd) {
+			return fmt.Errorf("%w: password is in blacklist", ErrRegisterPolicyViolation)
+		}
 	}
 
-	bl, err := password.GetCachedBlacklist(path)
-	if err != nil {
-		// log safe (from context or nil-safe)
-		logger.From(ctx).Debug("failed to load password blacklist", logger.Err(err), logger.String("path", path))
-		return nil // Ignore blacklist errors
+	// 2. Policy validations (if policy is configured)
+	if policy == nil {
+		return nil
 	}
 
-	if bl.Contains(pwd) {
-		return ErrRegisterPolicyViolation
+	// 2a. Minimum length
+	if policy.PasswordMinLength > 0 && len(pwd) < policy.PasswordMinLength {
+		return fmt.Errorf("%w: password must be at least %d characters", ErrRegisterPolicyViolation, policy.PasswordMinLength)
+	}
+
+	// 2b. Require uppercase
+	if policy.RequireUppercase {
+		hasUpper := false
+		for _, c := range pwd {
+			if c >= 'A' && c <= 'Z' {
+				hasUpper = true
+				break
+			}
+		}
+		if !hasUpper {
+			return fmt.Errorf("%w: password must contain at least one uppercase letter", ErrRegisterPolicyViolation)
+		}
+	}
+
+	// 2c. Require numbers
+	if policy.RequireNumbers {
+		hasNumber := false
+		for _, c := range pwd {
+			if c >= '0' && c <= '9' {
+				hasNumber = true
+				break
+			}
+		}
+		if !hasNumber {
+			return fmt.Errorf("%w: password must contain at least one number", ErrRegisterPolicyViolation)
+		}
+	}
+
+	// 2d. Require special characters
+	if policy.RequireSpecialChars {
+		hasSpecial := false
+		specialChars := "!@#$%^&*()_+-=[]{}|;':\",./<>?`~"
+		for _, c := range pwd {
+			if strings.ContainsRune(specialChars, c) {
+				hasSpecial = true
+				break
+			}
+		}
+		if !hasSpecial {
+			return fmt.Errorf("%w: password must contain at least one special character", ErrRegisterPolicyViolation)
+		}
 	}
 
 	return nil

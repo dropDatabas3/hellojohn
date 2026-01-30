@@ -30,6 +30,10 @@ type ConsentRepository interface {
 	// Si activeOnly es true, filtra los revocados.
 	ListByUser(ctx context.Context, tenantID, userID string, activeOnly bool) ([]Consent, error)
 
+	// ListAll lista todos los consents del tenant con paginación.
+	// Retorna (consents, total, error).
+	ListAll(ctx context.Context, tenantID string, limit, offset int, activeOnly bool) ([]Consent, int, error)
+
 	// Revoke revoca un consent (soft delete con timestamp).
 	Revoke(ctx context.Context, tenantID, userID, clientID string) error
 }

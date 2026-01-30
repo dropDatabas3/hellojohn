@@ -9,6 +9,7 @@ import (
 type RefreshToken struct {
 	ID          string
 	UserID      string
+	UserEmail   string // JOIN con app_user (opcional)
 	TenantID    string
 	ClientID    string // client_id texto (no UUID)
 	TokenHash   string
@@ -27,6 +28,31 @@ type CreateRefreshTokenInput struct {
 	TTLSeconds int
 }
 
+// ListTokensFilter contiene los filtros para listar tokens.
+type ListTokensFilter struct {
+	UserID   *string // Filtrar por usuario
+	ClientID *string // Filtrar por client
+	Status   *string // "active", "expired", "revoked"
+	Search   *string // Buscar por email de usuario
+	Page     int
+	PageSize int
+}
+
+// TokenStats contiene las estadísticas de tokens.
+type TokenStats struct {
+	TotalActive      int
+	IssuedToday      int
+	RevokedToday     int
+	AvgLifetimeHours float64
+	ByClient         []ClientTokenCount
+}
+
+// ClientTokenCount representa el conteo de tokens por client.
+type ClientTokenCount struct {
+	ClientID string
+	Count    int
+}
+
 // TokenRepository define operaciones sobre refresh tokens.
 type TokenRepository interface {
 	// Create crea un nuevo refresh token.
@@ -36,6 +62,10 @@ type TokenRepository interface {
 	// GetByHash busca un token por su hash.
 	// Retorna ErrNotFound si no existe.
 	GetByHash(ctx context.Context, tokenHash string) (*RefreshToken, error)
+
+	// GetByID busca un token por su ID.
+	// Retorna ErrNotFound si no existe.
+	GetByID(ctx context.Context, tokenID string) (*RefreshToken, error)
 
 	// Revoke revoca un token por su ID.
 	Revoke(ctx context.Context, tokenID string) error
@@ -47,4 +77,20 @@ type TokenRepository interface {
 
 	// RevokeAllByClient revoca todos los tokens de un client (todos los usuarios).
 	RevokeAllByClient(ctx context.Context, clientID string) error
+
+	// ─── Admin Operations ───
+
+	// List lista tokens con filtros y paginación.
+	// Incluye LEFT JOIN con app_user para obtener email.
+	List(ctx context.Context, filter ListTokensFilter) ([]RefreshToken, error)
+
+	// Count cuenta el total de tokens que coinciden con los filtros.
+	Count(ctx context.Context, filter ListTokensFilter) (int, error)
+
+	// RevokeAll revoca todos los tokens activos.
+	// Retorna el número de tokens revocados.
+	RevokeAll(ctx context.Context) (int, error)
+
+	// GetStats obtiene estadísticas de tokens.
+	GetStats(ctx context.Context) (*TokenStats, error)
 }

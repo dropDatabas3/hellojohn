@@ -41,6 +41,7 @@ type AdapterConnection interface {
 	Schema() repository.SchemaRepository
 	EmailTokens() repository.EmailTokenRepository
 	Identities() repository.IdentityRepository
+	Sessions() repository.SessionRepository
 	Keys() repository.KeyRepository
 
 	// ─── Control Plane (solo para adapter fs) ───
@@ -49,6 +50,7 @@ type AdapterConnection interface {
 	Clients() repository.ClientRepository
 	Admins() repository.AdminRepository
 	AdminRefreshTokens() repository.AdminRefreshTokenRepository
+	Claims() repository.ClaimRepository
 }
 
 // MigratableConnection interfaz opcional para conexiones que pueden ejecutar migraciones.

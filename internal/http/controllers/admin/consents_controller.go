@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -162,8 +163,23 @@ func (c *ConsentsController) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sin filtros suficientes
-	httperrors.WriteError(w, httperrors.ErrMissingFields.WithDetail("requerido al menos user_id"))
+	// Sin user_id: listar TODOS con paginación
+	page := parseIntOrDefault(r.URL.Query().Get("page"), 1)
+	pageSize := parseIntOrDefault(r.URL.Query().Get("page_size"), 50)
+
+	consents, total, err := c.service.ListAll(ctx, tda, page, pageSize, activeOnly)
+	if err != nil {
+		log.Error("list all failed", logger.Err(err))
+		httperrors.WriteError(w, mapConsentError(err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"consents":  toConsentListResponse(consents),
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	})
 }
 
 // Revoke maneja POST /v2/admin/consents/revoke
@@ -302,4 +318,15 @@ func mapConsentError(err error) *httperrors.AppError {
 
 func isServiceUnavailable(err error) bool {
 	return strings.Contains(err.Error(), "no database") || strings.Contains(err.Error(), "not available")
+}
+
+func parseIntOrDefault(s string, defaultVal int) int {
+	if s == "" {
+		return defaultVal
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil || v < 1 {
+		return defaultVal
+	}
+	return v
 }

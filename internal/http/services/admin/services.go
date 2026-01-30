@@ -22,14 +22,19 @@ type Deps struct {
 
 // Services agrupa todos los services del dominio admin.
 type Services struct {
-	Auth     AuthService
-	Clients  ClientService
-	Consents ConsentService
-	Users    UserActionService
-	UserCRUD UserCRUDService
-	Scopes   ScopeService
-	RBAC     RBACService
-	Tenants  TenantsService
+	Auth          AuthService
+	Clients       ClientService
+	Consents      ConsentService
+	Users         UserActionService
+	UserCRUD      UserCRUDService
+	Scopes        ScopeService
+	Claims        ClaimsService
+	RBAC          RBACService
+	Tenants       TenantsService
+	TokensAdmin   TokensAdminService
+	SessionsAdmin *SessionsService
+	Keys          KeysService
+	Cluster       ClusterService
 }
 
 // NewServices crea el agregador de services admin.
@@ -42,12 +47,17 @@ func NewServices(d Deps) Services {
 		}),
 		Clients: NewClientService(d.ControlPlane),
 		Scopes:  NewScopeService(d.ControlPlane),
+		Claims:  NewClaimsService(d.ControlPlane),
 		Users:   NewUserActionService(d.Email),
 		UserCRUD: NewUserCRUDService(UserCRUDDeps{
 			DAL: d.DAL,
 		}),
-		Consents: NewConsentService(),
-		RBAC:     NewRBACService(),
-		Tenants:  NewTenantsService(d.DAL, d.MasterKey, d.Issuer, d.Email),
+		Consents:      NewConsentService(),
+		RBAC:          NewRBACService(),
+		Tenants:       NewTenantsService(d.DAL, d.MasterKey, d.Issuer, d.Email),
+		TokensAdmin:   NewTokensAdminService(TokensAdminDeps{DAL: d.DAL}),
+		SessionsAdmin: NewSessionsService(d.DAL),
+		Keys:          NewKeysService(d.DAL),
+		Cluster:       NewClusterService(ClusterDeps{DAL: d.DAL}),
 	}
 }

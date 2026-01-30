@@ -55,8 +55,9 @@ func NewServices(d Deps) Services {
 			RefreshTTL:   d.RefreshTTL,
 		}),
 		Consent: NewConsentService(ConsentDeps{
-			DAL:   d.DAL,
-			Cache: d.Cache,
+			DAL:          d.DAL,
+			Cache:        d.Cache,
+			ControlPlane: d.ControlPlane,
 		}),
 	}
 }

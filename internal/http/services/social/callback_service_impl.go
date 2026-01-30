@@ -238,6 +238,56 @@ func (s *callbackService) Callback(ctx context.Context, req CallbackRequest) (*C
 		)
 	}
 
+	// GitHub OAuth (non-OIDC)
+	if s.oidcFactory != nil && strings.EqualFold(req.Provider, "github") {
+		oauth, err := s.oidcFactory.GitHub(ctx, stateClaims.TenantSlug, req.BaseURL)
+		if err != nil {
+			log.Error("failed to create GitHub OAuth client",
+				logger.String("provider", req.Provider),
+				logger.TenantID(stateClaims.TenantSlug),
+				logger.Err(err),
+			)
+			return nil, fmt.Errorf("%w: %v", ErrCallbackOIDCExchangeFailed, err)
+		}
+
+		// Exchange authorization code for access token
+		tokens, err := oauth.ExchangeCode(ctx, req.Code)
+		if err != nil {
+			log.Error("GitHub code exchange failed",
+				logger.String("provider", req.Provider),
+				logger.Err(err),
+			)
+			return nil, fmt.Errorf("%w: %v", ErrCallbackOIDCExchangeFailed, err)
+		}
+
+		// For GitHub, "VerifyIDToken" actually fetches user info via API
+		// We pass the access token as the "idToken" parameter
+		idClaims, err = oauth.VerifyIDToken(ctx, tokens.AccessToken, stateClaims.Nonce)
+		if err != nil {
+			log.Error("GitHub user info fetch failed",
+				logger.String("provider", req.Provider),
+				logger.Err(err),
+			)
+			return nil, fmt.Errorf("%w: %v", ErrCallbackIDTokenInvalid, err)
+		}
+
+		// Validate email is present
+		if idClaims.Email == "" {
+			log.Error("email missing from GitHub",
+				logger.String("provider", req.Provider),
+				logger.String("sub", idClaims.Sub),
+			)
+			return nil, ErrCallbackEmailMissing
+		}
+
+		log.Info("GitHub OAuth exchange successful",
+			logger.String("provider", req.Provider),
+			logger.String("email", idClaims.Email),
+			logger.Bool("email_verified", idClaims.EmailVerified),
+			logger.String("name", idClaims.Name),
+		)
+	}
+
 	// Run user provisioning if we have claims and provisioning service
 	var userID string
 	if idClaims != nil && s.provisioning != nil {

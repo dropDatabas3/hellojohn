@@ -46,8 +46,10 @@ func (c *noopConnection) Tenants() repository.TenantRepository                  
 func (c *noopConnection) Clients() repository.ClientRepository                       { return nil }
 func (c *noopConnection) Admins() repository.AdminRepository                         { return nil }
 func (c *noopConnection) AdminRefreshTokens() repository.AdminRefreshTokenRepository { return nil }
+func (c *noopConnection) Claims() repository.ClaimRepository                         { return nil }
 func (c *noopConnection) EmailTokens() repository.EmailTokenRepository               { return &noopEmailTokenRepo{} }
 func (c *noopConnection) Identities() repository.IdentityRepository                  { return &noopIdentityRepo{} }
+func (c *noopConnection) Sessions() repository.SessionRepository                     { return &noopSessionRepo{} }
 
 // ─── Repos que retornan ErrNoDatabase ───
 
@@ -57,6 +59,7 @@ type noopMFARepo struct{}
 type noopConsentRepo struct{}
 type noopScopeRepo struct{}
 type noopRBACRepo struct{}
+type noopSessionRepo struct{}
 
 func (r *noopUserRepo) GetByEmail(ctx context.Context, tenantID, email string) (*repository.User, *repository.Identity, error) {
 	return nil, nil, repository.ErrNoDatabase
@@ -105,6 +108,21 @@ func (r *noopTokenRepo) RevokeAllByUser(ctx context.Context, userID, clientID st
 func (r *noopTokenRepo) RevokeAllByClient(ctx context.Context, clientID string) error {
 	return repository.ErrNoDatabase
 }
+func (r *noopTokenRepo) GetByID(ctx context.Context, tokenID string) (*repository.RefreshToken, error) {
+	return nil, repository.ErrNoDatabase
+}
+func (r *noopTokenRepo) List(ctx context.Context, filter repository.ListTokensFilter) ([]repository.RefreshToken, error) {
+	return nil, repository.ErrNoDatabase
+}
+func (r *noopTokenRepo) Count(ctx context.Context, filter repository.ListTokensFilter) (int, error) {
+	return 0, repository.ErrNoDatabase
+}
+func (r *noopTokenRepo) RevokeAll(ctx context.Context) (int, error) {
+	return 0, repository.ErrNoDatabase
+}
+func (r *noopTokenRepo) GetStats(ctx context.Context) (*repository.TokenStats, error) {
+	return nil, repository.ErrNoDatabase
+}
 
 func (r *noopMFARepo) UpsertTOTP(ctx context.Context, userID, secretEnc string) error {
 	return repository.ErrNoDatabase
@@ -146,11 +164,14 @@ func (r *noopConsentRepo) Get(ctx context.Context, tenantID, userID, clientID st
 func (r *noopConsentRepo) ListByUser(ctx context.Context, tenantID, userID string, activeOnly bool) ([]repository.Consent, error) {
 	return nil, repository.ErrNoDatabase
 }
+func (r *noopConsentRepo) ListAll(ctx context.Context, tenantID string, limit, offset int, activeOnly bool) ([]repository.Consent, int, error) {
+	return nil, 0, repository.ErrNoDatabase
+}
 func (r *noopConsentRepo) Revoke(ctx context.Context, tenantID, userID, clientID string) error {
 	return repository.ErrNoDatabase
 }
 
-func (r *noopScopeRepo) Create(ctx context.Context, tenantID, name, description string) (*repository.Scope, error) {
+func (r *noopScopeRepo) Create(ctx context.Context, tenantID string, input repository.ScopeInput) (*repository.Scope, error) {
 	return nil, repository.ErrNoDatabase
 }
 func (r *noopScopeRepo) GetByName(ctx context.Context, tenantID, name string) (*repository.Scope, error) {
@@ -159,13 +180,13 @@ func (r *noopScopeRepo) GetByName(ctx context.Context, tenantID, name string) (*
 func (r *noopScopeRepo) List(ctx context.Context, tenantID string) ([]repository.Scope, error) {
 	return nil, repository.ErrNoDatabase
 }
-func (r *noopScopeRepo) UpdateDescription(ctx context.Context, tenantID, scopeID, description string) error {
-	return repository.ErrNoDatabase
+func (r *noopScopeRepo) Update(ctx context.Context, tenantID string, input repository.ScopeInput) (*repository.Scope, error) {
+	return nil, repository.ErrNoDatabase
 }
 func (r *noopScopeRepo) Delete(ctx context.Context, tenantID, scopeID string) error {
 	return repository.ErrNoDatabase
 }
-func (r *noopScopeRepo) Upsert(ctx context.Context, tenantID, name, description string) (*repository.Scope, error) {
+func (r *noopScopeRepo) Upsert(ctx context.Context, tenantID string, input repository.ScopeInput) (*repository.Scope, error) {
 	return nil, repository.ErrNoDatabase
 }
 
@@ -189,6 +210,24 @@ func (r *noopRBACRepo) AddPermissionToRole(ctx context.Context, tenantID, role, 
 }
 func (r *noopRBACRepo) RemovePermissionFromRole(ctx context.Context, tenantID, role, permission string) error {
 	return repository.ErrNoDatabase
+}
+func (r *noopRBACRepo) ListRoles(ctx context.Context, tenantID string) ([]repository.Role, error) {
+	return nil, repository.ErrNoDatabase
+}
+func (r *noopRBACRepo) GetRole(ctx context.Context, tenantID, name string) (*repository.Role, error) {
+	return nil, repository.ErrNoDatabase
+}
+func (r *noopRBACRepo) CreateRole(ctx context.Context, tenantID string, input repository.RoleInput) (*repository.Role, error) {
+	return nil, repository.ErrNoDatabase
+}
+func (r *noopRBACRepo) UpdateRole(ctx context.Context, tenantID, name string, input repository.RoleInput) (*repository.Role, error) {
+	return nil, repository.ErrNoDatabase
+}
+func (r *noopRBACRepo) DeleteRole(ctx context.Context, tenantID, name string) error {
+	return repository.ErrNoDatabase
+}
+func (r *noopRBACRepo) GetRoleUsersCount(ctx context.Context, tenantID, role string) (int, error) {
+	return 0, repository.ErrNoDatabase
 }
 
 // ─── EmailToken noop repo ───
@@ -267,9 +306,45 @@ func (r *noopKeyRepo) Rotate(ctx context.Context, tenantID string, gracePeriod t
 func (r *noopKeyRepo) Revoke(ctx context.Context, kid string) error {
 	return repository.ErrNoDatabase
 }
+func (r *noopKeyRepo) ListAll(ctx context.Context, tenantID string) ([]*repository.SigningKey, error) {
+	return nil, repository.ErrNoDatabase
+}
 func (r *noopKeyRepo) ToEdDSA(key *repository.SigningKey) (ed25519.PrivateKey, error) {
 	return nil, repository.ErrNoDatabase
 }
 func (r *noopKeyRepo) ToECDSA(key *repository.SigningKey) (*ecdsa.PrivateKey, error) {
+	return nil, repository.ErrNoDatabase
+}
+
+// ─── Session noop repo ───
+
+func (r *noopSessionRepo) Create(ctx context.Context, input repository.CreateSessionInput) (*repository.Session, error) {
+	return nil, repository.ErrNoDatabase
+}
+func (r *noopSessionRepo) Get(ctx context.Context, sessionIDHash string) (*repository.Session, error) {
+	return nil, repository.ErrNoDatabase
+}
+func (r *noopSessionRepo) UpdateActivity(ctx context.Context, sessionIDHash string, lastActivity time.Time) error {
+	return repository.ErrNoDatabase
+}
+func (r *noopSessionRepo) List(ctx context.Context, filter repository.ListSessionsFilter) ([]repository.Session, int, error) {
+	return nil, 0, repository.ErrNoDatabase
+}
+func (r *noopSessionRepo) Revoke(ctx context.Context, sessionIDHash, revokedBy, reason string) error {
+	return repository.ErrNoDatabase
+}
+func (r *noopSessionRepo) RevokeAllByUser(ctx context.Context, userID, revokedBy, reason string) (int, error) {
+	return 0, repository.ErrNoDatabase
+}
+func (r *noopSessionRepo) RevokeAll(ctx context.Context, revokedBy, reason string) (int, error) {
+	return 0, repository.ErrNoDatabase
+}
+func (r *noopSessionRepo) DeleteExpired(ctx context.Context) (int, error) {
+	return 0, repository.ErrNoDatabase
+}
+func (r *noopSessionRepo) GetByIDHash(ctx context.Context, sessionIDHash string) (*repository.Session, error) {
+	return nil, repository.ErrNoDatabase
+}
+func (r *noopSessionRepo) GetStats(ctx context.Context) (*repository.SessionStats, error) {
 	return nil, repository.ErrNoDatabase
 }

@@ -484,3 +484,111 @@ func mapTenantError(err error) *httperrors.AppError {
 		return httperrors.ErrInternalServerError.WithCause(err)
 	}
 }
+
+// ─── Import/Export Handlers ───
+
+// ValidateImport handles POST /v2/admin/tenants/{id}/import/validate
+func (c *TenantsController) ValidateImport(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.From(ctx).With(logger.Layer("controller"), logger.Op("ValidateImport"))
+
+	slugOrID := getSlugFromPath(r.URL.Path)
+	if slugOrID == "" {
+		httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("tenant slug o ID requerido"))
+		return
+	}
+	// Limpiar sufijos de la URL
+	slugOrID = strings.TrimSuffix(slugOrID, "/import/validate")
+	slugOrID = strings.TrimSuffix(slugOrID, "/import")
+
+	var req dto.TenantImportRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 10<<20)).Decode(&req); err != nil { // 10MB limit
+		httperrors.WriteError(w, httperrors.ErrInvalidJSON.WithDetail(err.Error()))
+		return
+	}
+
+	result, err := c.service.ValidateImport(ctx, slugOrID, req)
+	if err != nil {
+		log.Error("validate import failed", logger.Err(err))
+		httperrors.WriteError(w, mapTenantError(err))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// ImportConfig handles PUT /v2/admin/tenants/{id}/import
+func (c *TenantsController) ImportConfig(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.From(ctx).With(logger.Layer("controller"), logger.Op("ImportConfig"))
+
+	slugOrID := getSlugFromPath(r.URL.Path)
+	if slugOrID == "" {
+		httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("tenant slug o ID requerido"))
+		return
+	}
+	// Limpiar sufijo
+	slugOrID = strings.TrimSuffix(slugOrID, "/import")
+
+	var req dto.TenantImportRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 10<<20)).Decode(&req); err != nil { // 10MB limit
+		httperrors.WriteError(w, httperrors.ErrInvalidJSON.WithDetail(err.Error()))
+		return
+	}
+
+	result, err := c.service.ImportConfig(ctx, slugOrID, req)
+	if err != nil {
+		log.Error("import config failed", logger.Err(err))
+		httperrors.WriteError(w, mapTenantError(err))
+		return
+	}
+
+	log.Info("import completed",
+		logger.String("tenant", slugOrID),
+		logger.Int("clients", result.ItemsImported.Clients),
+		logger.Int("users", result.ItemsImported.Users))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// ExportConfig handles GET /v2/admin/tenants/{id}/export
+func (c *TenantsController) ExportConfig(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.From(ctx).With(logger.Layer("controller"), logger.Op("ExportConfig"))
+
+	slugOrID := getSlugFromPath(r.URL.Path)
+	if slugOrID == "" {
+		httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("tenant slug o ID requerido"))
+		return
+	}
+	// Limpiar sufijo
+	slugOrID = strings.TrimSuffix(slugOrID, "/export")
+
+	// Parsear query params para opciones
+	opts := dto.ExportOptionsRequest{
+		IncludeSettings: r.URL.Query().Get("settings") != "false",
+		IncludeClients:  r.URL.Query().Get("clients") != "false",
+		IncludeScopes:   r.URL.Query().Get("scopes") != "false",
+		IncludeUsers:    r.URL.Query().Get("users") == "true", // Opt-in por privacidad
+		IncludeRoles:    r.URL.Query().Get("roles") == "true", // Opt-in
+	}
+
+	result, err := c.service.ExportConfig(ctx, slugOrID, opts)
+	if err != nil {
+		log.Error("export config failed", logger.Err(err))
+		httperrors.WriteError(w, mapTenantError(err))
+		return
+	}
+
+	// Opción: descargar como archivo
+	if r.URL.Query().Get("download") == "true" {
+		w.Header().Set("Content-Disposition", "attachment; filename=hellojohn-export-"+slugOrID+".json")
+	}
+
+	log.Info("export completed", logger.String("tenant", slugOrID))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}

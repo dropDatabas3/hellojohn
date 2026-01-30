@@ -253,6 +253,13 @@ func toClientInput(req dto.ClientRequest) controlplane.ClientInput {
 		RequireEmailVerification: req.RequireEmailVerification,
 		ResetPasswordURL:         req.ResetPasswordURL,
 		VerifyEmailURL:           req.VerifyEmailURL,
+		// Campos adicionales OAuth2/OIDC
+		GrantTypes:      req.GrantTypes,
+		AccessTokenTTL:  req.AccessTokenTTL,
+		RefreshTokenTTL: req.RefreshTokenTTL,
+		IDTokenTTL:      req.IDTokenTTL,
+		PostLogoutURIs:  req.PostLogoutURIs,
+		Description:     req.Description,
 	}
 }
 
@@ -270,6 +277,13 @@ func toClientResponse(cl repository.Client) dto.ClientResponse {
 		RequireEmailVerification: cl.RequireEmailVerification,
 		ResetPasswordURL:         cl.ResetPasswordURL,
 		VerifyEmailURL:           cl.VerifyEmailURL,
+		// Campos adicionales OAuth2/OIDC
+		GrantTypes:      cl.GrantTypes,
+		AccessTokenTTL:  cl.AccessTokenTTL,
+		RefreshTokenTTL: cl.RefreshTokenTTL,
+		IDTokenTTL:      cl.IDTokenTTL,
+		PostLogoutURIs:  cl.PostLogoutURIs,
+		Description:     cl.Description,
 		// CreatedAt/UpdatedAt no existen en repository.Client, se omiten
 	}
 }

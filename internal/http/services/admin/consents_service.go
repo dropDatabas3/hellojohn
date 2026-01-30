@@ -16,6 +16,7 @@ import (
 type ConsentService interface {
 	Upsert(ctx context.Context, tda store.TenantDataAccess, userID, clientID string, scopes []string) (*repository.Consent, error)
 	ListByUser(ctx context.Context, tda store.TenantDataAccess, userID string, activeOnly bool) ([]repository.Consent, error)
+	ListAll(ctx context.Context, tda store.TenantDataAccess, page, pageSize int, activeOnly bool) ([]repository.Consent, int, error)
 	Get(ctx context.Context, tda store.TenantDataAccess, userID, clientID string) (*repository.Consent, error)
 	Revoke(ctx context.Context, tda store.TenantDataAccess, userID, clientID string, at time.Time) error
 	ResolveClientUUID(ctx context.Context, tda store.TenantDataAccess, clientIDOrPublic string) (string, error)
@@ -99,6 +100,37 @@ func (s *consentService) ListByUser(ctx context.Context, tda store.TenantDataAcc
 
 	log.Debug("consents listed", logger.Int("count", len(consents)))
 	return consents, nil
+}
+
+func (s *consentService) ListAll(ctx context.Context, tda store.TenantDataAccess, page, pageSize int, activeOnly bool) ([]repository.Consent, int, error) {
+	log := logger.From(ctx).With(
+		logger.Layer("service"),
+		logger.Component(componentConsents),
+		logger.Op("ListAll"),
+	)
+
+	if err := tda.RequireDB(); err != nil {
+		return nil, 0, err
+	}
+
+	// Defaults
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 50
+	}
+
+	offset := (page - 1) * pageSize
+
+	consents, total, err := tda.Consents().ListAll(ctx, tda.ID(), pageSize, offset, activeOnly)
+	if err != nil {
+		log.Error("list all failed", logger.Err(err))
+		return nil, 0, err
+	}
+
+	log.Debug("all consents listed", logger.Int("count", len(consents)), logger.Int("total", total))
+	return consents, total, nil
 }
 
 func (s *consentService) Get(ctx context.Context, tda store.TenantDataAccess, userID, clientID string) (*repository.Consent, error) {

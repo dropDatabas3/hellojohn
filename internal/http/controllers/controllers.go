@@ -79,6 +79,7 @@ import (
 	"github.com/dropDatabas3/hellojohn/internal/http/controllers/oidc"
 	"github.com/dropDatabas3/hellojohn/internal/http/controllers/social"
 	"github.com/dropDatabas3/hellojohn/internal/http/services"
+	store "github.com/dropDatabas3/hellojohn/internal/store"
 )
 
 // Controllers agrupa todos los sub-controllers por dominio.
@@ -91,13 +92,20 @@ type Controllers struct {
 	Social *social.Controllers // Social login (start, callback, exchange)
 }
 
+// Deps contiene dependencias adicionales para controllers que no vienen de services.
+type Deps struct {
+	DAL store.DataAccessLayer
+}
+
 // New crea el agregador de controllers con todos los services inyectados.
 // Este es el único lugar donde se instancian los controllers.
 //
 // Los services ya deben estar creados via services.New(deps).
-func New(svc *services.Services) *Controllers {
+func New(svc *services.Services, deps Deps) *Controllers {
 	return &Controllers{
-		Admin:  admin.NewControllers(svc.Admin),
+		Admin: admin.NewControllers(svc.Admin, admin.ControllerDeps{
+			DAL: deps.DAL,
+		}),
 		Auth:   auth.NewControllers(svc.Auth),
 		OIDC:   oidc.NewControllers(svc.OIDC),
 		Health: health.NewControllers(svc.Health),

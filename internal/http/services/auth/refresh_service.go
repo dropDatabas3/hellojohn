@@ -288,7 +288,7 @@ func (s *refreshService) refreshFromDB(ctx context.Context, in dto.RefreshReques
 
 	// Get scopes from client config
 	var grantedScopes []string
-	if client, err := tda.Clients().Get(ctx, tenantID, rt.ClientID); err == nil && client != nil {
+	if client, err := tda.Clients().Get(ctx, tda.Slug(), rt.ClientID); err == nil && client != nil {
 		grantedScopes = client.Scopes
 	} else {
 		grantedScopes = []string{"openid"}

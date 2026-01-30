@@ -26,6 +26,12 @@ type ProviderConfig struct {
 	GoogleClientSecret string
 	GoogleRedirectURL  string
 
+	// GitHub OAuth
+	GitHubEnabled      bool
+	GitHubClientID     string
+	GitHubClientSecret string
+	GitHubRedirectURL  string
+
 	// JWT issuer for default redirect derivation
 	JWTIssuer string
 }
@@ -68,6 +74,10 @@ func (s *providersService) GetProviders(ctx context.Context, in dto.ProvidersReq
 	// Google
 	googleInfo := s.buildGoogleProvider(ctx, in, log)
 	result.Providers = append(result.Providers, googleInfo)
+
+	// GitHub
+	githubInfo := s.buildGitHubProvider(ctx, in, log)
+	result.Providers = append(result.Providers, githubInfo)
 
 	log.Debug("providers resolved", zap.Int("count", len(result.Providers)))
 	return result, nil
@@ -167,7 +177,7 @@ func (s *providersService) validateRedirectURI(ctx context.Context, tenantID, cl
 		return false
 	}
 
-	client, err := tda.Clients().Get(ctx, tenantID, clientID)
+	client, err := tda.Clients().Get(ctx, tda.Slug(), clientID)
 	if err != nil || client == nil {
 		log.Debug("client not found for redirect validation", zap.String("client_id", clientID))
 		return false
@@ -192,4 +202,90 @@ func (s *providersService) validateRedirectURI(ctx context.Context, tenantID, cl
 		zap.String("redirect_uri", redirectURI),
 	)
 	return false
+}
+
+// buildGitHubProvider builds the GitHub provider info.
+func (s *providersService) buildGitHubProvider(ctx context.Context, in dto.ProvidersRequest, log *zap.Logger) dto.ProviderInfo {
+	pi := dto.ProviderInfo{
+		Name:  "github",
+		Popup: true,
+	}
+
+	if !s.deps.Providers.GitHubEnabled {
+		pi.Enabled = false
+		pi.Ready = false
+		return pi
+	}
+
+	pi.Enabled = true
+
+	// Check if ready (config correct)
+	githubReady := strings.TrimSpace(s.deps.Providers.GitHubClientID) != "" &&
+		strings.TrimSpace(s.deps.Providers.GitHubClientSecret) != ""
+
+	// Need either explicit redirect URL or JWT issuer to derive callback
+	if strings.TrimSpace(s.deps.Providers.GitHubRedirectURL) == "" &&
+		strings.TrimSpace(s.deps.Providers.JWTIssuer) == "" {
+		githubReady = false
+	}
+
+	pi.Ready = githubReady
+
+	if !githubReady {
+		pi.Reason = "github provider not configured (client_id/secret or redirect_url/jwt.issuer missing)"
+		return pi
+	}
+
+	// Try to generate start_url if we have enough context
+	startURL := s.buildGitHubStartURL(ctx, in, log)
+	if startURL != "" {
+		pi.StartURL = &startURL
+	}
+
+	return pi
+}
+
+// buildGitHubStartURL builds the start_url for GitHub OAuth if valid.
+func (s *providersService) buildGitHubStartURL(ctx context.Context, in dto.ProvidersRequest, log *zap.Logger) string {
+	tenantID := strings.TrimSpace(in.TenantID)
+	clientID := strings.TrimSpace(in.ClientID)
+	redirectURI := strings.TrimSpace(in.RedirectURI)
+
+	// Parse tenant UUID
+	if tenantID == "" {
+		return ""
+	}
+	tid, err := uuid.Parse(tenantID)
+	if err != nil || tid == uuid.Nil {
+		return ""
+	}
+
+	if clientID == "" {
+		return ""
+	}
+
+	// Default redirect if not provided
+	if redirectURI == "" {
+		base := strings.TrimRight(s.deps.Providers.JWTIssuer, "/")
+		if base != "" {
+			redirectURI = base + "/v1/auth/social/result"
+		}
+	}
+
+	if redirectURI == "" {
+		return ""
+	}
+
+	// Validate redirect_uri against client
+	if !s.validateRedirectURI(ctx, tid.String(), clientID, redirectURI, log) {
+		return ""
+	}
+
+	// Build start URL
+	v := url.Values{}
+	v.Set("tenant_id", tid.String())
+	v.Set("client_id", clientID)
+	v.Set("redirect_uri", redirectURI)
+
+	return "/v1/auth/social/github/start?" + v.Encode()
 }

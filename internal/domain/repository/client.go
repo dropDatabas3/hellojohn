@@ -27,6 +27,14 @@ type Client struct {
 	ClaimSchema              map[string]any
 	ClaimMapping             map[string]any
 	SocialProviders          *SocialConfig // Override de configuración social por cliente
+
+	// Campos adicionales para OAuth2/OIDC avanzado
+	GrantTypes      []string // "authorization_code", "client_credentials", "refresh_token", "implicit"
+	AccessTokenTTL  int      // Segundos, default: 3600 (1 hora)
+	RefreshTokenTTL int      // Segundos, default: 86400 (24 horas)
+	IDTokenTTL      int      // Segundos, default: 3600 (1 hora)
+	PostLogoutURIs  []string // URIs válidas para post-logout redirect
+	Description     string   // Descripción del cliente
 }
 
 // ClientVersion representa una versión de configuración de un client.
@@ -55,6 +63,14 @@ type ClientInput struct {
 	VerifyEmailURL           string
 	ClaimSchema              map[string]any
 	ClaimMapping             map[string]any
+
+	// Campos adicionales para OAuth2/OIDC avanzado
+	GrantTypes      []string
+	AccessTokenTTL  int
+	RefreshTokenTTL int
+	IDTokenTTL      int
+	PostLogoutURIs  []string
+	Description     string
 }
 
 // ClientRepository define operaciones sobre OIDC clients.

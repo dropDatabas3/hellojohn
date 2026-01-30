@@ -163,6 +163,7 @@ func (c *pgConnection) EmailTokens() repository.EmailTokenRepository {
 	return newEmailTokenRepo(c.pool)
 }
 func (c *pgConnection) Identities() repository.IdentityRepository { return newIdentityRepo(c.pool) }
+func (c *pgConnection) Sessions() repository.SessionRepository    { return NewSessionRepo(c.pool) }
 
 // Control plane (no soportado por PG, viene de FS)
 func (c *pgConnection) Tenants() repository.TenantRepository                       { return nil }
@@ -170,6 +171,7 @@ func (c *pgConnection) Clients() repository.ClientRepository                    
 func (c *pgConnection) Admins() repository.AdminRepository                         { return nil }
 func (c *pgConnection) AdminRefreshTokens() repository.AdminRefreshTokenRepository { return nil }
 func (c *pgConnection) Keys() repository.KeyRepository                             { return nil } // Keys viven en FS
+func (c *pgConnection) Claims() repository.ClaimRepository                         { return nil } // Claims viven en FS
 
 // GetMigrationExecutor implementa store.MigratableConnection.
 // Retorna un wrapper del pool para migraciones.
@@ -720,4 +722,230 @@ func (r *tokenRepo) RevokeAllByClient(ctx context.Context, clientID string) erro
 	const query = `UPDATE refresh_token SET revoked_at = NOW() WHERE client_id_text = $1 AND revoked_at IS NULL`
 	_, err := r.pool.Exec(ctx, query, clientID)
 	return err
+}
+
+// ─── Admin Token Operations ───
+
+func (r *tokenRepo) GetByID(ctx context.Context, tokenID string) (*repository.RefreshToken, error) {
+	const query = `
+		SELECT t.id, t.user_id, t.client_id_text, t.token_hash, t.issued_at, t.expires_at, t.rotated_from, t.revoked_at,
+		       COALESCE(u.email, '') AS user_email
+		FROM refresh_token t
+		LEFT JOIN app_user u ON u.id = t.user_id
+		WHERE t.id = $1
+	`
+	var token repository.RefreshToken
+	err := r.pool.QueryRow(ctx, query, tokenID).Scan(
+		&token.ID, &token.UserID, &token.ClientID,
+		&token.TokenHash, &token.IssuedAt, &token.ExpiresAt, &token.RotatedFrom, &token.RevokedAt,
+		&token.UserEmail,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, repository.ErrNotFound
+	}
+	return &token, err
+}
+
+func (r *tokenRepo) List(ctx context.Context, filter repository.ListTokensFilter) ([]repository.RefreshToken, error) {
+	// Validar paginación
+	if filter.Page < 1 {
+		filter.Page = 1
+	}
+	if filter.PageSize < 1 {
+		filter.PageSize = 50
+	}
+	if filter.PageSize > 200 {
+		filter.PageSize = 200
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+
+	query := `
+		SELECT t.id, t.user_id, t.client_id_text, t.token_hash, t.issued_at, t.expires_at, t.rotated_from, t.revoked_at,
+		       COALESCE(u.email, '') AS user_email
+		FROM refresh_token t
+		LEFT JOIN app_user u ON u.id = t.user_id
+		WHERE 1=1
+	`
+	args := []any{}
+	argIndex := 1
+
+	// Filtro por user_id
+	if filter.UserID != nil && *filter.UserID != "" {
+		query += fmt.Sprintf(" AND t.user_id = $%d", argIndex)
+		args = append(args, *filter.UserID)
+		argIndex++
+	}
+
+	// Filtro por client_id
+	if filter.ClientID != nil && *filter.ClientID != "" {
+		query += fmt.Sprintf(" AND t.client_id_text = $%d", argIndex)
+		args = append(args, *filter.ClientID)
+		argIndex++
+	}
+
+	// Filtro por status
+	if filter.Status != nil && *filter.Status != "" {
+		switch *filter.Status {
+		case "active":
+			query += " AND t.revoked_at IS NULL AND t.expires_at > NOW()"
+		case "expired":
+			query += " AND t.revoked_at IS NULL AND t.expires_at <= NOW()"
+		case "revoked":
+			query += " AND t.revoked_at IS NOT NULL"
+		}
+	}
+
+	// Filtro por búsqueda (email)
+	if filter.Search != nil && *filter.Search != "" {
+		query += fmt.Sprintf(" AND u.email ILIKE $%d", argIndex)
+		args = append(args, "%"+*filter.Search+"%")
+		argIndex++
+	}
+
+	// Ordenar y paginar
+	query += fmt.Sprintf(" ORDER BY t.issued_at DESC LIMIT $%d OFFSET $%d", argIndex, argIndex+1)
+	args = append(args, filter.PageSize, offset)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tokens []repository.RefreshToken
+	for rows.Next() {
+		var token repository.RefreshToken
+		if err := rows.Scan(
+			&token.ID, &token.UserID, &token.ClientID,
+			&token.TokenHash, &token.IssuedAt, &token.ExpiresAt, &token.RotatedFrom, &token.RevokedAt,
+			&token.UserEmail,
+		); err != nil {
+			return nil, err
+		}
+		tokens = append(tokens, token)
+	}
+
+	return tokens, rows.Err()
+}
+
+func (r *tokenRepo) Count(ctx context.Context, filter repository.ListTokensFilter) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM refresh_token t
+		LEFT JOIN app_user u ON u.id = t.user_id
+		WHERE 1=1
+	`
+	args := []any{}
+	argIndex := 1
+
+	// Filtro por user_id
+	if filter.UserID != nil && *filter.UserID != "" {
+		query += fmt.Sprintf(" AND t.user_id = $%d", argIndex)
+		args = append(args, *filter.UserID)
+		argIndex++
+	}
+
+	// Filtro por client_id
+	if filter.ClientID != nil && *filter.ClientID != "" {
+		query += fmt.Sprintf(" AND t.client_id_text = $%d", argIndex)
+		args = append(args, *filter.ClientID)
+		argIndex++
+	}
+
+	// Filtro por status
+	if filter.Status != nil && *filter.Status != "" {
+		switch *filter.Status {
+		case "active":
+			query += " AND t.revoked_at IS NULL AND t.expires_at > NOW()"
+		case "expired":
+			query += " AND t.revoked_at IS NULL AND t.expires_at <= NOW()"
+		case "revoked":
+			query += " AND t.revoked_at IS NOT NULL"
+		}
+	}
+
+	// Filtro por búsqueda (email)
+	if filter.Search != nil && *filter.Search != "" {
+		query += fmt.Sprintf(" AND u.email ILIKE $%d", argIndex)
+		args = append(args, "%"+*filter.Search+"%")
+	}
+
+	var count int
+	err := r.pool.QueryRow(ctx, query, args...).Scan(&count)
+	return count, err
+}
+
+func (r *tokenRepo) RevokeAll(ctx context.Context) (int, error) {
+	const query = `UPDATE refresh_token SET revoked_at = NOW() WHERE revoked_at IS NULL`
+	tag, err := r.pool.Exec(ctx, query)
+	return int(tag.RowsAffected()), err
+}
+
+func (r *tokenRepo) GetStats(ctx context.Context) (*repository.TokenStats, error) {
+	stats := &repository.TokenStats{}
+
+	// Total activos
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM refresh_token 
+		WHERE revoked_at IS NULL AND expires_at > NOW()
+	`).Scan(&stats.TotalActive)
+	if err != nil {
+		return nil, err
+	}
+
+	// Emitidos hoy
+	err = r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM refresh_token 
+		WHERE issued_at >= CURRENT_DATE
+	`).Scan(&stats.IssuedToday)
+	if err != nil {
+		return nil, err
+	}
+
+	// Revocados hoy
+	err = r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM refresh_token 
+		WHERE revoked_at >= CURRENT_DATE
+	`).Scan(&stats.RevokedToday)
+	if err != nil {
+		return nil, err
+	}
+
+	// Tiempo de vida promedio (en horas)
+	err = r.pool.QueryRow(ctx, `
+		SELECT COALESCE(
+			AVG(EXTRACT(EPOCH FROM (
+				COALESCE(revoked_at, LEAST(expires_at, NOW())) - issued_at
+			)) / 3600.0), 0
+		)
+		FROM refresh_token 
+		WHERE revoked_at IS NOT NULL OR expires_at <= NOW()
+	`).Scan(&stats.AvgLifetimeHours)
+	if err != nil {
+		return nil, err
+	}
+
+	// Por client (top 10)
+	rows, err := r.pool.Query(ctx, `
+		SELECT client_id_text, COUNT(*) as cnt
+		FROM refresh_token
+		WHERE revoked_at IS NULL AND expires_at > NOW()
+		GROUP BY client_id_text
+		ORDER BY cnt DESC
+		LIMIT 10
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cc repository.ClientTokenCount
+		if err := rows.Scan(&cc.ClientID, &cc.Count); err != nil {
+			return nil, err
+		}
+		stats.ByClient = append(stats.ByClient, cc)
+	}
+
+	return stats, rows.Err()
 }

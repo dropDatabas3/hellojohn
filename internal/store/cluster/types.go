@@ -104,9 +104,12 @@ type SettingsPayload struct {
 
 // ScopePayload para create scope.
 type ScopePayload struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	System      bool   `json:"system,omitempty"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	DisplayName string   `json:"display_name,omitempty"`
+	Claims      []string `json:"claims,omitempty"`
+	DependsOn   string   `json:"depends_on,omitempty"`
+	System      bool     `json:"system,omitempty"`
 }
 
 // KeyRotatePayload para replicar rotación de keys.

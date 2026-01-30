@@ -95,6 +95,15 @@ func adminTenantsHandler(c *ctrl.TenantsController) http.Handler {
 			c.MigrateTenant(w, r)
 			return
 
+		case strings.HasSuffix(rest, "/user-store/migrate"):
+			// Alias para /migrate - mantiene consistencia con /user-store/* endpoints
+			if r.Method != http.MethodPost {
+				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
+				return
+			}
+			c.MigrateTenant(w, r)
+			return
+
 		case strings.HasSuffix(rest, "/schema/apply"):
 			if r.Method != http.MethodPost {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
@@ -133,6 +142,32 @@ func adminTenantsHandler(c *ctrl.TenantsController) http.Handler {
 				return
 			}
 			c.TestTenantDBConnection(w, r)
+			return
+
+		// ─── Import/Export ───
+
+		case strings.HasSuffix(rest, "/import/validate"):
+			if r.Method != http.MethodPost {
+				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
+				return
+			}
+			c.ValidateImport(w, r)
+			return
+
+		case strings.HasSuffix(rest, "/import"):
+			if r.Method != http.MethodPut && r.Method != http.MethodPost {
+				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
+				return
+			}
+			c.ImportConfig(w, r)
+			return
+
+		case strings.HasSuffix(rest, "/export"):
+			if r.Method != http.MethodGet {
+				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
+				return
+			}
+			c.ExportConfig(w, r)
 			return
 		}
 

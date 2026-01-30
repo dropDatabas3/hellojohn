@@ -100,8 +100,21 @@ type Service interface {
 
 	// ─── Scopes ───
 	ListScopes(ctx context.Context, slug string) ([]repository.Scope, error)
-	CreateScope(ctx context.Context, slug, name, description string) (*repository.Scope, error)
+	CreateScope(ctx context.Context, slug string, input repository.ScopeInput) (*repository.Scope, error)
+	UpsertScope(ctx context.Context, slug string, input repository.ScopeInput) (*repository.Scope, error)
 	DeleteScope(ctx context.Context, slug, name string) error
+
+	// ─── Claims ───
+	GetClaimsConfig(ctx context.Context, slug string) (*ClaimsConfig, error)
+	ListCustomClaims(ctx context.Context, slug string) ([]repository.ClaimDefinition, error)
+	CreateCustomClaim(ctx context.Context, slug string, input repository.ClaimInput) (*repository.ClaimDefinition, error)
+	GetCustomClaim(ctx context.Context, slug, claimID string) (*repository.ClaimDefinition, error)
+	UpdateCustomClaim(ctx context.Context, slug, claimID string, input repository.ClaimInput) (*repository.ClaimDefinition, error)
+	DeleteCustomClaim(ctx context.Context, slug, claimID string) error
+	ToggleStandardClaim(ctx context.Context, slug, claimName string, enabled bool) error
+	GetClaimsSettings(ctx context.Context, slug string) (*repository.ClaimsSettings, error)
+	UpdateClaimsSettings(ctx context.Context, slug string, input repository.ClaimsSettingsInput) (*repository.ClaimsSettings, error)
+	GetScopeMappings(ctx context.Context, slug string) ([]repository.ScopeClaimMapping, error)
 
 	// ─── Admins ───
 	ListAdmins(ctx context.Context) ([]repository.Admin, error)
@@ -140,6 +153,14 @@ type ClientInput struct {
 	VerifyEmailURL           string
 	ClaimSchema              map[string]any
 	ClaimMapping             map[string]any
+
+	// Campos adicionales para OAuth2/OIDC avanzado
+	GrantTypes      []string
+	AccessTokenTTL  int
+	RefreshTokenTTL int
+	IDTokenTTL      int
+	PostLogoutURIs  []string
+	Description     string
 }
 
 // CreateAdminInput contiene los datos para crear un admin.
@@ -357,6 +378,13 @@ func (s *service) CreateClient(ctx context.Context, slug string, input ClientInp
 		VerifyEmailURL:           input.VerifyEmailURL,
 		ClaimSchema:              input.ClaimSchema,
 		ClaimMapping:             input.ClaimMapping,
+		// Campos adicionales OAuth2/OIDC
+		GrantTypes:      input.GrantTypes,
+		AccessTokenTTL:  input.AccessTokenTTL,
+		RefreshTokenTTL: input.RefreshTokenTTL,
+		IDTokenTTL:      input.IDTokenTTL,
+		PostLogoutURIs:  uniqueStrings(input.PostLogoutURIs),
+		Description:     input.Description,
 	}
 
 	return s.store.ConfigAccess().Clients(slug).Create(ctx, slug, repoInput)
@@ -397,6 +425,13 @@ func (s *service) UpdateClient(ctx context.Context, slug string, input ClientInp
 		VerifyEmailURL:           input.VerifyEmailURL,
 		ClaimSchema:              input.ClaimSchema,
 		ClaimMapping:             input.ClaimMapping,
+		// Campos adicionales OAuth2/OIDC
+		GrantTypes:      input.GrantTypes,
+		AccessTokenTTL:  input.AccessTokenTTL,
+		RefreshTokenTTL: input.RefreshTokenTTL,
+		IDTokenTTL:      input.IDTokenTTL,
+		PostLogoutURIs:  uniqueStrings(input.PostLogoutURIs),
+		Description:     input.Description,
 	}
 
 	return s.store.ConfigAccess().Clients(slug).Update(ctx, slug, repoInput)
@@ -423,11 +458,18 @@ func (s *service) ListScopes(ctx context.Context, slug string) ([]repository.Sco
 	return s.store.ConfigAccess().Scopes(slug).List(ctx, slug)
 }
 
-func (s *service) CreateScope(ctx context.Context, slug, name, description string) (*repository.Scope, error) {
-	if strings.TrimSpace(name) == "" {
+func (s *service) CreateScope(ctx context.Context, slug string, input repository.ScopeInput) (*repository.Scope, error) {
+	if strings.TrimSpace(input.Name) == "" {
 		return nil, fmt.Errorf("%w: scope name required", ErrBadInput)
 	}
-	return s.store.ConfigAccess().Scopes(slug).Create(ctx, slug, name, description)
+	return s.store.ConfigAccess().Scopes(slug).Create(ctx, slug, input)
+}
+
+func (s *service) UpsertScope(ctx context.Context, slug string, input repository.ScopeInput) (*repository.Scope, error) {
+	if strings.TrimSpace(input.Name) == "" {
+		return nil, fmt.Errorf("%w: scope name required", ErrBadInput)
+	}
+	return s.store.ConfigAccess().Scopes(slug).Upsert(ctx, slug, input)
 }
 
 func (s *service) DeleteScope(ctx context.Context, slug, name string) error {
@@ -443,7 +485,107 @@ func (s *service) DeleteScope(ctx context.Context, slug, name string) error {
 			}
 		}
 	}
+
+	// Verificar que no sea requerido por otros scopes (depends_on)
+	scopes, err := s.ListScopes(ctx, slug)
+	if err != nil {
+		return err
+	}
+	for _, scope := range scopes {
+		if scope.DependsOn == name {
+			return fmt.Errorf("%w: scope %s is required by %s", ErrScopeInUse, name, scope.Name)
+		}
+	}
+
 	return s.store.ConfigAccess().Scopes(slug).Delete(ctx, slug, name)
+}
+
+// ─── Claims ───
+
+// ClaimsConfig representa la configuración completa de claims de un tenant.
+type ClaimsConfig struct {
+	StandardClaims []repository.StandardClaimConfig
+	CustomClaims   []repository.ClaimDefinition
+	Settings       *repository.ClaimsSettings
+}
+
+func (s *service) GetClaimsConfig(ctx context.Context, slug string) (*ClaimsConfig, error) {
+	claimRepo := s.store.ConfigAccess().Claims(slug)
+
+	standard, err := claimRepo.GetStandardClaimsConfig(ctx, slug)
+	if err != nil {
+		return nil, err
+	}
+
+	custom, err := claimRepo.List(ctx, slug)
+	if err != nil {
+		return nil, err
+	}
+
+	settings, err := claimRepo.GetSettings(ctx, slug)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ClaimsConfig{
+		StandardClaims: standard,
+		CustomClaims:   custom,
+		Settings:       settings,
+	}, nil
+}
+
+func (s *service) ListCustomClaims(ctx context.Context, slug string) ([]repository.ClaimDefinition, error) {
+	return s.store.ConfigAccess().Claims(slug).List(ctx, slug)
+}
+
+func (s *service) CreateCustomClaim(ctx context.Context, slug string, input repository.ClaimInput) (*repository.ClaimDefinition, error) {
+	if strings.TrimSpace(input.Name) == "" {
+		return nil, fmt.Errorf("%w: claim name required", ErrBadInput)
+	}
+	return s.store.ConfigAccess().Claims(slug).Create(ctx, slug, input)
+}
+
+func (s *service) GetCustomClaim(ctx context.Context, slug, claimID string) (*repository.ClaimDefinition, error) {
+	return s.store.ConfigAccess().Claims(slug).Get(ctx, slug, claimID)
+}
+
+func (s *service) UpdateCustomClaim(ctx context.Context, slug, claimID string, input repository.ClaimInput) (*repository.ClaimDefinition, error) {
+	return s.store.ConfigAccess().Claims(slug).Update(ctx, slug, claimID, input)
+}
+
+func (s *service) DeleteCustomClaim(ctx context.Context, slug, claimID string) error {
+	return s.store.ConfigAccess().Claims(slug).Delete(ctx, slug, claimID)
+}
+
+func (s *service) ToggleStandardClaim(ctx context.Context, slug, claimName string, enabled bool) error {
+	return s.store.ConfigAccess().Claims(slug).SetStandardClaimEnabled(ctx, slug, claimName, enabled)
+}
+
+func (s *service) GetClaimsSettings(ctx context.Context, slug string) (*repository.ClaimsSettings, error) {
+	return s.store.ConfigAccess().Claims(slug).GetSettings(ctx, slug)
+}
+
+func (s *service) UpdateClaimsSettings(ctx context.Context, slug string, input repository.ClaimsSettingsInput) (*repository.ClaimsSettings, error) {
+	return s.store.ConfigAccess().Claims(slug).UpdateSettings(ctx, slug, input)
+}
+
+func (s *service) GetScopeMappings(ctx context.Context, slug string) ([]repository.ScopeClaimMapping, error) {
+	// Build mappings from scopes that have claims
+	scopes, err := s.ListScopes(ctx, slug)
+	if err != nil {
+		return nil, err
+	}
+
+	var mappings []repository.ScopeClaimMapping
+	for _, scope := range scopes {
+		if len(scope.Claims) > 0 {
+			mappings = append(mappings, repository.ScopeClaimMapping{
+				Scope:  scope.Name,
+				Claims: scope.Claims,
+			})
+		}
+	}
+	return mappings, nil
 }
 
 // ─── Validations ───

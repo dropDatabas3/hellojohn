@@ -19,22 +19,25 @@ type Tenant struct {
 
 // TenantSettings contiene la configuración de un tenant.
 type TenantSettings struct {
-	LogoURL                     string          `json:"logoUrl" yaml:"logoUrl"`
-	BrandColor                  string          `json:"brandColor" yaml:"brandColor"`
-	SessionLifetimeSeconds      int             `json:"sessionLifetimeSeconds" yaml:"sessionLifetimeSeconds"`
-	RefreshTokenLifetimeSeconds int             `json:"refreshTokenLifetimeSeconds" yaml:"refreshTokenLifetimeSeconds"`
-	MFAEnabled                  bool            `json:"mfaEnabled" yaml:"mfaEnabled"`
-	SocialLoginEnabled          bool            `json:"social_login_enabled" yaml:"social_login_enabled"`
-	SMTP                        *SMTPSettings   `json:"smtp,omitempty" yaml:"smtp,omitempty"`
-	UserDB                      *UserDBSettings `json:"userDb,omitempty" yaml:"userDb,omitempty"`
-	Cache                       *CacheSettings  `json:"cache,omitempty" yaml:"cache,omitempty"`
-	Security                    *SecurityPolicy `json:"security,omitempty" yaml:"security,omitempty"`
+	LogoURL                     string                `json:"logoUrl" yaml:"logoUrl"`
+	BrandColor                  string                `json:"brandColor" yaml:"brandColor"`
+	SecondaryColor              string                `json:"secondaryColor" yaml:"secondaryColor"`
+	FaviconURL                  string                `json:"faviconUrl" yaml:"faviconUrl"`
+	SessionLifetimeSeconds      int                   `json:"sessionLifetimeSeconds" yaml:"sessionLifetimeSeconds"`
+	RefreshTokenLifetimeSeconds int                   `json:"refreshTokenLifetimeSeconds" yaml:"refreshTokenLifetimeSeconds"`
+	MFAEnabled                  bool                  `json:"mfaEnabled" yaml:"mfaEnabled"`
+	SocialLoginEnabled          bool                  `json:"social_login_enabled" yaml:"social_login_enabled"`
+	SMTP                        *SMTPSettings         `json:"smtp,omitempty" yaml:"smtp,omitempty"`
+	UserDB                      *UserDBSettings       `json:"userDb,omitempty" yaml:"userDb,omitempty"`
+	Cache                       *CacheSettings        `json:"cache,omitempty" yaml:"cache,omitempty"`
+	Security                    *SecurityPolicy       `json:"security,omitempty" yaml:"security,omitempty"`
 	UserFields                  []UserFieldDefinition `json:"userFields,omitempty" yaml:"userFields,omitempty"`
 	Mailing                     *MailingSettings      `json:"mailing,omitempty" yaml:"mailing,omitempty"`
 	// IssuerMode configura cómo se construye el issuer/JWKS por tenant.
-	IssuerMode      string        `json:"issuerMode,omitempty" yaml:"issuerMode,omitempty"`
-	IssuerOverride  string        `json:"issuerOverride,omitempty" yaml:"issuerOverride,omitempty"`
-	SocialProviders *SocialConfig `json:"socialProviders,omitempty" yaml:"socialProviders,omitempty"`
+	IssuerMode      string                 `json:"issuerMode,omitempty" yaml:"issuerMode,omitempty"`
+	IssuerOverride  string                 `json:"issuerOverride,omitempty" yaml:"issuerOverride,omitempty"`
+	SocialProviders *SocialConfig          `json:"socialProviders,omitempty" yaml:"socialProviders,omitempty"`
+	ConsentPolicy   *ConsentPolicySettings `json:"consentPolicy,omitempty" yaml:"consentPolicy,omitempty"`
 }
 
 // SMTPSettings configuración de email.
@@ -42,7 +45,7 @@ type SMTPSettings struct {
 	Host        string `json:"host" yaml:"host"`
 	Port        int    `json:"port" yaml:"port"`
 	Username    string `json:"username" yaml:"username"`
-	Password    string `json:"password,omitempty" yaml:"-"` // Plain (no persiste)
+	Password    string `json:"password,omitempty" yaml:"-"`    // Plain (no persiste)
 	PasswordEnc string `json:"-" yaml:"passwordEnc,omitempty"` // Encrypted
 	FromEmail   string `json:"fromEmail" yaml:"fromEmail"`
 	UseTLS      bool   `json:"useTLS" yaml:"useTLS"`
@@ -51,7 +54,7 @@ type SMTPSettings struct {
 // UserDBSettings configuración de DB por tenant.
 type UserDBSettings struct {
 	Driver     string `json:"driver" yaml:"driver"`
-	DSN        string `json:"dsn,omitempty" yaml:"-"` // Plain (no persiste)
+	DSN        string `json:"dsn,omitempty" yaml:"-"`    // Plain (no persiste)
 	DSNEnc     string `json:"-" yaml:"dsnEnc,omitempty"` // Encrypted
 	Schema     string `json:"schema,omitempty" yaml:"schema,omitempty"`
 	ManualMode bool   `json:"manualMode,omitempty" yaml:"manualMode,omitempty"`
@@ -64,15 +67,20 @@ type CacheSettings struct {
 	Host     string `json:"host" yaml:"host"`
 	Port     int    `json:"port" yaml:"port"`
 	Password string `json:"password,omitempty" yaml:"-"` // Plain (no persiste)
-	PassEnc  string `json:"-" yaml:"passEnc,omitempty"` // Encrypted
+	PassEnc  string `json:"-" yaml:"passEnc,omitempty"`  // Encrypted
 	DB       int    `json:"db" yaml:"db"`
 	Prefix   string `json:"prefix" yaml:"prefix"`
 }
 
 // SecurityPolicy políticas de seguridad.
 type SecurityPolicy struct {
-	PasswordMinLength int  `json:"passwordMinLength" yaml:"passwordMinLength"`
-	MFARequired       bool `json:"mfaRequired" yaml:"mfaRequired"`
+	PasswordMinLength      int  `json:"passwordMinLength" yaml:"passwordMinLength"`
+	RequireUppercase       bool `json:"requireUppercase" yaml:"requireUppercase"`
+	RequireNumbers         bool `json:"requireNumbers" yaml:"requireNumbers"`
+	RequireSpecialChars    bool `json:"requireSpecialChars" yaml:"requireSpecialChars"`
+	MFARequired            bool `json:"mfaRequired" yaml:"mfaRequired"`
+	MaxLoginAttempts       int  `json:"maxLoginAttempts" yaml:"maxLoginAttempts"`
+	LockoutDurationMinutes int  `json:"lockoutDurationMinutes" yaml:"lockoutDurationMinutes"`
 }
 
 // UserFieldDefinition define un campo custom de usuario.
@@ -125,10 +133,27 @@ type TenantRepository interface {
 	UpdateSettings(ctx context.Context, slug string, settings *TenantSettings) error
 }
 
+// ConsentPolicySettings configuración de políticas de consentimiento.
+type ConsentPolicySettings struct {
+	ConsentMode                   string `json:"consent_mode" yaml:"consentMode"`                           // "per_scope" | "single"
+	ExpirationDays                *int   `json:"expiration_days,omitempty" yaml:"expirationDays,omitempty"` // null = never expires
+	RepromptDays                  *int   `json:"reprompt_days,omitempty" yaml:"repromptDays,omitempty"`     // null = never reprompt
+	RememberScopeDecisions        bool   `json:"remember_scope_decisions" yaml:"rememberScopeDecisions"`
+	ShowConsentScreen             bool   `json:"show_consent_screen" yaml:"showConsentScreen"`
+	AllowSkipConsentForFirstParty bool   `json:"allow_skip_consent_for_first_party" yaml:"allowSkipConsentForFirstParty"`
+}
+
 // SocialConfig: habilitación/config de IdPs sociales.
 type SocialConfig struct {
+	// Google OAuth
 	GoogleEnabled   bool   `json:"googleEnabled" yaml:"googleEnabled"`
 	GoogleClient    string `json:"googleClient" yaml:"googleClient"`
-	GoogleSecret    string `json:"googleSecret,omitempty" yaml:"-"` // Plain (input)
+	GoogleSecret    string `json:"googleSecret,omitempty" yaml:"-"`                            // Plain (input)
 	GoogleSecretEnc string `json:"googleSecretEnc,omitempty" yaml:"googleSecretEnc,omitempty"` // Encrypted (persisted)
+
+	// GitHub OAuth
+	GitHubEnabled   bool   `json:"githubEnabled" yaml:"githubEnabled"`
+	GitHubClient    string `json:"githubClient" yaml:"githubClient"`
+	GitHubSecret    string `json:"githubSecret,omitempty" yaml:"-"`                            // Plain (input)
+	GitHubSecretEnc string `json:"githubSecretEnc,omitempty" yaml:"githubSecretEnc,omitempty"` // Encrypted (persisted)
 }

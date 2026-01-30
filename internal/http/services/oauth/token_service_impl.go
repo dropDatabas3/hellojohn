@@ -66,6 +66,12 @@ func (s *tokenService) ExchangeAuthorizationCode(ctx context.Context, req AuthCo
 		return nil, ErrTokenInvalidClient
 	}
 
+	// Validate grant_type is allowed for this client
+	if !isGrantTypeAllowed(client, "authorization_code") {
+		log.Warn("grant_type not allowed for client", logger.String("grant_type", "authorization_code"))
+		return nil, ErrTokenUnauthorizedClient
+	}
+
 	// Consume authorization code from cache (one-shot)
 	// Hardening: check for hashed code first
 	codeHash := tokens.SHA256Base64URL(req.Code)
@@ -131,21 +137,21 @@ func (s *tokenService) ExchangeAuthorizationCode(ctx context.Context, req AuthCo
 	// Resolve effective issuer for tenant
 	effIss := s.resolveEffectiveIssuer(ctx, tenantSlug)
 
-	// Issue access token
-	access, exp, err := s.issuer.IssueAccessForTenant(tenantSlug, effIss, ac.UserID, req.ClientID, std, custom)
+	// Issue access token with client-specific TTL (if configured)
+	access, exp, err := s.issuer.IssueAccessForTenantWithTTL(tenantSlug, effIss, ac.UserID, req.ClientID, std, custom, client.AccessTokenTTL)
 	if err != nil {
 		log.Error("failed to issue access token", logger.Err(err))
 		return nil, ErrTokenServerError
 	}
 
-	// Create refresh token
-	rawRT, err := s.createRefreshToken(ctx, tenantSlug, client.ClientID, ac.UserID)
+	// Create refresh token with client-specific TTL
+	rawRT, err := s.createRefreshTokenWithTTL(ctx, tenantSlug, client.ClientID, ac.UserID, client.RefreshTokenTTL)
 	if err != nil {
 		log.Error("failed to create refresh token", logger.Err(err))
 		return nil, ErrTokenServerError
 	}
 
-	// Issue ID token
+	// Issue ID token with client-specific TTL (if configured)
 	idStd := map[string]any{
 		"tid":     tenantSlug,
 		"at_hash": atHash(access),
@@ -158,7 +164,14 @@ func (s *tokenService) ExchangeAuthorizationCode(ctx context.Context, req AuthCo
 		idExtra["nonce"] = ac.Nonce
 	}
 
-	idToken, _, err := s.issuer.IssueIDTokenForTenant(tenantSlug, effIss, ac.UserID, req.ClientID, idStd, idExtra)
+	// Enrich ID token with claims based on granted scopes
+	if tenantData, err := s.dal.ForTenant(ctx, tenantSlug); err == nil {
+		if user, err := tenantData.Users().GetByID(ctx, ac.UserID); err == nil {
+			s.enrichClaimsFromScopes(ctx, idExtra, tenantSlug, user, reqScopes)
+		}
+	}
+
+	idToken, _, err := s.issuer.IssueIDTokenForTenantWithTTL(tenantSlug, effIss, ac.UserID, req.ClientID, idStd, idExtra, client.IDTokenTTL)
 	if err != nil {
 		log.Error("failed to issue id_token", logger.Err(err))
 		return nil, ErrTokenServerError
@@ -192,6 +205,12 @@ func (s *tokenService) ExchangeRefreshToken(ctx context.Context, req RefreshToke
 	if err != nil {
 		log.Warn("client not found", logger.String("client_id", req.ClientID))
 		return nil, ErrTokenInvalidClient
+	}
+
+	// Validate grant_type is allowed for this client
+	if !isGrantTypeAllowed(client, "refresh_token") {
+		log.Warn("grant_type not allowed for client", logger.String("grant_type", "refresh_token"))
+		return nil, ErrTokenUnauthorizedClient
 	}
 
 	// Get tenant data access
@@ -229,17 +248,17 @@ func (s *tokenService) ExchangeRefreshToken(ctx context.Context, req RefreshToke
 	// Resolve effective issuer
 	effIss := s.resolveEffectiveIssuer(ctx, tenantSlug)
 
-	// Issue new access token
-	access, exp, err := s.issuer.IssueAccessForTenant(tenantSlug, effIss, rt.UserID, req.ClientID, std, custom)
+	// Issue new access token with client-specific TTL
+	access, exp, err := s.issuer.IssueAccessForTenantWithTTL(tenantSlug, effIss, rt.UserID, req.ClientID, std, custom, client.AccessTokenTTL)
 	if err != nil {
 		log.Error("failed to issue access token", logger.Err(err))
 		return nil, ErrTokenServerError
 	}
 
-	// Rotate refresh token: revoke old, create new
+	// Rotate refresh token: revoke old, create new with client-specific TTL
 	_ = tenantData.Tokens().Revoke(ctx, rt.ID)
 
-	newRT, err := s.createRefreshToken(ctx, tenantSlug, client.ClientID, rt.UserID)
+	newRT, err := s.createRefreshTokenWithTTL(ctx, tenantSlug, client.ClientID, rt.UserID, client.RefreshTokenTTL)
 	if err != nil {
 		log.Error("failed to create new refresh token", logger.Err(err))
 		return nil, ErrTokenServerError
@@ -271,6 +290,12 @@ func (s *tokenService) ExchangeClientCredentials(ctx context.Context, req Client
 	if err != nil {
 		log.Warn("client not found", logger.String("client_id", req.ClientID))
 		return nil, ErrTokenInvalidClient
+	}
+
+	// Validate grant_type is allowed for this client
+	if !isGrantTypeAllowed(client, "client_credentials") {
+		log.Warn("grant_type not allowed for client", logger.String("grant_type", "client_credentials"))
+		return nil, ErrTokenUnauthorizedClient
 	}
 
 	// Must be confidential
@@ -319,8 +344,8 @@ func (s *tokenService) ExchangeClientCredentials(ctx context.Context, req Client
 	// Resolve effective issuer
 	effIss := s.resolveEffectiveIssuer(ctx, tenantSlug)
 
-	// Issue access token (sub = clientID for M2M)
-	access, exp, err := s.issuer.IssueAccessForTenant(tenantSlug, effIss, req.ClientID, req.ClientID, std, custom)
+	// Issue access token (sub = clientID for M2M) with client-specific TTL
+	access, exp, err := s.issuer.IssueAccessForTenantWithTTL(tenantSlug, effIss, req.ClientID, req.ClientID, std, custom, client.AccessTokenTTL)
 	if err != nil {
 		log.Error("failed to issue access token", logger.Err(err))
 		return nil, ErrTokenServerError
@@ -337,6 +362,20 @@ func (s *tokenService) ExchangeClientCredentials(ctx context.Context, req Client
 		ExpiresIn:   int64(time.Until(exp).Seconds()),
 		Scope:       scopeOut,
 	}, nil
+}
+
+// isGrantTypeAllowed checks if the grant_type is allowed for the client
+func isGrantTypeAllowed(client *repository.Client, grantType string) bool {
+	// If no grant_types are configured, allow all (backwards compatibility)
+	if len(client.GrantTypes) == 0 {
+		return true
+	}
+	for _, g := range client.GrantTypes {
+		if strings.EqualFold(g, grantType) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Helper methods ---
@@ -400,6 +439,12 @@ func (s *tokenService) validateClientSecret(ctx context.Context, tenantSlug stri
 }
 
 func (s *tokenService) createRefreshToken(ctx context.Context, tenantSlug, clientID, userID string) (string, error) {
+	return s.createRefreshTokenWithTTL(ctx, tenantSlug, clientID, userID, 0)
+}
+
+// createRefreshTokenWithTTL creates a refresh token with optional client-specific TTL.
+// If ttlSeconds <= 0, uses the default service TTL.
+func (s *tokenService) createRefreshTokenWithTTL(ctx context.Context, tenantSlug, clientID, userID string, ttlSeconds int) (string, error) {
 	// Generate opaque token
 	rawRT, err := tokens.GenerateOpaqueToken(32)
 	if err != nil {
@@ -414,7 +459,12 @@ func (s *tokenService) createRefreshToken(ctx context.Context, tenantSlug, clien
 
 	// Store hashed refresh token
 	tokenHash := tokens.SHA256Base64URL(rawRT)
-	ttlSeconds := int(s.refreshTTL.Seconds())
+
+	// Use client-specific TTL if provided, otherwise use service default
+	effectiveTTL := int(s.refreshTTL.Seconds())
+	if ttlSeconds > 0 {
+		effectiveTTL = ttlSeconds
+	}
 
 	// Create refresh token in repo
 	_, err = tenantData.Tokens().Create(ctx, repository.CreateRefreshTokenInput{
@@ -422,7 +472,7 @@ func (s *tokenService) createRefreshToken(ctx context.Context, tenantSlug, clien
 		ClientID:   clientID,
 		UserID:     userID,
 		TokenHash:  tokenHash,
-		TTLSeconds: ttlSeconds,
+		TTLSeconds: effectiveTTL,
 	})
 	if err != nil {
 		return "", fmt.Errorf("store refresh token: %w", err)
@@ -447,4 +497,114 @@ func subtleEq(a, b string) bool {
 		v |= a[i] ^ b[i]
 	}
 	return v == 0
+}
+
+// enrichClaimsFromScopes adds user claims based on scope configuration.
+// For each scope, it looks up the configured claims and adds them to the claims map.
+func (s *tokenService) enrichClaimsFromScopes(ctx context.Context, claims map[string]any, tenantSlug string, user *repository.User, requestedScopes []string) {
+	if s.cp == nil || user == nil {
+		return
+	}
+
+	// Get all scopes for the tenant
+	allScopes, err := s.cp.ListScopes(ctx, tenantSlug)
+	if err != nil {
+		return // silently continue without enrichment
+	}
+
+	// Build scope name -> scope map
+	scopeMap := make(map[string]*repository.Scope)
+	for i := range allScopes {
+		scopeMap[allScopes[i].Name] = &allScopes[i]
+	}
+
+	// Process each requested scope
+	for _, scopeName := range requestedScopes {
+		scope, ok := scopeMap[scopeName]
+		if !ok || len(scope.Claims) == 0 {
+			continue
+		}
+
+		// Add claims configured for this scope
+		for _, claimName := range scope.Claims {
+			if value := getUserClaimValue(user, claimName); value != nil {
+				claims[claimName] = value
+			}
+		}
+	}
+
+	// Also handle standard OIDC scopes that aren't necessarily configured
+	for _, scopeName := range requestedScopes {
+		switch scopeName {
+		case "profile":
+			if user.Name != "" {
+				claims["name"] = user.Name
+			}
+			if user.GivenName != "" {
+				claims["given_name"] = user.GivenName
+			}
+			if user.FamilyName != "" {
+				claims["family_name"] = user.FamilyName
+			}
+			if user.Picture != "" {
+				claims["picture"] = user.Picture
+			}
+			if user.Locale != "" {
+				claims["locale"] = user.Locale
+			}
+		case "email":
+			claims["email"] = user.Email
+			claims["email_verified"] = user.EmailVerified
+		}
+	}
+}
+
+// getUserClaimValue extracts a claim value from a user object.
+func getUserClaimValue(user *repository.User, claimName string) any {
+	switch claimName {
+	case "sub":
+		return user.ID
+	case "name":
+		if user.Name != "" {
+			return user.Name
+		}
+	case "given_name":
+		if user.GivenName != "" {
+			return user.GivenName
+		}
+	case "family_name":
+		if user.FamilyName != "" {
+			return user.FamilyName
+		}
+	case "email":
+		return user.Email
+	case "email_verified":
+		return user.EmailVerified
+	case "picture":
+		if user.Picture != "" {
+			return user.Picture
+		}
+	case "locale":
+		if user.Locale != "" {
+			return user.Locale
+		}
+	case "language":
+		if user.Language != "" {
+			return user.Language
+		}
+	default:
+		// Check in metadata
+		if user.Metadata != nil {
+			if val, ok := user.Metadata[claimName]; ok {
+				return val
+			}
+		}
+		// Check in custom fields
+		if user.CustomFields != nil {
+			if val, ok := user.CustomFields[claimName]; ok {
+				return val
+			}
+		}
+	}
+	return nil
 }

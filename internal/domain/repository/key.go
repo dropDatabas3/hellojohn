@@ -64,6 +64,11 @@ type KeyRepository interface {
 	// Incluye claves active y retired (para verificación de tokens antiguos).
 	GetJWKS(ctx context.Context, tenantID string) (*JWKS, error)
 
+	// ListAll obtiene todas las claves (active + retired + revoked) con metadata completa.
+	// tenantID vacío = claves globales.
+	// Útil para admin UI que necesita mostrar todas las claves con sus estados.
+	ListAll(ctx context.Context, tenantID string) ([]*SigningKey, error)
+
 	// ─── Escritura ───
 
 	// Generate genera un nuevo par de claves y lo almacena.

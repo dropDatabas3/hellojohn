@@ -21,6 +21,7 @@ type ConfigAccessor interface {
 	Tenants() repository.TenantRepository
 	Clients(tenantSlug string) repository.ClientRepository
 	Scopes(tenantSlug string) repository.ScopeRepository
+	Claims(tenantSlug string) repository.ClaimRepository
 }
 
 // V2Applier implementa Applier usando Store V2.
@@ -194,7 +195,15 @@ func (a *V2Applier) upsertScope(ctx context.Context, m Mutation) error {
 		return nil
 	}
 
-	_, err := scopeRepo.Upsert(ctx, m.TenantSlug, p.Name, p.Description)
+	input := repository.ScopeInput{
+		Name:        p.Name,
+		Description: p.Description,
+		DisplayName: p.DisplayName,
+		Claims:      p.Claims,
+		DependsOn:   p.DependsOn,
+		System:      p.System,
+	}
+	_, err := scopeRepo.Upsert(ctx, m.TenantSlug, input)
 	return err
 }
 

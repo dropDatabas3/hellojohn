@@ -102,6 +102,26 @@ export const API_ROUTES = {
   ADMIN_TENANT_CACHE_TEST: (id: string) => `/v2/admin/tenants/${id}/cache/test-connection`,
   ADMIN_TENANT_MAILING_TEST: (id: string) => `/v2/admin/tenants/${id}/mailing/test`,
   ADMIN_TENANT_DB_TEST: (id: string) => `/v2/admin/tenants/${id}/user-store/test-connection`,
+  // ISS-11-02: Import endpoints
+  ADMIN_TENANT_IMPORT: (id: string) => `/v2/admin/tenants/${id}/import`,
+  ADMIN_TENANT_IMPORT_VALIDATE: (id: string) => `/v2/admin/tenants/${id}/import/validate`,
+  // ISS-11-03: Export endpoint
+  ADMIN_TENANT_EXPORT: (id: string, options?: { 
+    clients?: boolean; 
+    scopes?: boolean; 
+    users?: boolean; 
+    roles?: boolean; 
+    download?: boolean 
+  }) => {
+    const params = new URLSearchParams()
+    if (options?.clients === false) params.set('clients', 'false')
+    if (options?.scopes === false) params.set('scopes', 'false')
+    if (options?.users === true) params.set('users', 'true')
+    if (options?.roles === true) params.set('roles', 'true')
+    if (options?.download === true) params.set('download', 'true')
+    const query = params.toString()
+    return `/v2/admin/tenants/${id}/export${query ? `?${query}` : ''}`
+  },
 
   // ─── Admin - Clients ───
   ADMIN_CLIENTS: "/v2/admin/clients",
@@ -111,6 +131,14 @@ export const API_ROUTES = {
   // ─── Admin - Scopes ───
   ADMIN_SCOPES: "/v2/admin/scopes",
   ADMIN_SCOPE: (name: string) => `/v2/admin/scopes/${name}`,
+
+  // ─── Admin - Claims ───
+  ADMIN_CLAIMS: "/v2/admin/claims",
+  ADMIN_CLAIMS_CUSTOM: "/v2/admin/claims/custom",
+  ADMIN_CLAIMS_CUSTOM_BY_ID: (id: string) => `/v2/admin/claims/custom/${id}`,
+  ADMIN_CLAIMS_STANDARD: (name: string) => `/v2/admin/claims/standard/${name}`,
+  ADMIN_CLAIMS_SETTINGS: "/v2/admin/claims/settings",
+  ADMIN_CLAIMS_MAPPINGS: "/v2/admin/claims/mappings",
 
   // ─── Admin - Consents ───
   ADMIN_CONSENTS: "/v2/admin/consents",
@@ -122,6 +150,7 @@ export const API_ROUTES = {
   // ─── Admin - RBAC ───
   ADMIN_RBAC_USER_ROLES: (userId: string) => `/v2/admin/rbac/users/${userId}/roles`,
   ADMIN_RBAC_ROLE_PERMS: (role: string) => `/v2/admin/rbac/roles/${encodeURIComponent(role)}/perms`,
+  ADMIN_RBAC_PERMISSIONS: "/v2/admin/rbac/permissions",
 
   // ─── Admin - Users ───
   ADMIN_USERS_DISABLE: "/v2/admin/users/disable",
@@ -133,6 +162,7 @@ export const API_ROUTES = {
   OAUTH_TOKEN: "/oauth2/token",
   OAUTH_REVOKE: "/oauth2/revoke",
   OAUTH_INTROSPECT: "/oauth2/introspect",
+  OAUTH_CONSENT_INFO: "/v2/auth/consent/info",
   OAUTH_CONSENT_ACCEPT: "/v2/auth/consent/accept",
   OIDC_DISCOVERY: "/.well-known/openid-configuration",
   OIDC_DISCOVERY_TENANT: (slug: string) => `/t/${slug}/.well-known/openid-configuration`,
@@ -162,9 +192,18 @@ export const API_ROUTES = {
   // ─── Providers ───
   PROVIDERS_STATUS: "/v2/providers/status",
 
+  // ─── Admin - Keys ───
+  ADMIN_KEYS: "/v2/admin/keys",
+  ADMIN_KEY_DETAIL: (kid: string) => `/v2/admin/keys/${kid}`,
+  ADMIN_KEYS_ROTATE: "/v2/admin/keys/rotate",
+  ADMIN_KEY_REVOKE: (kid: string) => `/v2/admin/keys/${kid}/revoke`,
+
+  // ─── Admin - Cluster ───
+  ADMIN_CLUSTER_NODES: "/v2/admin/cluster/nodes",
+  ADMIN_CLUSTER_STATS: "/v2/admin/cluster/stats",
+  ADMIN_CLUSTER_NODE_REMOVE: (nodeId: string) => `/v2/admin/cluster/nodes/${nodeId}`,
+
   // ─── TODO: Not yet implemented in V2 ───
-  // ADMIN_KEYS: "/v2/keys",
-  // ADMIN_KEYS_ROTATE: "/v2/keys/rotate",
   // ADMIN_STATS: "/v2/admin/stats",
   // ADMIN_CONFIG: "/v2/admin/config",
   // CSRF: "/v2/csrf",

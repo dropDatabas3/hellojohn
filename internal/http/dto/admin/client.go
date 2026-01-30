@@ -14,6 +14,14 @@ type ClientRequest struct {
 	RequireEmailVerification bool     `json:"require_email_verification,omitempty"`
 	ResetPasswordURL         string   `json:"reset_password_url,omitempty"`
 	VerifyEmailURL           string   `json:"verify_email_url,omitempty"`
+
+	// Campos adicionales para OAuth2/OIDC avanzado
+	GrantTypes      []string `json:"grant_types,omitempty"`
+	AccessTokenTTL  int      `json:"access_token_ttl,omitempty"`
+	RefreshTokenTTL int      `json:"refresh_token_ttl,omitempty"`
+	IDTokenTTL      int      `json:"id_token_ttl,omitempty"`
+	PostLogoutURIs  []string `json:"post_logout_uris,omitempty"`
+	Description     string   `json:"description,omitempty"`
 }
 
 // ClientResponse representa un client en la respuesta.
@@ -32,6 +40,14 @@ type ClientResponse struct {
 	VerifyEmailURL           string   `json:"verify_email_url,omitempty"`
 	CreatedAt                string   `json:"created_at,omitempty"`
 	UpdatedAt                string   `json:"updated_at,omitempty"`
+
+	// Campos adicionales para OAuth2/OIDC avanzado
+	GrantTypes      []string `json:"grant_types,omitempty"`
+	AccessTokenTTL  int      `json:"access_token_ttl,omitempty"`
+	RefreshTokenTTL int      `json:"refresh_token_ttl,omitempty"`
+	IDTokenTTL      int      `json:"id_token_ttl,omitempty"`
+	PostLogoutURIs  []string `json:"post_logout_uris,omitempty"`
+	Description     string   `json:"description,omitempty"`
 }
 
 // StatusResponse es una respuesta genérica de estado.

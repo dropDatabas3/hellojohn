@@ -67,6 +67,12 @@ func (s *discoveryService) GetGlobalDiscovery(ctx context.Context) dto.OIDCMetad
 		TokenEndpoint:                     s.baseIssuer + "/oauth2/token",
 		UserinfoEndpoint:                  s.baseIssuer + "/userinfo",
 		JWKSURI:                           s.baseIssuer + "/.well-known/jwks.json",
+
+		// Endpoints opcionales (RFC 7009, RFC 7662)
+		RevocationEndpoint:                s.baseIssuer + "/oauth2/revoke",
+		IntrospectionEndpoint:             s.baseIssuer + "/oauth2/introspect",
+		// EndSessionEndpoint queda vacío (no implementado aún)
+
 		ResponseTypesSupported:            responseTypesSupported,
 		GrantTypesSupported:               grantTypesSupported,
 		SubjectTypesSupported:             subjectTypesSupported,
@@ -113,6 +119,12 @@ func (s *discoveryService) GetTenantDiscovery(ctx context.Context, slug string) 
 		TokenEndpoint:                     s.baseIssuer + "/oauth2/token",
 		UserinfoEndpoint:                  s.baseIssuer + "/userinfo",
 		JWKSURI:                           s.baseIssuer + "/.well-known/jwks/" + slug + ".json",
+
+		// Endpoints opcionales (RFC 7009, RFC 7662)
+		RevocationEndpoint:                s.baseIssuer + "/oauth2/revoke",
+		IntrospectionEndpoint:             s.baseIssuer + "/oauth2/introspect",
+		// EndSessionEndpoint queda vacío (no implementado aún)
+
 		ResponseTypesSupported:            responseTypesSupported,
 		GrantTypesSupported:               grantTypesSupported,
 		SubjectTypesSupported:             subjectTypesSupported,

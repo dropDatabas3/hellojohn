@@ -157,6 +157,40 @@ func (r *keyRepo) GetJWKS(ctx context.Context, tenantID string) (*repository.JWK
 	return &jwks, nil
 }
 
+func (r *keyRepo) ListAll(ctx context.Context, tenantID string) ([]*repository.SigningKey, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	dir := r.dirFor(tenantID)
+	var keys []*repository.SigningKey
+
+	// Load active key
+	if key, err := r.loadKeyFromFile(dir, "active.json"); err == nil {
+		key.TenantID = tenantID
+		keys = append(keys, key)
+	} else if errors.Is(err, fs.ErrNotExist) && tenantID != "" && tenantID != "global" {
+		// Fallback to global if tenant-specific not found
+		if globalKey, err := r.loadKeyFromFile(r.dirFor(""), "active.json"); err == nil {
+			globalKey.TenantID = "" // Mark as global
+			keys = append(keys, globalKey)
+		}
+	}
+
+	// Load retiring key
+	if key, err := r.loadKeyFromFile(dir, "retiring.json"); err == nil {
+		key.TenantID = tenantID
+		keys = append(keys, key)
+	} else if tenantID != "" && tenantID != "global" {
+		// Check global retiring
+		if globalKey, err := r.loadKeyFromFile(r.dirFor(""), "retiring.json"); err == nil {
+			globalKey.TenantID = "" // Mark as global
+			keys = append(keys, globalKey)
+		}
+	}
+
+	return keys, nil
+}
+
 // ─── Escritura ───
 
 func (r *keyRepo) Generate(ctx context.Context, tenantID, algorithm string) (*repository.SigningKey, error) {
@@ -218,9 +252,62 @@ func (r *keyRepo) Rotate(ctx context.Context, tenantID string, gracePeriod time.
 }
 
 func (r *keyRepo) Revoke(ctx context.Context, kid string) error {
-	// TODO: Implementar revocación inmediata
-	// Por ahora, no soportado - las keys se rotan con grace period
-	return errors.New("revoke not implemented")
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Search for the key by KID and delete it
+	base := filepath.Clean(r.keysDir)
+
+	// Check global active
+	if key, err := r.loadKeyFromFile(base, "active.json"); err == nil && key.ID == kid {
+		path := filepath.Join(base, "active.json")
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("remove global active key: %w", err)
+		}
+		return nil
+	}
+
+	// Check global retiring
+	if key, err := r.loadKeyFromFile(base, "retiring.json"); err == nil && key.ID == kid {
+		path := filepath.Join(base, "retiring.json")
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("remove global retiring key: %w", err)
+		}
+		return nil
+	}
+
+	// Search tenant subdirs
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return fmt.Errorf("read keys dir: %w", err)
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dir := filepath.Join(base, e.Name())
+
+		// Check tenant active
+		if key, err := r.loadKeyFromFile(dir, "active.json"); err == nil && key.ID == kid {
+			path := filepath.Join(dir, "active.json")
+			if err := os.Remove(path); err != nil {
+				return fmt.Errorf("remove tenant active key: %w", err)
+			}
+			return nil
+		}
+
+		// Check tenant retiring
+		if key, err := r.loadKeyFromFile(dir, "retiring.json"); err == nil && key.ID == kid {
+			path := filepath.Join(dir, "retiring.json")
+			if err := os.Remove(path); err != nil {
+				return fmt.Errorf("remove tenant retiring key: %w", err)
+			}
+			return nil
+		}
+	}
+
+	return repository.ErrNotFound
 }
 
 // ─── Helpers ───

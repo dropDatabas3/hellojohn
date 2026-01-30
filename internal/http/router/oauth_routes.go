@@ -29,6 +29,9 @@ func RegisterOAuthRoutes(mux *http.ServeMux, deps OAuthRouterDeps) {
 	// POST /oauth2/introspect - Token introspection (RFC 7662)
 	mux.Handle("/oauth2/introspect", oauthHandler(deps.RateLimiter, http.HandlerFunc(c.Introspect.Introspect)))
 
+	// GET /v2/auth/consent/info - Get consent info with scope DisplayNames (ISS-05-03)
+	mux.Handle("/v2/auth/consent/info", oauthHandler(deps.RateLimiter, http.HandlerFunc(c.Consent.GetInfo)))
+
 	// POST /v2/auth/consent/accept - Consent Accept (SPA)
 	mux.Handle("/v2/auth/consent/accept", oauthHandler(deps.RateLimiter, http.HandlerFunc(c.Consent.Accept)))
 }

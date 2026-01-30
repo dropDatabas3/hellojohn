@@ -41,6 +41,9 @@ type UserResponse struct {
 	SourceClientID *string        `json:"source_client_id,omitempty"`
 	CreatedAt      time.Time      `json:"created_at"`
 	DisabledAt     *time.Time     `json:"disabled_at,omitempty"`
+	DisabledUntil  *time.Time     `json:"disabled_until,omitempty"`
+	DisabledReason *string        `json:"disabled_reason,omitempty"`
+	DisabledBy     *string        `json:"disabled_by,omitempty"`
 	CustomFields   map[string]any `json:"custom_fields,omitempty"`
 }
 

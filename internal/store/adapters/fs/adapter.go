@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 
 	"github.com/dropDatabas3/hellojohn/internal/domain/repository"
@@ -74,6 +75,7 @@ func (c *fsConnection) Close() error { return nil }
 func (c *fsConnection) Tenants() repository.TenantRepository { return &tenantRepo{conn: c} }
 func (c *fsConnection) Clients() repository.ClientRepository { return &clientRepo{conn: c} }
 func (c *fsConnection) Scopes() repository.ScopeRepository   { return &scopeRepo{conn: c} }
+func (c *fsConnection) Claims() repository.ClaimRepository   { return &claimRepo{conn: c} }
 func (c *fsConnection) Keys() repository.KeyRepository {
 	return newKeyRepo(filepath.Join(c.root, "keys"), c.signingMasterKey)
 }
@@ -91,6 +93,7 @@ func (c *fsConnection) RBAC() repository.RBACRepository              { return ni
 func (c *fsConnection) Schema() repository.SchemaRepository          { return nil }
 func (c *fsConnection) EmailTokens() repository.EmailTokenRepository { return nil }
 func (c *fsConnection) Identities() repository.IdentityRepository    { return nil }
+func (c *fsConnection) Sessions() repository.SessionRepository       { return nil }
 
 // ─── Helpers ───
 
@@ -447,7 +450,7 @@ func (r *clientRepo) writeClients(tenantID string, clients []clientYAML) error {
 
 type scopeRepo struct{ conn *fsConnection }
 
-func (r *scopeRepo) Create(ctx context.Context, tenantID, name, description string) (*repository.Scope, error) {
+func (r *scopeRepo) Create(ctx context.Context, tenantID string, input repository.ScopeInput) (*repository.Scope, error) {
 	r.conn.mu.Lock()
 	defer r.conn.mu.Unlock()
 
@@ -457,19 +460,39 @@ func (r *scopeRepo) Create(ctx context.Context, tenantID, name, description stri
 	}
 
 	for _, s := range scopes {
-		if s.Name == name {
+		if s.Name == input.Name {
 			return nil, repository.ErrConflict
 		}
 	}
 
-	newScope := scopeYAML{Name: name, Description: description}
+	now := time.Now()
+	newScope := scopeYAML{
+		Name:        input.Name,
+		Description: input.Description,
+		DisplayName: input.DisplayName,
+		Claims:      input.Claims,
+		DependsOn:   input.DependsOn,
+		System:      input.System,
+		CreatedAt:   now.Format(time.RFC3339),
+		UpdatedAt:   now.Format(time.RFC3339),
+	}
 	scopes = append(scopes, newScope)
 
 	if err := r.writeScopes(tenantID, scopes); err != nil {
 		return nil, err
 	}
 
-	return &repository.Scope{TenantID: tenantID, Name: name, Description: description}, nil
+	return &repository.Scope{
+		TenantID:    tenantID,
+		Name:        input.Name,
+		Description: input.Description,
+		DisplayName: input.DisplayName,
+		Claims:      input.Claims,
+		DependsOn:   input.DependsOn,
+		System:      input.System,
+		CreatedAt:   now,
+		UpdatedAt:   &now,
+	}, nil
 }
 
 func (r *scopeRepo) GetByName(ctx context.Context, tenantID, name string) (*repository.Scope, error) {
@@ -496,39 +519,79 @@ func (r *scopeRepo) List(ctx context.Context, tenantID string) ([]repository.Sco
 
 	var result []repository.Scope
 	for _, s := range scopes {
-		result = append(result, repository.Scope{
+		scope := repository.Scope{
 			TenantID:    tenantID,
 			Name:        s.Name,
 			Description: s.Description,
+			DisplayName: s.DisplayName,
+			Claims:      s.Claims,
+			DependsOn:   s.DependsOn,
 			System:      s.System,
-		})
+		}
+		if s.CreatedAt != "" {
+			if t, err := time.Parse(time.RFC3339, s.CreatedAt); err == nil {
+				scope.CreatedAt = t
+			}
+		}
+		if s.UpdatedAt != "" {
+			if t, err := time.Parse(time.RFC3339, s.UpdatedAt); err == nil {
+				scope.UpdatedAt = &t
+			}
+		}
+		result = append(result, scope)
 	}
 	return result, nil
 }
 
-func (r *scopeRepo) UpdateDescription(ctx context.Context, tenantID, scopeID, description string) error {
+func (r *scopeRepo) Update(ctx context.Context, tenantID string, input repository.ScopeInput) (*repository.Scope, error) {
 	r.conn.mu.Lock()
 	defer r.conn.mu.Unlock()
 
 	scopes, err := r.listRaw(tenantID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
+	now := time.Now()
 	found := false
+	var updatedScope repository.Scope
 	for i, s := range scopes {
-		if s.Name == scopeID { // scopeID es el nombre en FS
-			scopes[i].Description = description
+		if s.Name == input.Name {
+			scopes[i].Description = input.Description
+			scopes[i].DisplayName = input.DisplayName
+			scopes[i].Claims = input.Claims
+			scopes[i].DependsOn = input.DependsOn
+			scopes[i].System = input.System
+			scopes[i].UpdatedAt = now.Format(time.RFC3339)
+
+			updatedScope = repository.Scope{
+				TenantID:    tenantID,
+				Name:        input.Name,
+				Description: input.Description,
+				DisplayName: input.DisplayName,
+				Claims:      input.Claims,
+				DependsOn:   input.DependsOn,
+				System:      input.System,
+				UpdatedAt:   &now,
+			}
+			if scopes[i].CreatedAt != "" {
+				if t, err := time.Parse(time.RFC3339, scopes[i].CreatedAt); err == nil {
+					updatedScope.CreatedAt = t
+				}
+			}
 			found = true
 			break
 		}
 	}
 
 	if !found {
-		return repository.ErrNotFound
+		return nil, repository.ErrNotFound
 	}
 
-	return r.writeScopes(tenantID, scopes)
+	if err := r.writeScopes(tenantID, scopes); err != nil {
+		return nil, err
+	}
+	return &updatedScope, nil
 }
 
 func (r *scopeRepo) Delete(ctx context.Context, tenantID, scopeID string) error {
@@ -572,7 +635,7 @@ func (r *scopeRepo) listRaw(tenantID string) ([]scopeYAML, error) {
 	return raw.Scopes, nil
 }
 
-func (r *scopeRepo) Upsert(ctx context.Context, tenantID, name, description string) (*repository.Scope, error) {
+func (r *scopeRepo) Upsert(ctx context.Context, tenantID string, input repository.ScopeInput) (*repository.Scope, error) {
 	r.conn.mu.Lock()
 	defer r.conn.mu.Unlock()
 
@@ -581,25 +644,70 @@ func (r *scopeRepo) Upsert(ctx context.Context, tenantID, name, description stri
 		return nil, err
 	}
 
+	now := time.Now()
+
 	// Buscar si existe
 	for i, s := range scopes {
-		if s.Name == name {
-			// Existe: actualizar descripción
-			scopes[i].Description = description
+		if s.Name == input.Name {
+			// Existe: actualizar todos los campos
+			scopes[i].Description = input.Description
+			scopes[i].DisplayName = input.DisplayName
+			scopes[i].Claims = input.Claims
+			scopes[i].DependsOn = input.DependsOn
+			scopes[i].System = input.System
+			scopes[i].UpdatedAt = now.Format(time.RFC3339)
+
 			if err := r.writeScopes(tenantID, scopes); err != nil {
 				return nil, err
 			}
-			return &repository.Scope{TenantID: tenantID, Name: name, Description: description}, nil
+
+			scope := &repository.Scope{
+				TenantID:    tenantID,
+				Name:        input.Name,
+				Description: input.Description,
+				DisplayName: input.DisplayName,
+				Claims:      input.Claims,
+				DependsOn:   input.DependsOn,
+				System:      input.System,
+				UpdatedAt:   &now,
+			}
+			if scopes[i].CreatedAt != "" {
+				if t, err := time.Parse(time.RFC3339, scopes[i].CreatedAt); err == nil {
+					scope.CreatedAt = t
+				}
+			}
+			return scope, nil
 		}
 	}
 
 	// No existe: crear
-	newScope := scopeYAML{Name: name, Description: description}
+	newScope := scopeYAML{
+		Name:        input.Name,
+		Description: input.Description,
+		DisplayName: input.DisplayName,
+		Claims:      input.Claims,
+		DependsOn:   input.DependsOn,
+		System:      input.System,
+		CreatedAt:   now.Format(time.RFC3339),
+		UpdatedAt:   now.Format(time.RFC3339),
+	}
 	scopes = append(scopes, newScope)
+
 	if err := r.writeScopes(tenantID, scopes); err != nil {
 		return nil, err
 	}
-	return &repository.Scope{TenantID: tenantID, Name: name, Description: description}, nil
+
+	return &repository.Scope{
+		TenantID:    tenantID,
+		Name:        input.Name,
+		Description: input.Description,
+		DisplayName: input.DisplayName,
+		Claims:      input.Claims,
+		DependsOn:   input.DependsOn,
+		System:      input.System,
+		CreatedAt:   now,
+		UpdatedAt:   &now,
+	}, nil
 }
 
 func (r *scopeRepo) writeScopes(tenantID string, scopes []scopeYAML) error {
@@ -609,6 +717,403 @@ func (r *scopeRepo) writeScopes(tenantID string, scopes []scopeYAML) error {
 		return err
 	}
 	return os.WriteFile(r.conn.scopesFile(tenantID), data, 0644)
+}
+
+// ─── ClaimRepository ───
+
+type claimRepo struct{ conn *fsConnection }
+
+func (r *claimRepo) claimsFile(tenantID string) string {
+	return filepath.Join(r.conn.tenantPath(tenantID), "claims.yaml")
+}
+
+func (r *claimRepo) Create(ctx context.Context, tenantID string, input repository.ClaimInput) (*repository.ClaimDefinition, error) {
+	r.conn.mu.Lock()
+	defer r.conn.mu.Unlock()
+
+	data, err := r.loadClaimsFile(tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for duplicate name
+	for _, c := range data.CustomClaims {
+		if c.Name == input.Name {
+			return nil, repository.ErrConflict
+		}
+	}
+
+	now := time.Now()
+	newClaim := customClaimYAML{
+		ID:            uuid.New().String(),
+		Name:          input.Name,
+		Description:   input.Description,
+		Source:        input.Source,
+		Value:         input.Value,
+		AlwaysInclude: input.AlwaysInclude,
+		Scopes:        input.Scopes,
+		Enabled:       input.Enabled,
+		System:        false,
+		CreatedAt:     now.Format(time.RFC3339),
+		UpdatedAt:     now.Format(time.RFC3339),
+	}
+	data.CustomClaims = append(data.CustomClaims, newClaim)
+
+	if err := r.saveClaimsFile(tenantID, data); err != nil {
+		return nil, err
+	}
+
+	return &repository.ClaimDefinition{
+		ID:            newClaim.ID,
+		TenantID:      tenantID,
+		Name:          input.Name,
+		Description:   input.Description,
+		Source:        input.Source,
+		Value:         input.Value,
+		AlwaysInclude: input.AlwaysInclude,
+		Scopes:        input.Scopes,
+		Enabled:       input.Enabled,
+		System:        false,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}, nil
+}
+
+func (r *claimRepo) Get(ctx context.Context, tenantID, claimID string) (*repository.ClaimDefinition, error) {
+	r.conn.mu.RLock()
+	defer r.conn.mu.RUnlock()
+
+	data, err := r.loadClaimsFile(tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, c := range data.CustomClaims {
+		if c.ID == claimID {
+			return r.yamlToDefinition(tenantID, c), nil
+		}
+	}
+	return nil, repository.ErrNotFound
+}
+
+func (r *claimRepo) GetByName(ctx context.Context, tenantID, name string) (*repository.ClaimDefinition, error) {
+	r.conn.mu.RLock()
+	defer r.conn.mu.RUnlock()
+
+	data, err := r.loadClaimsFile(tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, c := range data.CustomClaims {
+		if c.Name == name {
+			return r.yamlToDefinition(tenantID, c), nil
+		}
+	}
+	return nil, repository.ErrNotFound
+}
+
+func (r *claimRepo) List(ctx context.Context, tenantID string) ([]repository.ClaimDefinition, error) {
+	r.conn.mu.RLock()
+	defer r.conn.mu.RUnlock()
+
+	data, err := r.loadClaimsFile(tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]repository.ClaimDefinition, 0, len(data.CustomClaims))
+	for _, c := range data.CustomClaims {
+		result = append(result, *r.yamlToDefinition(tenantID, c))
+	}
+	return result, nil
+}
+
+func (r *claimRepo) Update(ctx context.Context, tenantID, claimID string, input repository.ClaimInput) (*repository.ClaimDefinition, error) {
+	r.conn.mu.Lock()
+	defer r.conn.mu.Unlock()
+
+	data, err := r.loadClaimsFile(tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	for i, c := range data.CustomClaims {
+		if c.ID == claimID {
+			data.CustomClaims[i].Description = input.Description
+			data.CustomClaims[i].Source = input.Source
+			data.CustomClaims[i].Value = input.Value
+			data.CustomClaims[i].AlwaysInclude = input.AlwaysInclude
+			data.CustomClaims[i].Scopes = input.Scopes
+			data.CustomClaims[i].Enabled = input.Enabled
+			data.CustomClaims[i].UpdatedAt = now.Format(time.RFC3339)
+
+			if err := r.saveClaimsFile(tenantID, data); err != nil {
+				return nil, err
+			}
+			return r.yamlToDefinition(tenantID, data.CustomClaims[i]), nil
+		}
+	}
+	return nil, repository.ErrNotFound
+}
+
+func (r *claimRepo) Delete(ctx context.Context, tenantID, claimID string) error {
+	r.conn.mu.Lock()
+	defer r.conn.mu.Unlock()
+
+	data, err := r.loadClaimsFile(tenantID)
+	if err != nil {
+		return err
+	}
+
+	found := false
+	filtered := make([]customClaimYAML, 0, len(data.CustomClaims))
+	for _, c := range data.CustomClaims {
+		if c.ID == claimID {
+			found = true
+			continue
+		}
+		filtered = append(filtered, c)
+	}
+
+	if !found {
+		return repository.ErrNotFound
+	}
+
+	data.CustomClaims = filtered
+	return r.saveClaimsFile(tenantID, data)
+}
+
+func (r *claimRepo) GetStandardClaimsConfig(ctx context.Context, tenantID string) ([]repository.StandardClaimConfig, error) {
+	r.conn.mu.RLock()
+	defer r.conn.mu.RUnlock()
+
+	data, err := r.loadClaimsFile(tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]repository.StandardClaimConfig, 0, len(data.StandardClaims))
+	for _, sc := range data.StandardClaims {
+		result = append(result, repository.StandardClaimConfig{
+			ClaimName:   sc.Name,
+			Description: sc.Description,
+			Enabled:     sc.Enabled,
+			Scope:       sc.Scope,
+		})
+	}
+	return result, nil
+}
+
+func (r *claimRepo) SetStandardClaimEnabled(ctx context.Context, tenantID, claimName string, enabled bool) error {
+	r.conn.mu.Lock()
+	defer r.conn.mu.Unlock()
+
+	data, err := r.loadClaimsFile(tenantID)
+	if err != nil {
+		return err
+	}
+
+	for i, sc := range data.StandardClaims {
+		if sc.Name == claimName {
+			data.StandardClaims[i].Enabled = enabled
+			return r.saveClaimsFile(tenantID, data)
+		}
+	}
+	return repository.ErrNotFound
+}
+
+func (r *claimRepo) GetSettings(ctx context.Context, tenantID string) (*repository.ClaimsSettings, error) {
+	r.conn.mu.RLock()
+	defer r.conn.mu.RUnlock()
+
+	data, err := r.loadClaimsFile(tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &repository.ClaimsSettings{
+		TenantID:             tenantID,
+		IncludeInAccessToken: data.Settings.IncludeInAccessToken,
+		UseNamespacedClaims:  data.Settings.UseNamespacedClaims,
+		NamespacePrefix:      data.Settings.NamespacePrefix,
+	}, nil
+}
+
+func (r *claimRepo) UpdateSettings(ctx context.Context, tenantID string, input repository.ClaimsSettingsInput) (*repository.ClaimsSettings, error) {
+	r.conn.mu.Lock()
+	defer r.conn.mu.Unlock()
+
+	data, err := r.loadClaimsFile(tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	if input.IncludeInAccessToken != nil {
+		data.Settings.IncludeInAccessToken = *input.IncludeInAccessToken
+	}
+	if input.UseNamespacedClaims != nil {
+		data.Settings.UseNamespacedClaims = *input.UseNamespacedClaims
+	}
+	if input.NamespacePrefix != nil {
+		data.Settings.NamespacePrefix = input.NamespacePrefix
+	}
+
+	if err := r.saveClaimsFile(tenantID, data); err != nil {
+		return nil, err
+	}
+
+	return &repository.ClaimsSettings{
+		TenantID:             tenantID,
+		IncludeInAccessToken: data.Settings.IncludeInAccessToken,
+		UseNamespacedClaims:  data.Settings.UseNamespacedClaims,
+		NamespacePrefix:      data.Settings.NamespacePrefix,
+	}, nil
+}
+
+func (r *claimRepo) GetEnabledClaimsForScopes(ctx context.Context, tenantID string, scopes []string) ([]repository.ClaimDefinition, error) {
+	r.conn.mu.RLock()
+	defer r.conn.mu.RUnlock()
+
+	data, err := r.loadClaimsFile(tenantID)
+	if err != nil {
+		return nil, err
+	}
+
+	scopeSet := make(map[string]bool)
+	for _, s := range scopes {
+		scopeSet[s] = true
+	}
+
+	var result []repository.ClaimDefinition
+	for _, c := range data.CustomClaims {
+		if !c.Enabled {
+			continue
+		}
+		if c.AlwaysInclude {
+			result = append(result, *r.yamlToDefinition(tenantID, c))
+			continue
+		}
+		for _, cs := range c.Scopes {
+			if scopeSet[cs] {
+				result = append(result, *r.yamlToDefinition(tenantID, c))
+				break
+			}
+		}
+	}
+	return result, nil
+}
+
+func (r *claimRepo) loadClaimsFile(tenantID string) (*claimsFileYAML, error) {
+	path := r.claimsFile(tenantID)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return r.defaultClaimsConfig(), nil
+		}
+		return nil, err
+	}
+	var cfg claimsFileYAML
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func (r *claimRepo) saveClaimsFile(tenantID string, data *claimsFileYAML) error {
+	raw, err := yaml.Marshal(data)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(r.claimsFile(tenantID), raw, 0644)
+}
+
+func (r *claimRepo) yamlToDefinition(tenantID string, c customClaimYAML) *repository.ClaimDefinition {
+	def := &repository.ClaimDefinition{
+		ID:            c.ID,
+		TenantID:      tenantID,
+		Name:          c.Name,
+		Description:   c.Description,
+		Source:        c.Source,
+		Value:         c.Value,
+		AlwaysInclude: c.AlwaysInclude,
+		Scopes:        c.Scopes,
+		Enabled:       c.Enabled,
+		System:        c.System,
+	}
+	if c.CreatedAt != "" {
+		if t, err := time.Parse(time.RFC3339, c.CreatedAt); err == nil {
+			def.CreatedAt = t
+		}
+	}
+	if c.UpdatedAt != "" {
+		if t, err := time.Parse(time.RFC3339, c.UpdatedAt); err == nil {
+			def.UpdatedAt = t
+		}
+	}
+	return def
+}
+
+func (r *claimRepo) defaultClaimsConfig() *claimsFileYAML {
+	return &claimsFileYAML{
+		StandardClaims: []standardClaimYAML{
+			{Name: "sub", Description: "Subject identifier", Enabled: true, Scope: "openid"},
+			{Name: "email", Description: "User email address", Enabled: true, Scope: "email"},
+			{Name: "email_verified", Description: "Email verified flag", Enabled: true, Scope: "email"},
+			{Name: "name", Description: "Full name", Enabled: true, Scope: "profile"},
+			{Name: "given_name", Description: "First name", Enabled: true, Scope: "profile"},
+			{Name: "family_name", Description: "Last name", Enabled: true, Scope: "profile"},
+			{Name: "picture", Description: "Profile picture URL", Enabled: true, Scope: "profile"},
+			{Name: "locale", Description: "User locale", Enabled: true, Scope: "profile"},
+			{Name: "zoneinfo", Description: "Timezone", Enabled: true, Scope: "profile"},
+			{Name: "updated_at", Description: "Last update timestamp", Enabled: true, Scope: "profile"},
+			{Name: "address", Description: "Physical address", Enabled: true, Scope: "address"},
+			{Name: "phone_number", Description: "Phone number", Enabled: true, Scope: "phone"},
+			{Name: "phone_number_verified", Description: "Phone verified flag", Enabled: true, Scope: "phone"},
+		},
+		CustomClaims: []customClaimYAML{},
+		Settings: claimsSettingsYAML{
+			IncludeInAccessToken: true,
+			UseNamespacedClaims:  false,
+			NamespacePrefix:      nil,
+		},
+	}
+}
+
+// ─── Claims YAML Types ───
+
+type claimsFileYAML struct {
+	StandardClaims []standardClaimYAML `yaml:"standard_claims"`
+	CustomClaims   []customClaimYAML   `yaml:"custom_claims"`
+	Settings       claimsSettingsYAML  `yaml:"settings"`
+}
+
+type standardClaimYAML struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description,omitempty"`
+	Enabled     bool   `yaml:"enabled"`
+	Scope       string `yaml:"scope"`
+}
+
+type customClaimYAML struct {
+	ID            string   `yaml:"id"`
+	Name          string   `yaml:"name"`
+	Description   string   `yaml:"description,omitempty"`
+	Source        string   `yaml:"source"`
+	Value         string   `yaml:"value"`
+	AlwaysInclude bool     `yaml:"always_include"`
+	Scopes        []string `yaml:"scopes,omitempty"`
+	Enabled       bool     `yaml:"enabled"`
+	System        bool     `yaml:"system,omitempty"`
+	CreatedAt     string   `yaml:"created_at,omitempty"`
+	UpdatedAt     string   `yaml:"updated_at,omitempty"`
+}
+
+type claimsSettingsYAML struct {
+	IncludeInAccessToken bool    `yaml:"include_in_access_token"`
+	UseNamespacedClaims  bool    `yaml:"use_namespaced_claims"`
+	NamespacePrefix      *string `yaml:"namespace_prefix,omitempty"`
 }
 
 // ─── YAML Types ───
@@ -904,7 +1409,12 @@ type scopesYAML struct {
 }
 
 type scopeYAML struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description,omitempty"`
-	System      bool   `yaml:"system,omitempty"`
+	Name        string   `yaml:"name"`
+	Description string   `yaml:"description,omitempty"`
+	DisplayName string   `yaml:"display_name,omitempty"`
+	Claims      []string `yaml:"claims,omitempty"`
+	DependsOn   string   `yaml:"depends_on,omitempty"`
+	System      bool     `yaml:"system,omitempty"`
+	CreatedAt   string   `yaml:"created_at,omitempty"`
+	UpdatedAt   string   `yaml:"updated_at,omitempty"`
 }

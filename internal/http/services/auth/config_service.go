@@ -153,7 +153,7 @@ func (s *configService) resolveClientAndTenant(ctx context.Context, clientID str
 			continue
 		}
 
-		client, err := tda.Clients().Get(ctx, t.ID, clientID)
+		client, err := tda.Clients().Get(ctx, t.Slug, clientID)
 		if err != nil || client == nil {
 			continue
 		}

@@ -399,6 +399,7 @@ func (m *MockTDA) Schema() repository.SchemaRepository                          
 func (m *MockTDA) EmailTokens() repository.EmailTokenRepository                    { return nil }
 func (m *MockTDA) Identities() repository.IdentityRepository                       { return nil }
 func (m *MockTDA) Scopes() repository.ScopeRepository                              { return nil }
+func (m *MockTDA) Sessions() repository.SessionRepository                          { return nil }
 func (m *MockTDA) Cache() cache.Client                                             { return nil }
 func (m *MockTDA) CacheRepo() repository.CacheRepository                           { return nil }
 func (m *MockTDA) Mailer() store.MailSender                                        { return nil }
@@ -455,6 +456,21 @@ func (m *MockTokenRepo) RevokeAllByUser(ctx context.Context, userID, clientID st
 	return 0, nil
 }
 func (m *MockTokenRepo) RevokeAllByClient(ctx context.Context, clientID string) error { return nil }
+func (m *MockTokenRepo) GetByID(ctx context.Context, tokenID string) (*repository.RefreshToken, error) {
+	return nil, repository.ErrNotFound
+}
+func (m *MockTokenRepo) List(ctx context.Context, filter repository.ListTokensFilter) ([]repository.RefreshToken, error) {
+	return nil, nil
+}
+func (m *MockTokenRepo) Count(ctx context.Context, filter repository.ListTokensFilter) (int, error) {
+	return 0, nil
+}
+func (m *MockTokenRepo) RevokeAll(ctx context.Context) (int, error) {
+	return 0, nil
+}
+func (m *MockTokenRepo) GetStats(ctx context.Context) (*repository.TokenStats, error) {
+	return &repository.TokenStats{}, nil
+}
 
 // MockClientRepo
 type MockClientRepo struct{}

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	controlplane "github.com/dropDatabas3/hellojohn/internal/controlplane"
 	dto "github.com/dropDatabas3/hellojohn/internal/http/dto/oauth"
 	"github.com/dropDatabas3/hellojohn/internal/observability/logger"
 	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
@@ -25,23 +26,29 @@ var (
 // ConsentService handles consent acceptance logic.
 type ConsentService interface {
 	Accept(ctx context.Context, req dto.ConsentAcceptRequest) (*dto.AuthCodeRedirect, error)
+	// GetInfo retrieves consent challenge info with scope DisplayNames for consent screen.
+	// ISS-05-03: DisplayName in Consent Screen
+	GetInfo(ctx context.Context, token string) (*dto.ConsentInfoResponse, error)
 }
 
 // ConsentDeps dependencies.
 type ConsentDeps struct {
-	DAL   store.DataAccessLayer
-	Cache CacheClient
+	DAL          store.DataAccessLayer
+	Cache        CacheClient
+	ControlPlane controlplane.Service
 }
 
 type consentService struct {
 	dal   store.DataAccessLayer
 	cache CacheClient
+	cp    controlplane.Service
 }
 
 func NewConsentService(d ConsentDeps) ConsentService {
 	return &consentService{
 		dal:   d.DAL,
 		cache: d.Cache,
+		cp:    d.ControlPlane,
 	}
 }
 
@@ -132,6 +139,85 @@ func (s *consentService) Accept(ctx context.Context, req dto.ConsentAcceptReques
 	})
 
 	return &dto.AuthCodeRedirect{URL: loc}, nil
+}
+
+// GetInfo retrieves consent info with scope DisplayNames for consent screen.
+// ISS-05-03: DisplayName in Consent Screen
+func (s *consentService) GetInfo(ctx context.Context, token string) (*dto.ConsentInfoResponse, error) {
+	log := logger.From(ctx).With(logger.Layer("service"), logger.Op("oauth.consent.getInfo"))
+
+	// 1. Validate Token
+	if strings.TrimSpace(token) == "" {
+		return nil, ErrConsentMissingToken
+	}
+
+	// 2. Fetch Token (don't delete - just peek)
+	key := "consent:token:" + strings.TrimSpace(token)
+	raw, ok := s.cache.Get(key)
+	if !ok {
+		return nil, ErrConsentNotFound
+	}
+
+	var payload dto.ConsentChallenge
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		log.Error("consent payload corrupted", logger.Err(err))
+		return nil, ErrConsentNotFound
+	}
+
+	// Double check expiry
+	if time.Now().After(payload.ExpiresAt) {
+		return nil, ErrConsentNotFound
+	}
+
+	// 3. Resolve tenant data access
+	tda, err := s.dal.ForTenant(ctx, payload.TenantID)
+	if err != nil {
+		log.Error("failed to resolve tenant", logger.Err(err), logger.String("tid", payload.TenantID))
+		return nil, ErrConsentNotFound
+	}
+
+	// 4. Build scope details with DisplayNames
+	scopeDetails := make([]dto.ScopeDetail, 0, len(payload.RequestedScopes))
+	for _, scopeName := range payload.RequestedScopes {
+		scope, err := tda.Scopes().GetByName(ctx, payload.TenantID, scopeName)
+		if err != nil {
+			// If scope not found, use name as display name
+			scopeDetails = append(scopeDetails, dto.ScopeDetail{
+				Name:        scopeName,
+				DisplayName: scopeName,
+			})
+			continue
+		}
+
+		detail := dto.ScopeDetail{
+			Name:        scope.Name,
+			DisplayName: scope.DisplayName,
+			Description: scope.Description,
+		}
+
+		// Fallback: if no display_name, use name
+		if detail.DisplayName == "" {
+			detail.DisplayName = scope.Name
+		}
+
+		scopeDetails = append(scopeDetails, detail)
+	}
+
+	// 5. Get client name (optional enhancement)
+	var clientName string
+	if s.cp != nil {
+		client, err := s.cp.GetClient(ctx, payload.TenantID, payload.ClientID)
+		if err == nil && client != nil {
+			clientName = client.Name
+		}
+	}
+
+	return &dto.ConsentInfoResponse{
+		ClientID:    payload.ClientID,
+		ClientName:  clientName,
+		Scopes:      scopeDetails,
+		RedirectURI: payload.RedirectURI,
+	}, nil
 }
 
 // buildRedirect constructs the URL safely.

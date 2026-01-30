@@ -72,7 +72,8 @@ func (c *ScopesController) UpsertScope(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scope, err := c.service.Upsert(ctx, tda.Slug(), req.Name, req.Description)
+	input := toScopeInput(req)
+	scope, err := c.service.Upsert(ctx, tda.Slug(), input)
 	if err != nil {
 		log.Error("upsert failed", logger.Err(err))
 		httperrors.WriteError(w, mapScopeError(err))
@@ -122,10 +123,31 @@ func extractScopeName(path string) string {
 }
 
 func toScopeResponse(s repository.Scope) dto.ScopeResponse {
-	return dto.ScopeResponse{
+	resp := dto.ScopeResponse{
 		Name:        s.Name,
 		Description: s.Description,
+		DisplayName: s.DisplayName,
+		Claims:      s.Claims,
+		DependsOn:   s.DependsOn,
 		System:      s.System,
+	}
+	if !s.CreatedAt.IsZero() {
+		resp.CreatedAt = s.CreatedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+	if s.UpdatedAt != nil && !s.UpdatedAt.IsZero() {
+		resp.UpdatedAt = s.UpdatedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+	return resp
+}
+
+func toScopeInput(req dto.ScopeRequest) repository.ScopeInput {
+	return repository.ScopeInput{
+		Name:        req.Name,
+		Description: req.Description,
+		DisplayName: req.DisplayName,
+		Claims:      req.Claims,
+		DependsOn:   req.DependsOn,
+		System:      req.System,
 	}
 }
 

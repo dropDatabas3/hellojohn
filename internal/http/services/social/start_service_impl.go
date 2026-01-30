@@ -187,6 +187,38 @@ func (s *startService) Start(ctx context.Context, req StartRequest) (*StartResul
 		}, nil
 	}
 
+	// GitHub OAuth
+	if s.oidcFactory != nil && strings.EqualFold(req.Provider, "github") {
+		oauth, err := s.oidcFactory.GitHub(ctx, req.TenantSlug, req.BaseURL)
+		if err != nil {
+			log.Error("failed to create GitHub OAuth client",
+				logger.String("provider", req.Provider),
+				logger.TenantID(req.TenantSlug),
+				logger.Err(err),
+			)
+			return nil, fmt.Errorf("%w: %v", ErrStartAuthURLFailed, err)
+		}
+
+		authURL, err := oauth.AuthURL(ctx, state, nonce)
+		if err != nil {
+			log.Error("failed to build GitHub auth URL",
+				logger.String("provider", req.Provider),
+				logger.Err(err),
+			)
+			return nil, fmt.Errorf("%w: %v", ErrStartAuthURLFailed, err)
+		}
+
+		log.Info("social login started",
+			logger.String("provider", req.Provider),
+			logger.TenantID(req.TenantSlug),
+			logger.String("client_id", req.ClientID),
+		)
+
+		return &StartResult{
+			RedirectURL: authURL,
+		}, nil
+	}
+
 	// Fallback to AuthURLBuilder (legacy)
 	callbackURL := fmt.Sprintf("%s/v2/auth/social/%s/callback", strings.TrimRight(req.BaseURL, "/"), req.Provider)
 

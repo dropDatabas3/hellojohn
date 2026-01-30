@@ -21,13 +21,19 @@ type TenantSettingsResponse struct {
 	SMTP     *SMTPSettings     `json:"smtp,omitempty"`
 	Cache    *CacheSettings    `json:"cache,omitempty"`
 	Security *SecuritySettings `json:"security,omitempty"`
+	Mailing  *MailingSettings  `json:"mailing,omitempty"`
 
 	// Branding
-	LogoURL    string `json:"logoUrl,omitempty"`
-	BrandColor string `json:"brandColor,omitempty"`
+	LogoURL        string `json:"logoUrl,omitempty"`
+	BrandColor     string `json:"brandColor,omitempty"`
+	SecondaryColor string `json:"secondaryColor,omitempty"`
+	FaviconURL     string `json:"faviconUrl,omitempty"`
 
 	// Social Providers
 	SocialProviders *SocialProvidersConfig `json:"socialProviders,omitempty"`
+
+	// Consent Policy
+	ConsentPolicy *ConsentPolicyDTO `json:"consentPolicy,omitempty"`
 
 	// Custom User Fields
 	UserFields []UserFieldDefinition `json:"userFields,omitempty"`
@@ -35,10 +41,10 @@ type TenantSettingsResponse struct {
 
 // UserDBSettings configures the tenant's user database.
 type UserDBSettings struct {
-	Driver string `json:"driver"`            // "postgres" | "mysql" | "mongo"
-	DSN    string `json:"dsn,omitempty"`     // Plain DSN (only in requests)
-	DSNEnc string `json:"dsnEnc,omitempty"`  // Encrypted DSN (in responses)
-	Schema string `json:"schema,omitempty"`  // Database schema name
+	Driver string `json:"driver"`           // "postgres" | "mysql" | "mongo"
+	DSN    string `json:"dsn,omitempty"`    // Plain DSN (only in requests)
+	DSNEnc string `json:"dsnEnc,omitempty"` // Encrypted DSN (in responses)
+	Schema string `json:"schema,omitempty"` // Database schema name
 }
 
 // SMTPSettings configures email sending for the tenant.
@@ -66,26 +72,49 @@ type CacheSettings struct {
 
 // SecuritySettings defines security policies.
 type SecuritySettings struct {
-	PasswordMinLength int  `json:"passwordMinLength,omitempty"`
-	MFARequired       bool `json:"mfaRequired"`
+	PasswordMinLength      int  `json:"passwordMinLength,omitempty"`
+	RequireUppercase       bool `json:"requireUppercase,omitempty"`
+	RequireNumbers         bool `json:"requireNumbers,omitempty"`
+	RequireSpecialChars    bool `json:"requireSpecialChars,omitempty"`
+	MFARequired            bool `json:"mfaRequired"`
+	MaxLoginAttempts       int  `json:"maxLoginAttempts,omitempty"`
+	LockoutDurationMinutes int  `json:"lockoutDurationMinutes,omitempty"`
 }
 
 // SocialProvidersConfig configures social login providers.
 type SocialProvidersConfig struct {
+	// Google OAuth
 	GoogleEnabled   bool   `json:"googleEnabled"`
 	GoogleClient    string `json:"googleClient,omitempty"`
 	GoogleSecret    string `json:"googleSecret,omitempty"`    // Plain (only in requests)
 	GoogleSecretEnc string `json:"googleSecretEnc,omitempty"` // Encrypted (in responses)
+
+	// GitHub OAuth
+	GitHubEnabled   bool   `json:"githubEnabled"`
+	GitHubClient    string `json:"githubClient,omitempty"`
+	GitHubSecret    string `json:"githubSecret,omitempty"`    // Plain (only in requests)
+	GitHubSecretEnc string `json:"githubSecretEnc,omitempty"` // Encrypted (in responses)
 }
 
 // UserFieldDefinition defines a custom user field.
 type UserFieldDefinition struct {
 	Name        string `json:"name"`
-	Type        string `json:"type"`         // "string" | "number" | "boolean" | "date"
+	Type        string `json:"type"` // "string" | "number" | "boolean" | "date"
 	Required    bool   `json:"required"`
 	Unique      bool   `json:"unique"`
 	Indexed     bool   `json:"indexed"`
 	Description string `json:"description,omitempty"`
+}
+
+// MailingSettings represents email template configuration.
+type MailingSettings struct {
+	Templates map[string]EmailTemplateDTO `json:"templates"`
+}
+
+// EmailTemplateDTO represents a single email template.
+type EmailTemplateDTO struct {
+	Subject string `json:"subject"`
+	Body    string `json:"body"`
 }
 
 // UpdateTenantSettingsRequest represents a partial update to tenant settings.
@@ -105,18 +134,34 @@ type UpdateTenantSettingsRequest struct {
 	SocialLoginEnabled *bool `json:"socialLoginEnabled,omitempty"`
 
 	// Infrastructure Settings
-	UserDB   *UserDBSettings        `json:"userDb,omitempty"`
-	SMTP     *SMTPSettings          `json:"smtp,omitempty"`
-	Cache    *CacheSettings         `json:"cache,omitempty"`
-	Security *SecuritySettings      `json:"security,omitempty"`
+	UserDB   *UserDBSettings   `json:"userDb,omitempty"`
+	SMTP     *SMTPSettings     `json:"smtp,omitempty"`
+	Cache    *CacheSettings    `json:"cache,omitempty"`
+	Security *SecuritySettings `json:"security,omitempty"`
+	Mailing  *MailingSettings  `json:"mailing,omitempty"`
 
 	// Branding
-	LogoURL    *string `json:"logoUrl,omitempty"`
-	BrandColor *string `json:"brandColor,omitempty"`
+	LogoURL        *string `json:"logoUrl,omitempty"`
+	BrandColor     *string `json:"brandColor,omitempty"`
+	SecondaryColor *string `json:"secondaryColor,omitempty"`
+	FaviconURL     *string `json:"faviconUrl,omitempty"`
 
 	// Social Providers
 	SocialProviders *SocialProvidersConfig `json:"socialProviders,omitempty"`
 
+	// Consent Policy
+	ConsentPolicy *ConsentPolicyDTO `json:"consentPolicy,omitempty"`
+
 	// Custom User Fields
 	UserFields []UserFieldDefinition `json:"userFields,omitempty"`
+}
+
+// ConsentPolicyDTO represents consent policy configuration.
+type ConsentPolicyDTO struct {
+	ConsentMode                   string `json:"consent_mode"`              // "per_scope" | "single"
+	ExpirationDays                *int   `json:"expiration_days,omitempty"` // null = never expires
+	RepromptDays                  *int   `json:"reprompt_days,omitempty"`   // null = never reprompt
+	RememberScopeDecisions        bool   `json:"remember_scope_decisions"`
+	ShowConsentScreen             bool   `json:"show_consent_screen"`
+	AllowSkipConsentForFirstParty bool   `json:"allow_skip_consent_for_first_party"`
 }

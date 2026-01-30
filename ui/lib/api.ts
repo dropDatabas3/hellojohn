@@ -191,6 +191,14 @@ export class ApiClient {
     })
   }
 
+  async patch<T>(endpoint: string, data?: any, options: RequestInit = {}): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: "PATCH",
+      body: data ? JSON.stringify(data) : undefined,
+      ...options,
+    })
+  }
+
   async delete<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     return this.request<T>(endpoint, { method: "DELETE", ...options })
   }
@@ -217,3 +225,90 @@ export const api = new ApiClient(
     ; (useUIStore.getState() as any).setLeaderUrl?.(leaderUrl)
   },
 )
+
+// ─── Token Admin API ───
+import type { ListTokensResponse, TokenResponse, TokenStats, RevokeResponse, TokenFilters } from "./types"
+
+export const tokensAdminAPI = {
+  list: async (tenantId: string, filters?: TokenFilters): Promise<ListTokensResponse> => {
+    const params = new URLSearchParams()
+    if (filters?.page) params.set("page", filters.page.toString())
+    if (filters?.page_size) params.set("page_size", filters.page_size.toString())
+    if (filters?.user_id) params.set("user_id", filters.user_id)
+    if (filters?.client_id) params.set("client_id", filters.client_id)
+    if (filters?.status) params.set("status", filters.status)
+    if (filters?.search) params.set("search", filters.search)
+
+    const query = params.toString()
+    return api.get<ListTokensResponse>(`/v2/admin/tenants/${tenantId}/tokens${query ? `?${query}` : ""}`)
+  },
+
+  get: async (tenantId: string, tokenId: string): Promise<TokenResponse> => {
+    return api.get<TokenResponse>(`/v2/admin/tenants/${tenantId}/tokens/${tokenId}`)
+  },
+
+  revoke: async (tenantId: string, tokenId: string): Promise<void> => {
+    return api.delete(`/v2/admin/tenants/${tenantId}/tokens/${tokenId}`)
+  },
+
+  revokeByUser: async (tenantId: string, userId: string): Promise<RevokeResponse> => {
+    return api.post<RevokeResponse>(`/v2/admin/tenants/${tenantId}/tokens/revoke-by-user`, { user_id: userId })
+  },
+
+  revokeByClient: async (tenantId: string, clientId: string): Promise<RevokeResponse> => {
+    return api.post<RevokeResponse>(`/v2/admin/tenants/${tenantId}/tokens/revoke-by-client`, { client_id: clientId })
+  },
+
+  revokeAll: async (tenantId: string): Promise<RevokeResponse> => {
+    return api.post<RevokeResponse>(`/v2/admin/tenants/${tenantId}/tokens/revoke-all`, {})
+  },
+
+  getStats: async (tenantId: string): Promise<TokenStats> => {
+    return api.get<TokenStats>(`/v2/admin/tenants/${tenantId}/tokens/stats`)
+  },
+}
+
+// ─── Sessions Admin API ───
+import type {
+  ListSessionsResponse,
+  SessionResponse,
+  SessionStats as SessionStatsType,
+  RevokeSessionResponse,
+  RevokeSessionsResponse,
+  SessionFilters
+} from "./types"
+
+export const sessionsAdminAPI = {
+  list: async (tenantId: string, filters?: SessionFilters): Promise<ListSessionsResponse> => {
+    const params = new URLSearchParams()
+    if (filters?.page) params.set("page", filters.page.toString())
+    if (filters?.page_size) params.set("page_size", filters.page_size.toString())
+    if (filters?.user_id) params.set("user_id", filters.user_id)
+    if (filters?.device_type) params.set("device_type", filters.device_type)
+    if (filters?.status) params.set("status", filters.status)
+    if (filters?.search) params.set("search", filters.search)
+
+    const query = params.toString()
+    return api.get<ListSessionsResponse>(`/v2/admin/tenants/${tenantId}/sessions${query ? `?${query}` : ""}`)
+  },
+
+  get: async (tenantId: string, sessionId: string): Promise<SessionResponse> => {
+    return api.get<SessionResponse>(`/v2/admin/tenants/${tenantId}/sessions/${sessionId}`)
+  },
+
+  revoke: async (tenantId: string, sessionId: string, reason: string): Promise<RevokeSessionResponse> => {
+    return api.post<RevokeSessionResponse>(`/v2/admin/tenants/${tenantId}/sessions/${sessionId}/revoke`, { reason })
+  },
+
+  revokeByUser: async (tenantId: string, userId: string, reason: string): Promise<RevokeSessionsResponse> => {
+    return api.post<RevokeSessionsResponse>(`/v2/admin/tenants/${tenantId}/sessions/revoke-by-user`, { user_id: userId, reason })
+  },
+
+  revokeAll: async (tenantId: string, reason: string): Promise<RevokeSessionsResponse> => {
+    return api.post<RevokeSessionsResponse>(`/v2/admin/tenants/${tenantId}/sessions/revoke-all`, { reason })
+  },
+
+  getStats: async (tenantId: string): Promise<SessionStatsType> => {
+    return api.get<SessionStatsType>(`/v2/admin/tenants/${tenantId}/sessions/stats`)
+  },
+}

@@ -12,7 +12,7 @@ import (
 // ScopeService define las operaciones de scopes para el admin API.
 type ScopeService interface {
 	List(ctx context.Context, tenantSlug string) ([]repository.Scope, error)
-	Upsert(ctx context.Context, tenantSlug, name, description string) (*repository.Scope, error)
+	Upsert(ctx context.Context, tenantSlug string, input repository.ScopeInput) (*repository.Scope, error)
 	Delete(ctx context.Context, tenantSlug, name string) error
 }
 
@@ -46,20 +46,20 @@ func (s *scopeService) List(ctx context.Context, tenantSlug string) ([]repositor
 	return scopes, nil
 }
 
-func (s *scopeService) Upsert(ctx context.Context, tenantSlug, name, description string) (*repository.Scope, error) {
+func (s *scopeService) Upsert(ctx context.Context, tenantSlug string, input repository.ScopeInput) (*repository.Scope, error) {
 	log := logger.From(ctx).With(
 		logger.Layer("service"),
 		logger.Component(componentScopes),
 		logger.Op("Upsert"),
 		logger.TenantSlug(tenantSlug),
-		logger.String("scope_name", name),
+		logger.String("scope_name", input.Name),
 	)
 
-	if name == "" {
+	if input.Name == "" {
 		return nil, fmt.Errorf("scope name is required")
 	}
 
-	scope, err := s.cp.CreateScope(ctx, tenantSlug, name, description)
+	scope, err := s.cp.UpsertScope(ctx, tenantSlug, input)
 	if err != nil {
 		log.Error("failed to upsert scope", logger.Err(err))
 		return nil, err

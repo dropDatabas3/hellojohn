@@ -196,46 +196,105 @@ func (r *consentRepo) Revoke(ctx context.Context, tenantID, userID, clientID str
 	return err
 }
 
+func (r *consentRepo) ListAll(ctx context.Context, tenantID string, limit, offset int, activeOnly bool) ([]repository.Consent, int, error) {
+	// Count query
+	var countQuery string
+	if activeOnly {
+		countQuery = `SELECT COUNT(*) FROM user_consent WHERE tenant_id = $1 AND revoked_at IS NULL`
+	} else {
+		countQuery = `SELECT COUNT(*) FROM user_consent WHERE tenant_id = $1`
+	}
+
+	var total int
+	if err := r.pool.QueryRow(ctx, countQuery, tenantID).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	// Data query
+	var dataQuery string
+	if activeOnly {
+		dataQuery = `
+			SELECT id, tenant_id, user_id, client_id, scopes, granted_at, updated_at, revoked_at
+			FROM user_consent
+			WHERE tenant_id = $1 AND revoked_at IS NULL
+			ORDER BY updated_at DESC
+			LIMIT $2 OFFSET $3
+		`
+	} else {
+		dataQuery = `
+			SELECT id, tenant_id, user_id, client_id, scopes, granted_at, updated_at, revoked_at
+			FROM user_consent
+			WHERE tenant_id = $1
+			ORDER BY updated_at DESC
+			LIMIT $2 OFFSET $3
+		`
+	}
+
+	rows, err := r.pool.Query(ctx, dataQuery, tenantID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var consents []repository.Consent
+	for rows.Next() {
+		var c repository.Consent
+		if err := rows.Scan(&c.ID, &c.TenantID, &c.UserID, &c.ClientID, &c.Scopes, &c.GrantedAt, &c.UpdatedAt, &c.RevokedAt); err != nil {
+			return nil, 0, err
+		}
+		consents = append(consents, c)
+	}
+	return consents, total, rows.Err()
+}
+
 // ─── ScopeRepository ───
 
 type scopeRepo struct{ pool *pgxpool.Pool }
 
-func (r *scopeRepo) Create(ctx context.Context, tenantID, name, description string) (*repository.Scope, error) {
+func (r *scopeRepo) Create(ctx context.Context, tenantID string, input repository.ScopeInput) (*repository.Scope, error) {
 	const query = `
-		INSERT INTO scope (tenant_id, name, description, created_at)
-		VALUES ($1, $2, $3, NOW())
-		RETURNING id, created_at
+		INSERT INTO scope (tenant_id, name, description, display_name, claims, depends_on, system, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+		RETURNING id, created_at, updated_at
 	`
 	scope := &repository.Scope{
 		TenantID:    tenantID,
-		Name:        name,
-		Description: description,
+		Name:        input.Name,
+		Description: input.Description,
+		DisplayName: input.DisplayName,
+		Claims:      input.Claims,
+		DependsOn:   input.DependsOn,
+		System:      input.System,
 	}
-	err := r.pool.QueryRow(ctx, query, tenantID, name, description).Scan(&scope.ID, &scope.CreatedAt)
+	var updatedAt time.Time
+	err := r.pool.QueryRow(ctx, query, tenantID, input.Name, input.Description, input.DisplayName, input.Claims, input.DependsOn, input.System).Scan(&scope.ID, &scope.CreatedAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("pg: create scope: %w", err)
 	}
+	scope.UpdatedAt = &updatedAt
 	return scope, nil
 }
 
 func (r *scopeRepo) GetByName(ctx context.Context, tenantID, name string) (*repository.Scope, error) {
 	const query = `
-		SELECT id, tenant_id, name, description, system, created_at
+		SELECT id, tenant_id, name, description, COALESCE(display_name, ''), claims, COALESCE(depends_on, ''), system, created_at, updated_at
 		FROM scope WHERE tenant_id = $1 AND name = $2
 	`
 	var scope repository.Scope
+	var updatedAt *time.Time
 	err := r.pool.QueryRow(ctx, query, tenantID, name).Scan(
-		&scope.ID, &scope.TenantID, &scope.Name, &scope.Description, &scope.System, &scope.CreatedAt,
+		&scope.ID, &scope.TenantID, &scope.Name, &scope.Description, &scope.DisplayName, &scope.Claims, &scope.DependsOn, &scope.System, &scope.CreatedAt, &updatedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, repository.ErrNotFound
 	}
+	scope.UpdatedAt = updatedAt
 	return &scope, err
 }
 
 func (r *scopeRepo) List(ctx context.Context, tenantID string) ([]repository.Scope, error) {
 	const query = `
-		SELECT id, tenant_id, name, description, system, created_at
+		SELECT id, tenant_id, name, description, COALESCE(display_name, ''), claims, COALESCE(depends_on, ''), system, created_at, updated_at
 		FROM scope WHERE tenant_id = $1 ORDER BY name
 	`
 	rows, err := r.pool.Query(ctx, query, tenantID)
@@ -247,18 +306,38 @@ func (r *scopeRepo) List(ctx context.Context, tenantID string) ([]repository.Sco
 	var scopes []repository.Scope
 	for rows.Next() {
 		var s repository.Scope
-		if err := rows.Scan(&s.ID, &s.TenantID, &s.Name, &s.Description, &s.System, &s.CreatedAt); err != nil {
+		var updatedAt *time.Time
+		if err := rows.Scan(&s.ID, &s.TenantID, &s.Name, &s.Description, &s.DisplayName, &s.Claims, &s.DependsOn, &s.System, &s.CreatedAt, &updatedAt); err != nil {
 			return nil, err
 		}
+		s.UpdatedAt = updatedAt
 		scopes = append(scopes, s)
 	}
 	return scopes, rows.Err()
 }
 
-func (r *scopeRepo) UpdateDescription(ctx context.Context, tenantID, scopeID, description string) error {
-	const query = `UPDATE scope SET description = $3 WHERE tenant_id = $1 AND id = $2`
-	_, err := r.pool.Exec(ctx, query, tenantID, scopeID, description)
-	return err
+func (r *scopeRepo) Update(ctx context.Context, tenantID string, input repository.ScopeInput) (*repository.Scope, error) {
+	const query = `
+		UPDATE scope SET description = $3, display_name = $4, claims = $5, depends_on = $6, system = $7, updated_at = NOW()
+		WHERE tenant_id = $1 AND name = $2
+		RETURNING id, created_at, updated_at
+	`
+	scope := &repository.Scope{
+		TenantID:    tenantID,
+		Name:        input.Name,
+		Description: input.Description,
+		DisplayName: input.DisplayName,
+		Claims:      input.Claims,
+		DependsOn:   input.DependsOn,
+		System:      input.System,
+	}
+	var updatedAt time.Time
+	err := r.pool.QueryRow(ctx, query, tenantID, input.Name, input.Description, input.DisplayName, input.Claims, input.DependsOn, input.System).Scan(&scope.ID, &scope.CreatedAt, &updatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("pg: update scope: %w", err)
+	}
+	scope.UpdatedAt = &updatedAt
+	return scope, nil
 }
 
 func (r *scopeRepo) Delete(ctx context.Context, tenantID, scopeID string) error {
@@ -267,22 +346,29 @@ func (r *scopeRepo) Delete(ctx context.Context, tenantID, scopeID string) error 
 	return err
 }
 
-func (r *scopeRepo) Upsert(ctx context.Context, tenantID, name, description string) (*repository.Scope, error) {
+func (r *scopeRepo) Upsert(ctx context.Context, tenantID string, input repository.ScopeInput) (*repository.Scope, error) {
 	const query = `
-		INSERT INTO scope (tenant_id, name, description, created_at)
-		VALUES ($1, $2, $3, NOW())
-		ON CONFLICT (tenant_id, name) DO UPDATE SET description = $3
-		RETURNING id, created_at
+		INSERT INTO scope (tenant_id, name, description, display_name, claims, depends_on, system, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+		ON CONFLICT (tenant_id, name) DO UPDATE SET 
+			description = $3, display_name = $4, claims = $5, depends_on = $6, system = $7, updated_at = NOW()
+		RETURNING id, created_at, updated_at
 	`
 	scope := &repository.Scope{
 		TenantID:    tenantID,
-		Name:        name,
-		Description: description,
+		Name:        input.Name,
+		Description: input.Description,
+		DisplayName: input.DisplayName,
+		Claims:      input.Claims,
+		DependsOn:   input.DependsOn,
+		System:      input.System,
 	}
-	err := r.pool.QueryRow(ctx, query, tenantID, name, description).Scan(&scope.ID, &scope.CreatedAt)
+	var updatedAt time.Time
+	err := r.pool.QueryRow(ctx, query, tenantID, input.Name, input.Description, input.DisplayName, input.Claims, input.DependsOn, input.System).Scan(&scope.ID, &scope.CreatedAt, &updatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("pg: upsert scope: %w", err)
 	}
+	scope.UpdatedAt = &updatedAt
 	return scope, nil
 }
 
@@ -382,4 +468,133 @@ func (r *rbacRepo) RemovePermissionFromRole(ctx context.Context, tenantID, role,
 	const query = `DELETE FROM role_permission WHERE tenant_id = $1 AND role = $2 AND permission = $3`
 	_, err := r.pool.Exec(ctx, query, tenantID, role, permission)
 	return err
+}
+
+func (r *rbacRepo) ListRoles(ctx context.Context, tenantID string) ([]repository.Role, error) {
+	const query = `
+		SELECT id, tenant_id, name, description, inherits_from, system, created_at, updated_at
+		FROM role
+		WHERE tenant_id = $1
+		ORDER BY system DESC, name ASC
+	`
+	rows, err := r.pool.Query(ctx, query, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var roles []repository.Role
+	for rows.Next() {
+		var r repository.Role
+		var desc, inherits *string
+		if err := rows.Scan(&r.ID, &r.TenantID, &r.Name, &desc, &inherits, &r.System, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if desc != nil {
+			r.Description = *desc
+		}
+		r.InheritsFrom = inherits
+		roles = append(roles, r)
+	}
+	return roles, rows.Err()
+}
+
+func (r *rbacRepo) GetRole(ctx context.Context, tenantID, name string) (*repository.Role, error) {
+	const query = `
+		SELECT id, tenant_id, name, description, inherits_from, system, created_at, updated_at
+		FROM role
+		WHERE tenant_id = $1 AND name = $2
+	`
+	var role repository.Role
+	var desc, inherits *string
+	err := r.pool.QueryRow(ctx, query, tenantID, name).Scan(
+		&role.ID, &role.TenantID, &role.Name, &desc, &inherits, &role.System, &role.CreatedAt, &role.UpdatedAt,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, repository.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if desc != nil {
+		role.Description = *desc
+	}
+	role.InheritsFrom = inherits
+	return &role, nil
+}
+
+func (r *rbacRepo) CreateRole(ctx context.Context, tenantID string, input repository.RoleInput) (*repository.Role, error) {
+	const query = `
+		INSERT INTO role (tenant_id, name, description, inherits_from, system, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, false, NOW(), NOW())
+		RETURNING id, created_at, updated_at
+	`
+	role := &repository.Role{
+		TenantID:     tenantID,
+		Name:         input.Name,
+		Description:  input.Description,
+		InheritsFrom: input.InheritsFrom,
+		System:       false,
+	}
+	err := r.pool.QueryRow(ctx, query, tenantID, input.Name, input.Description, input.InheritsFrom).
+		Scan(&role.ID, &role.CreatedAt, &role.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("pg: create role: %w", err)
+	}
+	return role, nil
+}
+
+func (r *rbacRepo) UpdateRole(ctx context.Context, tenantID, name string, input repository.RoleInput) (*repository.Role, error) {
+	const query = `
+		UPDATE role 
+		SET description = COALESCE($3, description),
+			inherits_from = $4,
+			updated_at = NOW()
+		WHERE tenant_id = $1 AND name = $2 AND system = false
+		RETURNING id, tenant_id, name, description, inherits_from, system, created_at, updated_at
+	`
+	var role repository.Role
+	var desc, inherits *string
+	err := r.pool.QueryRow(ctx, query, tenantID, name, input.Description, input.InheritsFrom).Scan(
+		&role.ID, &role.TenantID, &role.Name, &desc, &inherits, &role.System, &role.CreatedAt, &role.UpdatedAt,
+	)
+	if err == pgx.ErrNoRows {
+		return nil, repository.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("pg: update role: %w", err)
+	}
+	if desc != nil {
+		role.Description = *desc
+	}
+	role.InheritsFrom = inherits
+	return &role, nil
+}
+
+func (r *rbacRepo) DeleteRole(ctx context.Context, tenantID, name string) error {
+	// Verificar que no sea sistema
+	role, err := r.GetRole(ctx, tenantID, name)
+	if err != nil {
+		return err
+	}
+	if role.System {
+		return fmt.Errorf("cannot delete system role: %s", name)
+	}
+
+	// Eliminar asignaciones de usuarios
+	_, _ = r.pool.Exec(ctx, `DELETE FROM user_role WHERE tenant_id = $1 AND role = $2`, tenantID, name)
+
+	// Eliminar permisos del rol
+	_, _ = r.pool.Exec(ctx, `DELETE FROM role_permission WHERE tenant_id = $1 AND role = $2`, tenantID, name)
+
+	// Eliminar rol
+	_, err = r.pool.Exec(ctx, `DELETE FROM role WHERE tenant_id = $1 AND name = $2`, tenantID, name)
+	return err
+}
+
+func (r *rbacRepo) GetRoleUsersCount(ctx context.Context, tenantID, role string) (int, error) {
+	const query = `SELECT COUNT(*) FROM user_role WHERE tenant_id = $1 AND role = $2`
+	var count int
+	err := r.pool.QueryRow(ctx, query, tenantID, role).Scan(&count)
+	return count, err
 }
