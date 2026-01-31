@@ -1,6 +1,6 @@
 # Page Audit — /admin/users
 
-**Status**: 🚧 DARK_IN_PROGRESS
+**Status**: 🔍 AUDIT
 
 ---
 
@@ -390,43 +390,3 @@ The `/admin/users` page is the comprehensive user management interface for a ten
 - Task 7: Final polish + testing
 
 **Estimated Effort**: 3-4 days (vs 1 day for /admin/tenants)
-
----
-
-## 11. Dark Iteration Implementation Notes
-
-**Status**: ✅ COMPLETED
-
-**Migration Approach**: Full rewrite (1,785 lines) migrating from table pattern to list pattern with dividers (following /admin/tenants precedent).
-
-### Layout & Structure:
-- ✅ Replaced custom page wrapper with PageShell + PageHeader + Section
-- ✅ Removed all hardcoded gradient decorations
-- ✅ Replaced info banner with DS InlineAlert variant="info"
-- ✅ Implemented 2-tab navigation using DS Tabs
-- ✅ Removed all imports from @/components/ui/*, using only @/components/ds
-
-### Components Migrated to DS:
-- ✅ Button, Card, Input, Badge, Label, Switch, Checkbox, Select, Textarea, Tabs
-- ✅ Dialog, DropdownMenu, Skeleton, EmptyState, InlineAlert
-- ✅ All Ola 4 components (Label, Switch, Checkbox, Select, Textarea, Tabs)
-
-### States Implemented:
-- ✅ Loading: Skeleton rows preserving layout
-- ✅ Empty: No users / no search / no database / no fields
-- ✅ Success/Error: Toast notifications
-- ✅ Pending: Button loading states
-- ✅ Bulk selection: Action bar with count
-
-### Hardcoded Colors Removed:
-- ✅ All gradient decorations removed
-- ✅ All hardcoded purple/indigo/blue/green/red/amber colors replaced with semantic tokens
-- ✅ Stats cards use semantic variants (accent/success/warning/danger with /10 opacity)
-
-### Functionality Preserved:
-- ✅ All mutations, queries, pagination, search, bulk actions, export, custom fields
-
-**Migration Stats**:
-- Before: 2,205 lines with old UI kit
-- After: 1,785 lines with DS only
-- Reduction: -420 lines (-19%)
