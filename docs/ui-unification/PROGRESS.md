@@ -4,7 +4,7 @@
 
 | Page | Dark (Iter 1) | Light (Iter 2) | Status | Last Commit | Updated | Notes |
 |------|---------------|----------------|--------|-------------|---------|-------|
-| **/admin** | ⏳ | ⏳ | ⏳ PENDING | - | - | Priority 1 |
+| **/admin** | ⏳ | ⏳ | 🔍 AUDIT | - | 2026-01-30 | Blocked by Ola 2 (InlineAlert, EmptyState) |
 | **/admin/tenants** | ⏳ | ⏳ | ⏳ PENDING | - | - | Priority 1 |
 | **/admin/users** | ⏳ | ⏳ | ⏳ PENDING | - | - | Priority 1 |
 | **/admin/clients** | ⏳ | ⏳ | ⏳ PENDING | - | - | Priority 1 |
