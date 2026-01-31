@@ -4,7 +4,7 @@
 
 | Page | Dark (Iter 1) | Light (Iter 2) | Status | Last Commit | Updated | Notes |
 |------|---------------|----------------|--------|-------------|---------|-------|
-| **/admin** | ✅ | ⏳ | 🚧 DARK_IN_PROGRESS | - | 2026-01-30 | Dark iteration complete, ready for light |
+| **/admin** | ✅ | ✅ | ✅ DONE | 4e1b427 | 2026-01-30 | Migrated to DS, added Empty/Error states |
 | **/admin/tenants** | ⏳ | ⏳ | ⏳ PENDING | - | - | Priority 1 |
 | **/admin/users** | ⏳ | ⏳ | ⏳ PENDING | - | - | Priority 1 |
 | **/admin/clients** | ⏳ | ⏳ | ⏳ PENDING | - | - | Priority 1 |

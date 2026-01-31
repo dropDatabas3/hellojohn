@@ -1,15 +1,18 @@
 # UI Unification Workplan
 
-**Current Phase:** 3 (Page Migrations) — Dark iteration complete for `/admin`
-**Today's Task:** page(admin) dark iteration
+**Current Phase:** 3 (Page Migrations) — `/admin` ✅ DONE
+**Today's Task:** Ready for next page
 
 ## Next Steps
-1. Light iteration for `/admin` (verify contrast, shadows, readability)
-2. Cierre: DoD verification + screenshots + commit
-3. Start next priority 1 page (/admin/tenants or /admin/users)
+1. Start next Priority 1 page: `/admin/tenants` (Audit → Dark → Light → Done)
+2. Continue with remaining Priority 1 pages: `/admin/users`, `/admin/clients`
+3. Move to Priority 2 pages after completing Priority 1
 
 ## Blockers
 - None
+
+## Completed Pages
+- ✅ `/admin` (Dashboard) — Full DS migration with InlineAlert + EmptyState
 
 ## Phase 1 Completado
 - ✅ ThemeProvider canónico (`ui/components/providers/theme-provider.tsx`)
