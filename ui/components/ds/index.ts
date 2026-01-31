@@ -44,3 +44,6 @@ export * from './navigation/tabs'
 // Forms (Professional Components)
 export * from './forms/phone-input'
 export * from './forms/country-select'
+
+// Background
+export * from './background/blobs'

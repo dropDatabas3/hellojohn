@@ -10,9 +10,9 @@ import {
     CardHeader,
     CardTitle,
     CardFooter,
-} from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+} from "@/components/ds/core/card"
+import { Button } from "@/components/ds/core/button"
+import { Input } from "@/components/ds/core/input"
 import { Label } from "@/components/ui/label"
 import {
     Select,
@@ -92,15 +92,15 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
+import { Badge } from "@/components/ds/core/badge"
 import {
     Tabs,
     TabsContent,
     TabsList,
     TabsTrigger,
 } from "@/components/ui/tabs"
-import { PhoneInput } from "@/components/ui/phone-input"
-import { CountrySelect } from "@/components/ui/country-select"
+import { PhoneInput } from "@/components/ds/forms/phone-input"
+import { CountrySelect } from "@/components/ds/forms/country-select"
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -115,6 +115,7 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { BackgroundBlobs } from "@/components/ds/background/blobs"
 import { User } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -178,25 +179,25 @@ function InfoTooltip({ content }: { content: string }) {
     )
 }
 
-function StatCard({ icon: Icon, label, value, variant = "default" }: { 
-    icon: any, 
-    label: string, 
-    value: string | number, 
-    variant?: "default" | "success" | "warning" | "danger" 
+function StatCard({ icon: Icon, label, value, variant = "default" }: {
+    icon: any,
+    label: string,
+    value: string | number,
+    variant?: "default" | "success" | "warning" | "danger"
 }) {
     const colorClasses = {
-        default: "bg-blue-500/10 text-blue-600",
-        success: "bg-green-500/10 text-green-600",
-        warning: "bg-amber-500/10 text-amber-600",
-        danger: "bg-red-500/10 text-red-600",
+        default: "bg-accent-1/10 text-accent-1",
+        success: "bg-success/10 text-success",
+        warning: "bg-warning/10 text-warning",
+        danger: "bg-danger/10 text-danger",
     }
     return (
-        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 border">
-            <div className={cn("p-2 rounded-lg", colorClasses[variant])}>
+        <div className="flex items-center gap-3 p-4 rounded-clay bg-card/80 backdrop-blur-sm border-2 border-clay shadow-clay-card transition-all duration-200 hover:shadow-clay-float hover:-translate-y-0.5">
+            <div className={cn("p-2.5 rounded-clay", colorClasses[variant])}>
                 <Icon className="h-4 w-4" />
             </div>
             <div>
-                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="text-xs text-muted-foreground font-medium">{label}</p>
                 <p className="text-lg font-semibold">{value}</p>
             </div>
         </div>
@@ -224,14 +225,16 @@ export default function UsersPage() {
     }
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-500">
+        <div className="relative space-y-6 animate-in fade-in duration-500">
+            <BackgroundBlobs />
+
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                     <div className="relative">
-                        <div className="absolute inset-0 bg-gradient-to-br from-purple-400/20 to-indigo-400/20 rounded-xl blur-xl" />
-                        <div className="relative p-3 bg-gradient-to-br from-purple-500/10 to-indigo-500/10 rounded-xl border border-purple-500/20">
-                            <UsersIcon className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+                        <div className="absolute inset-0 bg-gradient-to-br from-accent-1/20 to-accent-2-clay/20 rounded-clay blur-xl" />
+                        <div className="relative p-3 bg-gradient-to-br from-accent-1/10 to-accent-2-clay/10 rounded-clay border-2 border-clay shadow-clay-card">
+                            <UsersIcon className="h-6 w-6 text-accent-1" />
                         </div>
                     </div>
                     <div>
@@ -244,10 +247,10 @@ export default function UsersPage() {
             </div>
 
             {/* Info Banner */}
-            <Alert className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/20 dark:to-indigo-950/20 border-purple-200 dark:border-purple-800">
-                <UsersIcon className="h-4 w-4 text-purple-600" />
-                <AlertTitle className="text-purple-900 dark:text-purple-100">Gestión de Identidades</AlertTitle>
-                <AlertDescription className="text-purple-800 dark:text-purple-200">
+            <Alert className="bg-gradient-to-r from-accent-1/5 to-accent-2-clay/5 border-2 border-clay shadow-clay-card">
+                <UsersIcon className="h-4 w-4 text-accent-1" />
+                <AlertTitle className="text-foreground">Gestión de Identidades</AlertTitle>
+                <AlertDescription className="text-muted-foreground">
                     Administra todos los usuarios registrados en este tenant. Puedes crear, editar, bloquear y eliminar usuarios.
                     Los campos personalizados se configuran en la pestaña "Campos" y aplican al formulario de registro.
                 </AlertDescription>
@@ -299,7 +302,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
     const [isBulkActionOpen, setIsBulkActionOpen] = useState(false)
     const [bulkAction, setBulkAction] = useState<"block" | "delete" | null>(null)
-    
+
     // Pagination
     const [page, setPage] = useState(1)
     const [pageSize, setPageSize] = useState(25)
@@ -480,7 +483,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
     const bulkBlockMutation = useMutation({
         mutationFn: async (userIds: string[]) => {
             const results = await Promise.allSettled(
-                userIds.map(id => 
+                userIds.map(id =>
                     api.post(`/v2/admin/tenants/${tenantId}/users/${id}/disable`,
                         { reason: "Bulk action", duration: "" },
                         { headers: { "X-Tenant-ID": tenantId } }
@@ -505,7 +508,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
     const bulkDeleteMutation = useMutation({
         mutationFn: async (userIds: string[]) => {
             const results = await Promise.allSettled(
-                userIds.map(id => 
+                userIds.map(id =>
                     api.delete(`/v2/admin/tenants/${tenantId}/users/${id}`, {
                         headers: { "X-Tenant-ID": tenantId }
                     })
@@ -547,7 +550,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
 
     // Export handlers
     const exportUsers = (format: "json" | "csv") => {
-        const dataToExport = selectedIds.size > 0 
+        const dataToExport = selectedIds.size > 0
             ? users.filter(u => selectedIds.has(u.id))
             : users
 
@@ -563,7 +566,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
             const headers = ["id", "email", "email_verified", "created_at", "disabled_at"]
             const csvRows = [
                 headers.join(","),
-                ...dataToExport.map(u => 
+                ...dataToExport.map(u =>
                     headers.map(h => JSON.stringify((u as any)[h] ?? "")).join(",")
                 )
             ]
@@ -594,9 +597,9 @@ function UsersList({ tenantId }: { tenantId: string }) {
         return (
             <div className="flex flex-col items-center justify-center py-20 px-6">
                 <div className="relative mb-8">
-                    <div className="absolute inset-0 bg-gradient-to-br from-amber-400/20 to-orange-400/20 rounded-full blur-2xl scale-150" />
-                    <div className="relative rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/50 p-5">
-                        <Database className="h-8 w-8 text-amber-600 dark:text-amber-400" />
+                    <div className="absolute inset-0 bg-gradient-to-br from-warning/20 to-warning/10 rounded-full blur-2xl scale-150" />
+                    <div className="relative rounded-clay bg-gradient-to-br from-warning/10 to-warning/5 p-5 border-2 border-clay shadow-clay-float">
+                        <Database className="h-8 w-8 text-warning" />
                     </div>
                 </div>
                 <h3 className="text-xl font-semibold text-center mb-2">Configura tu base de datos</h3>
@@ -605,7 +608,8 @@ function UsersList({ tenantId }: { tenantId: string }) {
                 </p>
                 <Button
                     onClick={() => router.push(`/admin/database?id=${tenantId}`)}
-                    className="gap-2 rounded-full px-6 shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all"
+                    className="gap-2"
+                    size="lg"
                 >
                     Configurar
                     <ArrowRight className="h-4 w-4" />
@@ -636,7 +640,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
                             className="pl-9 h-9 w-full sm:w-[250px] lg:w-[300px]"
                         />
                     </div>
-                    <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => refetch()}>
+                    <Button variant="outline" size="sm" className="h-9" onClick={() => refetch()}>
                         <RefreshCw className="h-4 w-4" />
                     </Button>
                 </div>
@@ -665,7 +669,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
 
                     <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
                         <DialogTrigger asChild>
-                            <Button className="h-9">
+                            <Button className="h-9" size="sm">
                                 <Plus className="mr-2 h-4 w-4" /> Crear Usuario
                             </Button>
                         </DialogTrigger>
@@ -689,10 +693,10 @@ function UsersList({ tenantId }: { tenantId: string }) {
 
             {/* Bulk Actions Bar */}
             {selectedIds.size > 0 && (
-                <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border border-dashed animate-in slide-in-from-top-2 duration-200">
+                <div className="flex items-center justify-between p-3 bg-accent/5 rounded-clay border-2 border-clay shadow-clay-card animate-in slide-in-from-top-2 duration-200">
                     <div className="flex items-center gap-2">
-                        <Checkbox 
-                            checked={selectedIds.size === users.length} 
+                        <Checkbox
+                            checked={selectedIds.size === users.length}
                             onCheckedChange={toggleSelectAll}
                         />
                         <span className="text-sm font-medium">
@@ -712,7 +716,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
                             Bloquear
                         </Button>
                         <Button
-                            variant="destructive"
+                            variant="danger"
                             size="sm"
                             onClick={() => {
                                 setBulkAction("delete")
@@ -735,12 +739,12 @@ function UsersList({ tenantId }: { tenantId: string }) {
             )}
 
             {/* Users Table */}
-            <div className="rounded-lg border bg-card overflow-hidden">
+            <Card interactive>
                 <Table>
                     <TableHeader>
                         <TableRow className="bg-muted/30">
                             <TableHead className="w-[50px]">
-                                <Checkbox 
+                                <Checkbox
                                     checked={users.length > 0 && selectedIds.size === users.length}
                                     onCheckedChange={toggleSelectAll}
                                 />
@@ -796,7 +800,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
                         )}
                     </TableBody>
                 </Table>
-            </div>
+            </Card>
 
             {/* Pagination */}
             {totalPages > 1 && (
@@ -818,8 +822,8 @@ function UsersList({ tenantId }: { tenantId: string }) {
                     <div className="flex items-center gap-1">
                         <Button
                             variant="outline"
-                            size="icon"
-                            className="h-8 w-8"
+                            size="sm"
+                            className="h-8"
                             disabled={page === 1}
                             onClick={() => setPage(1)}
                         >
@@ -827,8 +831,8 @@ function UsersList({ tenantId }: { tenantId: string }) {
                         </Button>
                         <Button
                             variant="outline"
-                            size="icon"
-                            className="h-8 w-8"
+                            size="sm"
+                            className="h-8"
                             disabled={page === 1}
                             onClick={() => setPage(p => Math.max(1, p - 1))}
                         >
@@ -851,8 +855,8 @@ function UsersList({ tenantId }: { tenantId: string }) {
                         </div>
                         <Button
                             variant="outline"
-                            size="icon"
-                            className="h-8 w-8"
+                            size="sm"
+                            className="h-8"
                             disabled={page === totalPages}
                             onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                         >
@@ -860,8 +864,8 @@ function UsersList({ tenantId }: { tenantId: string }) {
                         </Button>
                         <Button
                             variant="outline"
-                            size="icon"
-                            className="h-8 w-8"
+                            size="sm"
+                            className="h-8"
                             disabled={page === totalPages}
                             onClick={() => setPage(totalPages)}
                         >
@@ -950,7 +954,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
                             {bulkAction === "delete" ? "Eliminar usuarios" : "Bloquear usuarios"}
                         </DialogTitle>
                         <DialogDescription>
-                            {bulkAction === "delete" 
+                            {bulkAction === "delete"
                                 ? `¿Estás seguro de eliminar ${selectedIds.size} usuario(s)? Esta acción no se puede deshacer.`
                                 : `¿Estás seguro de bloquear ${selectedIds.size} usuario(s)?`
                             }
@@ -961,7 +965,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
                             Cancelar
                         </Button>
                         <Button
-                            variant={bulkAction === "delete" ? "destructive" : "default"}
+                            variant={bulkAction === "delete" ? "danger" : "default"}
                             onClick={() => {
                                 const ids = Array.from(selectedIds)
                                 if (bulkAction === "delete") {
@@ -988,17 +992,17 @@ function UsersList({ tenantId }: { tenantId: string }) {
 // COMPONENT: User Row
 // ----------------------------------------------------------------------
 
-function UserRow({ 
-    user, 
-    isSelected, 
-    onSelect, 
-    onDelete, 
-    onDetails, 
+function UserRow({
+    user,
+    isSelected,
+    onSelect,
+    onDelete,
+    onDetails,
     onEdit,
-    onBlock, 
+    onBlock,
     onUnlock,
-    onVerifyEmail 
-}: { 
+    onVerifyEmail
+}: {
     user: UserType
     isSelected: boolean
     onSelect: () => void
@@ -1025,12 +1029,12 @@ function UserRow({
     const displayBlocked = isBlocked || isSuspended
 
     return (
-        <TableRow className={cn(isSelected && "bg-muted/50")}>
+        <TableRow className={cn(isSelected && "bg-accent/5")}>
             <TableCell>
                 <Checkbox checked={isSelected} onCheckedChange={onSelect} />
             </TableCell>
             <TableCell>
-                <div className="h-9 w-9 bg-gradient-to-br from-purple-100 to-indigo-100 dark:from-purple-900/30 dark:to-indigo-900/30 rounded-full flex items-center justify-center font-semibold text-xs text-purple-700 dark:text-purple-300">
+                <div className="h-9 w-9 bg-gradient-to-br from-accent-1/20 to-accent-2-clay/20 rounded-full flex items-center justify-center font-semibold text-xs text-accent-1 border-2 border-clay">
                     {initial}
                 </div>
             </TableCell>
@@ -1045,29 +1049,29 @@ function UserRow({
             <TableCell>
                 {displayBlocked ? (
                     <div className="flex flex-col gap-0.5">
-                        <Badge variant="destructive" className="h-5 text-[10px] px-1.5 w-fit">
+                        <Badge variant="danger" className="h-5 text-[10px] px-1.5 w-fit">
                             {isSuspended ? "Suspendido" : "Deshabilitado"}
                         </Badge>
                         {isSuspended && user.disabled_until && (
-                            <span className="text-[9px] text-red-500 font-mono">
+                            <span className="text-[9px] text-danger font-mono">
                                 Hasta: {new Date(user.disabled_until).toLocaleString("es-ES", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                             </span>
                         )}
                     </div>
                 ) : (
-                    <Badge variant="default" className="h-5 text-[10px] px-1.5 bg-green-600 hover:bg-green-700 w-fit">
+                    <Badge variant="success" className="h-5 text-[10px] px-1.5 w-fit">
                         Activo
                     </Badge>
                 )}
             </TableCell>
             <TableCell className="hidden lg:table-cell">
                 {user.email_verified ? (
-                    <div className="flex items-center gap-1 text-green-600">
+                    <div className="flex items-center gap-1 text-success">
                         <MailCheck className="h-4 w-4" />
                         <span className="text-xs font-medium">Verificado</span>
                     </div>
                 ) : (
-                    <div className="flex items-center gap-1 text-amber-600">
+                    <div className="flex items-center gap-1 text-warning">
                         <MailX className="h-4 w-4" />
                         <span className="text-xs font-medium">Pendiente</span>
                     </div>
@@ -1079,7 +1083,7 @@ function UserRow({
             <TableCell className="text-right">
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="h-8 w-8 p-0">
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
                             <span className="sr-only">Abrir menú</span>
                             <MoreHorizontal className="h-4 w-4" />
                         </Button>
@@ -1100,20 +1104,20 @@ function UserRow({
                         <DropdownMenuSeparator />
                         {!user.email_verified && (
                             <DropdownMenuItem onClick={onVerifyEmail}>
-                                <MailCheck className="mr-2 h-4 w-4 text-green-600" /> Marcar Verificado
+                                <MailCheck className="mr-2 h-4 w-4 text-success" /> Marcar Verificado
                             </DropdownMenuItem>
                         )}
                         {displayBlocked ? (
                             <DropdownMenuItem onClick={onUnlock}>
-                                <Unlock className="mr-2 h-4 w-4 text-green-600" /> Desbloquear
+                                <Unlock className="mr-2 h-4 w-4 text-success" /> Desbloquear
                             </DropdownMenuItem>
                         ) : (
                             <DropdownMenuItem onClick={onBlock}>
-                                <Ban className="mr-2 h-4 w-4 text-orange-600" /> Bloquear
+                                <Ban className="mr-2 h-4 w-4 text-warning" /> Bloquear
                             </DropdownMenuItem>
                         )}
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={onDelete} className="text-red-600 focus:text-red-600 focus:bg-red-50">
+                        <DropdownMenuItem onClick={onDelete} className="text-danger focus:text-danger focus:bg-danger/10">
                             <Trash2 className="mr-2 h-4 w-4" /> Eliminar
                         </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -1155,7 +1159,7 @@ function CreateUserForm({ fieldDefs, clients, onSubmit, isPending }: {
         <form onSubmit={handleSubmit} className="space-y-6 py-2">
             <div className="grid gap-4">
                 <div className="grid gap-2">
-                    <Label htmlFor="email">Email <span className="text-red-500">*</span></Label>
+                    <Label htmlFor="email">Email <span className="text-danger">*</span></Label>
                     <Input
                         id="email"
                         type="email"
@@ -1176,7 +1180,7 @@ function CreateUserForm({ fieldDefs, clients, onSubmit, isPending }: {
                     />
                 </div>
                 <div className="grid gap-2">
-                    <Label htmlFor="password">Contraseña <span className="text-red-500">*</span></Label>
+                    <Label htmlFor="password">Contraseña <span className="text-danger">*</span></Label>
                     <Input
                         id="password"
                         type="password"
@@ -1219,7 +1223,7 @@ function CreateUserForm({ fieldDefs, clients, onSubmit, isPending }: {
                     {fieldDefs.map((field) => (
                         <div key={field.name} className="grid gap-2">
                             <Label htmlFor={field.name}>
-                                {field.name} {field.required && <span className="text-red-500">*</span>}
+                                {field.name} {field.required && <span className="text-danger">*</span>}
                             </Label>
                             {field.type === "phone" ? (
                                 <PhoneInput
@@ -1304,7 +1308,7 @@ function EditUserForm({ user, fieldDefs, clients, onSubmit, isPending }: {
             {/* Read-only Email */}
             <div className="grid gap-2">
                 <Label>Email</Label>
-                <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
+                <div className="flex items-center gap-2 p-2 bg-muted/50 rounded-clay border border-clay">
                     <Mail className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm font-medium">{user.email}</span>
                     <Badge variant="outline" className="ml-auto text-[10px]">No editable</Badge>
@@ -1386,7 +1390,7 @@ function EditUserForm({ user, fieldDefs, clients, onSubmit, isPending }: {
                     {fieldDefs.map((field) => (
                         <div key={field.name} className="grid gap-2">
                             <Label htmlFor={`edit-${field.name}`}>
-                                {field.name} {field.required && <span className="text-red-500">*</span>}
+                                {field.name} {field.required && <span className="text-danger">*</span>}
                             </Label>
                             {field.type === "phone" ? (
                                 <PhoneInput
@@ -1437,11 +1441,11 @@ function EditUserForm({ user, fieldDefs, clients, onSubmit, isPending }: {
 // COMPONENT: User Details with Activity Tab
 // ----------------------------------------------------------------------
 
-function UserDetails({ 
-    user, 
-    tenantId, 
-    token, 
-    clients, 
+function UserDetails({
+    user,
+    tenantId,
+    token,
+    clients,
     fieldDefs,
     onUpdate,
     onEdit,
@@ -1533,30 +1537,30 @@ function UserDetails({
     return (
         <div className="space-y-4">
             {/* User Header */}
-            <div className="flex items-center gap-4 p-4 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/20 dark:to-indigo-950/20 rounded-lg border">
-                <div className="h-16 w-16 bg-gradient-to-br from-purple-200 to-indigo-200 dark:from-purple-800 dark:to-indigo-800 rounded-full flex items-center justify-center text-2xl font-bold text-purple-700 dark:text-purple-200">
+            <div className="flex items-center gap-4 p-4 bg-gradient-to-r from-accent-1/10 to-accent-2-clay/10 rounded-clay border-2 border-clay shadow-clay-card">
+                <div className="h-16 w-16 bg-gradient-to-br from-accent-1/20 to-accent-2-clay/20 rounded-full flex items-center justify-center text-2xl font-bold text-accent-1 border-2 border-clay">
                     {initial}
                 </div>
                 <div className="flex-1 min-w-0">
                     <h3 className="text-lg font-semibold truncate">{user.email}</h3>
                     <div className="flex items-center gap-2 mt-1">
                         <Badge variant="outline" className="font-mono text-[10px]">{user.id}</Badge>
-                        <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => navigator.clipboard.writeText(user.id)}>
+                        <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => navigator.clipboard.writeText(user.id)}>
                             <Copy className="h-3 w-3" />
                         </Button>
                     </div>
                     <div className="flex items-center gap-2 mt-2">
                         {isBlocked ? (
-                            <Badge variant="destructive" className="text-xs">Bloqueado</Badge>
+                            <Badge variant="danger" className="text-xs">Bloqueado</Badge>
                         ) : (
-                            <Badge className="bg-green-600 text-xs">Activo</Badge>
+                            <Badge variant="success" className="text-xs">Activo</Badge>
                         )}
                         {user.email_verified ? (
-                            <Badge variant="outline" className="text-xs text-green-600 border-green-600">
+                            <Badge variant="outline" className="text-xs text-success border-success">
                                 <MailCheck className="h-3 w-3 mr-1" /> Verificado
                             </Badge>
                         ) : (
-                            <Badge variant="outline" className="text-xs text-amber-600 border-amber-600">
+                            <Badge variant="outline" className="text-xs text-warning border-warning">
                                 <MailX className="h-3 w-3 mr-1" /> No verificado
                             </Badge>
                         )}
@@ -1616,7 +1620,7 @@ function UserDetails({
                                 {Object.entries(user.custom_fields)
                                     .filter(([key]) => key !== 'updated_at')
                                     .map(([key, value]) => (
-                                        <div key={key} className="flex items-center justify-between p-2 rounded-md bg-muted/30 border">
+                                        <div key={key} className="flex items-center justify-between p-2 rounded-clay bg-muted/50 border border-clay">
                                             <span className="text-xs font-medium text-muted-foreground">{key}</span>
                                             <span className="text-sm font-medium">
                                                 {typeof value === 'object' ? JSON.stringify(value) : String(value)}
@@ -1631,7 +1635,7 @@ function UserDetails({
                     {user.metadata && Object.keys(user.metadata).length > 0 && (
                         <div className="space-y-2 pt-2">
                             <Label className="text-xs text-muted-foreground uppercase">Metadatos</Label>
-                            <pre className="text-xs font-mono p-3 bg-muted rounded-lg overflow-x-auto">
+                            <pre className="text-xs font-mono p-3 bg-muted/50 rounded-clay border border-clay overflow-x-auto">
                                 {JSON.stringify(user.metadata, null, 2)}
                             </pre>
                         </div>
@@ -1641,16 +1645,16 @@ function UserDetails({
                 {/* Security Tab */}
                 <TabsContent value="security" className="space-y-4 mt-4">
                     {/* Email Verification */}
-                    <div className="p-4 rounded-lg border bg-card">
+                    <div className="p-4 rounded-clay border-2 border-clay shadow-clay-card bg-card/80 backdrop-blur-sm">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                                 {user.email_verified ? (
-                                    <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
-                                        <MailCheck className="h-5 w-5 text-green-600" />
+                                    <div className="p-2 bg-success/10 rounded-clay">
+                                        <MailCheck className="h-5 w-5 text-success" />
                                     </div>
                                 ) : (
-                                    <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
-                                        <MailX className="h-5 w-5 text-amber-600" />
+                                    <div className="p-2 bg-warning/10 rounded-clay">
+                                        <MailX className="h-5 w-5 text-warning" />
                                     </div>
                                 )}
                                 <div>
@@ -1666,9 +1670,9 @@ function UserDetails({
                                         <CheckCircle className="h-4 w-4 mr-2" />
                                         Marcar verificado
                                     </Button>
-                                    <Button 
-                                        variant="outline" 
-                                        size="sm" 
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
                                         onClick={handleResendVerification}
                                         disabled={isResending || !user.source_client_id}
                                     >
@@ -1681,11 +1685,11 @@ function UserDetails({
                     </div>
 
                     {/* Password Change */}
-                    <div className="p-4 rounded-lg border bg-card">
+                    <div className="p-4 rounded-clay border-2 border-clay shadow-clay-card bg-card/80 backdrop-blur-sm">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
-                                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                                    <Key className="h-5 w-5 text-blue-600" />
+                                <div className="p-2 bg-accent-1/10 rounded-clay">
+                                    <Key className="h-5 w-5 text-accent-1" />
                                 </div>
                                 <div>
                                     <h4 className="font-medium">Contraseña</h4>
@@ -1757,18 +1761,18 @@ function UserDetails({
                     </div>
                     <div className="space-y-2">
                         {activityData.map((activity, idx) => (
-                            <div key={idx} className="flex items-start gap-3 p-3 rounded-lg border bg-card hover:bg-muted/30 transition-colors">
+                            <div key={idx} className="flex items-start gap-3 p-3 rounded-clay border-2 border-clay bg-card/80 backdrop-blur-sm hover:shadow-clay-card transition-all">
                                 <div className={cn(
                                     "p-1.5 rounded-full",
-                                    activity.type === "login_success" && "bg-green-100 dark:bg-green-900/30",
-                                    activity.type === "login_failed" && "bg-red-100 dark:bg-red-900/30",
-                                    activity.type === "password_changed" && "bg-blue-100 dark:bg-blue-900/30",
-                                    activity.type === "account_created" && "bg-purple-100 dark:bg-purple-900/30",
+                                    activity.type === "login_success" && "bg-success/10",
+                                    activity.type === "login_failed" && "bg-danger/10",
+                                    activity.type === "password_changed" && "bg-accent-1/10",
+                                    activity.type === "account_created" && "bg-accent-2-clay/10",
                                 )}>
-                                    {activity.type === "login_success" && <CheckCircle className="h-4 w-4 text-green-600" />}
-                                    {activity.type === "login_failed" && <XCircle className="h-4 w-4 text-red-600" />}
-                                    {activity.type === "password_changed" && <Key className="h-4 w-4 text-blue-600" />}
-                                    {activity.type === "account_created" && <UserIcon className="h-4 w-4 text-purple-600" />}
+                                    {activity.type === "login_success" && <CheckCircle className="h-4 w-4 text-success" />}
+                                    {activity.type === "login_failed" && <XCircle className="h-4 w-4 text-danger" />}
+                                    {activity.type === "password_changed" && <Key className="h-4 w-4 text-accent-1" />}
+                                    {activity.type === "account_created" && <UserIcon className="h-4 w-4 text-accent-2-clay" />}
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm font-medium">
@@ -1806,11 +1810,11 @@ function UserDetails({
 // COMPONENT: Block User Dialog
 // ----------------------------------------------------------------------
 
-function BlockUserDialog({ user, onClose, onBlock, isPending }: { 
+function BlockUserDialog({ user, onClose, onBlock, isPending }: {
     user: UserType
     onClose: () => void
     onBlock: (userId: string, reason: string, duration: string) => void
-    isPending: boolean 
+    isPending: boolean
 }) {
     const [reason, setReason] = useState("")
     const [duration, setDuration] = useState("permanent")
@@ -1826,7 +1830,7 @@ function BlockUserDialog({ user, onClose, onBlock, isPending }: {
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                     <div className="grid gap-2">
-                        <Label>Motivo <span className="text-red-500">*</span></Label>
+                        <Label>Motivo <span className="text-danger">*</span></Label>
                         <Input
                             placeholder="Ej. Violación de términos de servicio"
                             value={reason}
@@ -1855,7 +1859,7 @@ function BlockUserDialog({ user, onClose, onBlock, isPending }: {
                 <DialogFooter>
                     <Button variant="outline" onClick={onClose} disabled={isPending}>Cancelar</Button>
                     <Button
-                        variant="destructive"
+                        variant="danger"
                         onClick={() => onBlock(user.id, reason, duration === "permanent" ? "" : duration)}
                         disabled={isPending || !reason.trim()}
                     >
@@ -2004,12 +2008,12 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
     }
 
     return (
-        <Card>
+        <Card interactive>
             <CardHeader>
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 bg-purple-500/10 rounded-lg">
-                            <Settings2 className="h-5 w-5 text-purple-600" />
+                        <div className="p-2 bg-accent-1/10 rounded-clay">
+                            <Settings2 className="h-5 w-5 text-accent-1" />
                         </div>
                         <div>
                             <CardTitle>Campos de Usuario</CardTitle>
@@ -2030,7 +2034,7 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
                         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                     </div>
                 ) : (
-                    <div className="rounded-lg border">
+                    <div className="rounded-clay border-2 border-clay overflow-hidden">
                         <Table>
                             <TableHeader>
                                 <TableRow className="bg-muted/30">
@@ -2064,20 +2068,20 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
                                                 <Badge variant="outline">{field.type}</Badge>
                                             </TableCell>
                                             <TableCell className="text-center">
-                                                {field.required && <CheckCircle2 className="h-4 w-4 mx-auto text-green-500" />}
+                                                {field.required && <CheckCircle2 className="h-4 w-4 mx-auto text-success" />}
                                             </TableCell>
                                             <TableCell className="text-center">
-                                                {field.unique && <CheckCircle2 className="h-4 w-4 mx-auto text-blue-500" />}
+                                                {field.unique && <CheckCircle2 className="h-4 w-4 mx-auto text-accent-1" />}
                                             </TableCell>
                                             <TableCell className="text-center">
-                                                {field.indexed && <CheckCircle2 className="h-4 w-4 mx-auto text-gray-500" />}
+                                                {field.indexed && <CheckCircle2 className="h-4 w-4 mx-auto text-muted-foreground" />}
                                             </TableCell>
                                             <TableCell className="text-right">
                                                 <div className="flex justify-end gap-1">
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleOpenFieldDialog(field, idx)}>
+                                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handleOpenFieldDialog(field, idx)}>
                                                         <Edit2 className="h-4 w-4" />
                                                     </Button>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-600" onClick={() => handleLocalDeleteField(idx)}>
+                                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-danger hover:text-danger" onClick={() => handleLocalDeleteField(idx)}>
                                                         <Trash2 className="h-4 w-4" />
                                                     </Button>
                                                 </div>
@@ -2159,7 +2163,7 @@ function UserFieldsSettings({ tenantId }: { tenantId: string }) {
                                 onChange={(e) => setFieldForm({ ...fieldForm, description: e.target.value })}
                             />
                         </div>
-                        <div className="space-y-3 p-4 rounded-lg border bg-muted/20">
+                        <div className="space-y-3 p-4 rounded-clay border-2 border-clay bg-muted/20">
                             <div className="flex items-center justify-between">
                                 <div>
                                     <Label>Requerido</Label>
