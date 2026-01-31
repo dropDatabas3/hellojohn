@@ -40,6 +40,7 @@ export * from './overlays/dropdown-menu'
 
 // Navigation (Ola 4)
 export * from './navigation/tabs'
+export * from './navigation/quick-link-card'
 
 // Forms (Professional Components)
 export * from './forms/phone-input'
