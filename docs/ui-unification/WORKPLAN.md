@@ -1,12 +1,15 @@
 # UI Unification Workplan
 
-**Current Phase:** 3 (Page Migrations) — `/admin/tenants` ✅ DONE
-**Today's Task:** Ready for next page
+**Current Phase:** 3 (Page Migrations) — `/admin/users` 🔍 AUDIT
+**Today's Task:** `/admin/users` audit complete, needs Ola 4 components before dark iteration
 
 ## Next Steps
-1. Start next Priority 1 page: `/admin/users` (Audit → Dark → Light → Done)
-2. Continue with remaining Priority 1 page: `/admin/clients`
-3. Move to Priority 2 pages after completing Priority 1
+1. **BLOCKER**: Implement Ola 4 (Forms) components before `/admin/users` dark iteration:
+   - Label, Select, Switch, Checkbox, Textarea (core form components)
+   - Tabs (navigation), Tooltip (overlays), Pagination (data)
+2. After Ola 4 ready: Start `/admin/users` dark iteration (COMPLEX: 2,205 lines, 5+ dialogs)
+3. Continue with remaining Priority 1 page: `/admin/clients`
+4. Move to Priority 2 pages after completing Priority 1
 
 ## Blockers
 - None
@@ -18,6 +21,9 @@
 ## Completed Pages
 - ✅ `/admin` (Dashboard) — Full DS migration with InlineAlert + EmptyState
 - ✅ `/admin/tenants` — List pattern with dividers, Ola 3 Dialog + Dropdown
+
+## Pages in Progress
+- 🔍 `/admin/users` (AUDIT) — 2,205 lines, requires Ola 4 (Forms) components: Label, Select, Switch, Checkbox, Textarea, Tabs, Tooltip, Pagination
 
 ## Phase 1 Completado
 - ✅ ThemeProvider canónico (`ui/components/providers/theme-provider.tsx`)
