@@ -236,7 +236,7 @@ export default function TenantDetailPage() {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <QuickLinkCard
-              href={`/admin/rbac?id=${tenantId}`}
+              href={`/admin/tenants/rbac?id=${tenantId}`}
               icon={Shield}
               title="RBAC & Roles"
               description="Role-based access control"

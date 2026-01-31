@@ -4,6 +4,7 @@
 
 import type React from "react"
 import { useState } from "react"
+import { useTheme } from "next-themes"
 
 import { AuthGuard } from "@/components/auth/auth-guard"
 import { Button } from "@/components/ui/button"
@@ -103,8 +104,10 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const user = useAuthStore((state) => state.user)
   const hasRefresh = !!useAuthStore((s) => s.refreshToken)
   const [hideFsNotice, setHideFsNotice] = useState(false)
-  const theme = useUIStore((state) => state.theme)
-  const toggleTheme = useUIStore((state) => state.toggleTheme)
+  
+  // Use next-themes for theme switching (canonical provider per UI_UNIFICATION_STRATEGY)
+  const { theme, setTheme } = useTheme()
+  const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark")
 
   // State for Create Wizard
   const [showCreateWizard, setShowCreateWizard] = useState(false)
@@ -365,7 +368,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                     <nav className="space-y-0.5">
                       <NavItem href={`/admin/users?id=${currentTenantId}`} icon={Users} label="Users" />
                       <NavItem href={`/admin/tenants/sessions?id=${currentTenantId}`} icon={Shapes} label="Sessions" />
-                      <NavItem href={`/admin/rbac?id=${currentTenantId}`} icon={Shield} label="Roles & RBAC" />
+                      <NavItem href={`/admin/tenants/rbac?id=${currentTenantId}`} icon={Shield} label="Roles & RBAC" />
                       <NavItem href={`/admin/tenants/scopes?id=${currentTenantId}`} icon={Lock} label="Scopes" />
                       <NavItem href={`/admin/tenants/claims?id=${currentTenantId}`} icon={Fingerprint} label="Claims" />
                     </nav>

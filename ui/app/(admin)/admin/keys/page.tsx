@@ -373,6 +373,17 @@ export default function KeysPage() {
     },
   })
 
+  // Fetch JWKS for display in JWKS tab
+  const { data: jwks } = useQuery({
+    queryKey: ["jwks", selectedTenant],
+    queryFn: async () => {
+      const url = selectedTenant === "global"
+        ? API_ROUTES.OIDC_JWKS
+        : API_ROUTES.OIDC_JWKS_TENANT(selectedTenant)
+      return api.get<{ keys: unknown[] }>(url)
+    },
+  })
+
   const keys = keysData?.keys || []
 
   const activeKey = keys.find(k => k.status === "active")

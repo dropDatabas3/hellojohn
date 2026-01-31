@@ -275,7 +275,7 @@ export function CommandPalette() {
                                     <span>Sessions</span>
                                 </CommandItem>
                                 <CommandItem
-                                    onSelect={() => runCommand(() => router.push(`/admin/rbac?id=${currentTenantId}`))}
+                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/rbac?id=${currentTenantId}`))}
                                     className="cursor-pointer"
                                 >
                                     <Shield className="mr-2 h-4 w-4" />

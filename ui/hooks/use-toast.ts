@@ -3,10 +3,16 @@
 // Inspired by react-hot-toast library
 import * as React from 'react'
 
-import type { ToastActionElement, ToastProps } from '@/components/ui/toast'
+// Neutral types (no dependency on components/ui or components/ds)
+export type ToastActionElement = React.ReactElement
 
-const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 1000000
+export interface ToastProps {
+  variant?: 'default' | 'destructive' | 'success' | 'info' | 'warning'
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  duration?: number
+  className?: string
+}
 
 type ToasterToast = ToastProps & {
   id: string
@@ -14,6 +20,9 @@ type ToasterToast = ToastProps & {
   description?: React.ReactNode
   action?: ToastActionElement
 }
+
+const TOAST_LIMIT = 1
+const TOAST_REMOVE_DELAY = 1000000
 
 const actionTypes = {
   ADD_TOAST: 'ADD_TOAST',
@@ -83,7 +92,7 @@ export const reducer = (state: State, action: Action): State => {
       return {
         ...state,
         toasts: state.toasts.map((t) =>
-          t.id === action.toast.id ? { ...t, ...action.toast } : t,
+          t.id === action.toast.id ? { ...t, ...action.toast } : t
         ),
       }
 
@@ -108,7 +117,7 @@ export const reducer = (state: State, action: Action): State => {
                 ...t,
                 open: false,
               }
-            : t,
+            : t
         ),
       }
     }
@@ -142,12 +151,15 @@ type Toast = Omit<ToasterToast, 'id'>
 function toast({ ...props }: Toast) {
   const id = genId()
 
-  const update = (props: ToasterToast) =>
+  const update = (next: Partial<ToasterToast>) =>
     dispatch({
       type: 'UPDATE_TOAST',
-      toast: { ...props, id },
+      toast: { ...next, id },
     })
   const dismiss = () => dispatch({ type: 'DISMISS_TOAST', toastId: id })
+
+  // Preserve caller's onOpenChange if provided
+  const userOnOpenChange = props.onOpenChange
 
   dispatch({
     type: 'ADD_TOAST',
@@ -156,13 +168,14 @@ function toast({ ...props }: Toast) {
       id,
       open: true,
       onOpenChange: (open) => {
+        userOnOpenChange?.(open)
         if (!open) dismiss()
       },
     },
   })
 
   return {
-    id: id,
+    id,
     dismiss,
     update,
   }
@@ -179,7 +192,7 @@ function useToast() {
         listeners.splice(index, 1)
       }
     }
-  }, [state])
+  }, [])
 
   return {
     ...state,
@@ -189,3 +202,4 @@ function useToast() {
 }
 
 export { useToast, toast }
+export type { ToasterToast }

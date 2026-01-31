@@ -291,20 +291,6 @@ function ConsentsContent() {
   // Policy state
   const [policy, setPolicy] = useState<ConsentPolicy>(DEFAULT_POLICY)
 
-  // ISS-09-02: Load consent policy from tenant settings instead of DEFAULT_POLICY
-  useEffect(() => {
-    if (tenant?.consentPolicy) {
-      setPolicy({
-        consent_mode: tenant.consentPolicy.consent_mode || DEFAULT_POLICY.consent_mode,
-        expiration_days: tenant.consentPolicy.expiration_days ?? DEFAULT_POLICY.expiration_days,
-        reprompt_days: tenant.consentPolicy.reprompt_days ?? DEFAULT_POLICY.reprompt_days,
-        remember_scope_decisions: tenant.consentPolicy.remember_scope_decisions ?? DEFAULT_POLICY.remember_scope_decisions,
-        show_consent_screen: tenant.consentPolicy.show_consent_screen ?? DEFAULT_POLICY.show_consent_screen,
-        allow_skip_consent_for_first_party: tenant.consentPolicy.allow_skip_consent_for_first_party ?? DEFAULT_POLICY.allow_skip_consent_for_first_party,
-      })
-    }
-  }, [tenant?.consentPolicy])
-
   // ─── Queries ───
 
   const { data: tenant } = useQuery({
@@ -314,6 +300,20 @@ function ConsentsContent() {
       return api.get<Tenant>(`${API_ROUTES.ADMIN_TENANTS}/${tenantId}`)
     },
   })
+
+  // ISS-09-02: Load consent policy from tenant settings instead of DEFAULT_POLICY
+  useEffect(() => {
+    if (tenant?.settings?.consentPolicy) {
+      setPolicy({
+        consent_mode: tenant.settings.consentPolicy.consent_mode || DEFAULT_POLICY.consent_mode,
+        expiration_days: tenant.settings.consentPolicy.expiration_days ?? DEFAULT_POLICY.expiration_days,
+        reprompt_days: tenant.settings.consentPolicy.reprompt_days ?? DEFAULT_POLICY.reprompt_days,
+        remember_scope_decisions: tenant.settings.consentPolicy.remember_scope_decisions ?? DEFAULT_POLICY.remember_scope_decisions,
+        show_consent_screen: tenant.settings.consentPolicy.show_consent_screen ?? DEFAULT_POLICY.show_consent_screen,
+        allow_skip_consent_for_first_party: tenant.settings.consentPolicy.allow_skip_consent_for_first_party ?? DEFAULT_POLICY.allow_skip_consent_for_first_party,
+      })
+    }
+  }, [tenant?.settings?.consentPolicy])
 
   // Fetch consents (we need a user_id, so we'll list all users first or use a placeholder)
   // Note: Backend requires user_id for listing. For demo, we'll mock the data.

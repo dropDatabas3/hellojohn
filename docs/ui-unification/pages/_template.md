@@ -46,8 +46,10 @@
 - Integración con backend `/v2/admin/tenants` (no cambiar contrato)
 
 ## 8. Screenshots
-- [Before Dark](file:///docs/ui-unification/screenshots/{pageSlug}/before-dark.png)
-- [Before Light](file:///docs/ui-unification/screenshots/{pageSlug}/before-light.png)
+- [Before Dark](../screenshots/{pageSlug}/before-dark.png)
+- [Before Light](../screenshots/{pageSlug}/before-light.png)
+- [After Dark](../screenshots/{pageSlug}/after-dark.png)
+- [After Light](../screenshots/{pageSlug}/after-light.png)
 
 ---
 

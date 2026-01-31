@@ -1,8 +1,8 @@
+/* Google Fonts - Clay Design System */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Nunito:ital,wght@0,200..1000;1,200..1000&display=swap');
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
-/* Google Fonts - Clay Design System */
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Nunito:ital,wght@0,200..1000;1,200..1000&display=swap');
 
 @custom-variant dark (&:is(.dark *));
 
@@ -352,6 +352,7 @@
    ACCESSIBILITY — Reduced Motion
    ============================================ */
 @media (prefers-reduced-motion: reduce) {
+
   *,
   *::before,
   *::after {

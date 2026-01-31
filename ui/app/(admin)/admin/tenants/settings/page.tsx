@@ -10,20 +10,21 @@ import { useToast } from "@/hooks/use-toast"
 import Link from "next/link"
 import type { Tenant, TenantSettings } from "@/lib/types"
 
-// UI Components
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Progress } from "@/components/ui/progress"
+// DS Components (UI Unification)
+import {
+  Button,
+  Card, CardContent, CardDescription, CardHeader, CardTitle,
+  Input,
+  Label,
+  Switch,
+  Tabs, TabsContent, TabsList, TabsTrigger,
+  Badge,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+  InlineAlert,
+  Progress,
+} from "@/components/ds"
 
 // Icons
 import {
@@ -36,7 +37,6 @@ import {
   Shield,
   Globe,
   FileJson,
-  Info,
   Check,
   Copy,
   Eye,
@@ -375,8 +375,8 @@ function LogoUploader({
                 className="relative z-10 max-h-[100px] max-w-full object-contain"
               />
               <Button
-                variant="destructive"
-                size="icon"
+                variant="danger"
+                size="sm"
                 className="absolute top-2 right-2 z-20 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
                 onClick={(e) => {
                   e.stopPropagation()
@@ -713,7 +713,7 @@ function ExportDialog({
                   <Badge variant="secondary">Siempre incluido</Badge>
                 </div>
                 
-                <Separator />
+                <hr className="border-border" />
                 
                 {[
                   { key: "includeClients", label: "Clientes OAuth2", icon: Key },
@@ -729,7 +729,7 @@ function ExportDialog({
                       {warning && (
                         <Tooltip>
                           <TooltipTrigger>
-                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                            <AlertTriangle className="h-3.5 w-3.5 text-warning" />
                           </TooltipTrigger>
                           <TooltipContent>
                             <p className="max-w-xs text-xs">
@@ -775,8 +775,8 @@ function ExportDialog({
         
         {status === "done" && (
           <div className="py-8 flex flex-col items-center gap-3">
-            <div className="p-3 rounded-full bg-green-500/10">
-              <CheckCircle2 className="h-8 w-8 text-green-500" />
+            <div className="p-3 rounded-full bg-success/10">
+              <CheckCircle2 className="h-8 w-8 text-success" />
             </div>
             <p className="text-sm font-medium">¡Exportación completada!</p>
           </div>
@@ -784,8 +784,8 @@ function ExportDialog({
         
         {status === "error" && (
           <div className="py-8 flex flex-col items-center gap-3">
-            <div className="p-3 rounded-full bg-red-500/10">
-              <XCircle className="h-8 w-8 text-red-500" />
+            <div className="p-3 rounded-full bg-danger/10">
+              <XCircle className="h-8 w-8 text-danger" />
             </div>
             <p className="text-sm font-medium">Error al exportar</p>
             <Button variant="outline" size="sm" onClick={() => setStatus("idle")}>
@@ -922,13 +922,10 @@ function ImportDialog({
           </DialogDescription>
         </DialogHeader>
         
-        <Alert className="border-amber-500/30 bg-amber-500/10">
-          <AlertTriangle className="h-4 w-4 text-amber-500" />
-          <AlertDescription className="text-amber-200/80">
+        <InlineAlert variant="warning">
             <strong>Precaución:</strong> La importación sobrescribirá la configuración existente.
             Se recomienda hacer un backup antes de continuar.
-          </AlertDescription>
-        </Alert>
+        </InlineAlert>
         
         <div className="space-y-4 py-4">
           {/* File Drop Zone */}
@@ -966,22 +963,12 @@ function ImportDialog({
           </div>
           
           {error && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
+            <InlineAlert variant="destructive">{error}</InlineAlert>
           )}
 
           {/* Validation Result */}
           {validationResult && (
-            <Alert variant={validationResult.valid ? "default" : "destructive"} 
-                   className={validationResult.valid ? "border-green-500/30 bg-green-500/10" : ""}>
-              {validationResult.valid ? (
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-              ) : (
-                <XCircle className="h-4 w-4" />
-              )}
-              <AlertDescription>
+            <InlineAlert variant={validationResult.valid ? "success" : "destructive"}>
                 {validationResult.valid ? (
                   "El archivo es válido y puede ser importado."
                 ) : (
@@ -992,7 +979,7 @@ function ImportDialog({
                   </ul>
                 )}
                 {validationResult.warnings && validationResult.warnings.length > 0 && (
-                  <div className="mt-2 text-amber-400">
+                  <div className="mt-2 text-warning">
                     <strong>Advertencias:</strong>
                     <ul className="list-disc list-inside">
                       {validationResult.warnings.map((warn, i) => (
@@ -1001,8 +988,7 @@ function ImportDialog({
                     </ul>
                   </div>
                 )}
-              </AlertDescription>
-            </Alert>
+            </InlineAlert>
           )}
           
           {/* Preview */}
@@ -1031,7 +1017,7 @@ function ImportDialog({
                 </div>
               </div>
               
-              <Separator />
+              <hr className="border-border" />
               
               <div className="flex flex-wrap gap-2">
                 {preview.clients && preview.clients.length > 0 && (
@@ -1279,8 +1265,8 @@ export default function TenantSettingsPage() {
               </Link>
             </Button>
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-zinc-500/20 to-slate-500/20 border border-zinc-500/20">
-                <Settings className="h-6 w-6 text-zinc-400" />
+              <div className="p-2.5 rounded-xl bg-gradient-to-br from-muted/50 to-muted/30 border border-border">
+                <Settings className="h-6 w-6 text-muted-foreground" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold">Configuración</h1>
@@ -1293,7 +1279,7 @@ export default function TenantSettingsPage() {
           
           <div className="flex items-center gap-2">
             {hasChanges && (
-              <Badge variant="outline" className="text-amber-500 border-amber-500/30">
+              <Badge variant="outline" className="text-warning border-warning/30">
                 Cambios sin guardar
               </Badge>
             )}
@@ -1329,13 +1315,10 @@ export default function TenantSettingsPage() {
         </div>
         
         {/* Info Banner */}
-        <Alert className="border-indigo-500/30 bg-gradient-to-r from-indigo-500/10 via-purple-500/5 to-transparent">
-          <Info className="h-4 w-4 text-indigo-400" />
-          <AlertDescription className="text-muted-foreground">
+        <InlineAlert variant="info">
             Configura la identidad visual, políticas de seguridad y comportamiento de tu organización.
             Los cambios se aplican a todas las aplicaciones y usuarios del tenant.
-          </AlertDescription>
-        </Alert>
+        </InlineAlert>
         
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
@@ -1433,9 +1416,9 @@ export default function TenantSettingsPage() {
                       {formData.slug && (
                         <div className="absolute right-3 top-1/2 -translate-y-1/2">
                           {isValidSlug(formData.slug) ? (
-                            <Check className="h-4 w-4 text-green-500" />
+                            <Check className="h-4 w-4 text-success" />
                           ) : (
-                            <XCircle className="h-4 w-4 text-red-500" />
+                            <XCircle className="h-4 w-4 text-danger" />
                           )}
                         </div>
                       )}
@@ -1468,7 +1451,7 @@ export default function TenantSettingsPage() {
                   </div>
                 </div>
                 
-                <Separator />
+                <hr className="border-border" />
                 
                 <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
                   <div className="space-y-1">
@@ -1541,7 +1524,7 @@ export default function TenantSettingsPage() {
                       description="Usado en botones, links y elementos destacados."
                     />
                     
-                    <Separator />
+                    <hr className="border-border" />
                     
                     {/* Future: Secondary color - not in backend yet */}
                     <div className="opacity-50 pointer-events-none">
@@ -1599,19 +1582,19 @@ export default function TenantSettingsPage() {
                   </CardHeader>
                   <CardContent className="space-y-2 text-sm text-muted-foreground">
                     <div className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-warning" />
                       Tema claro/oscuro personalizado
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-warning" />
                       Fuente personalizada
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-warning" />
                       CSS personalizado
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                      <div className="w-1.5 h-1.5 rounded-full bg-warning" />
                       Preview de emails
                     </div>
                   </CardContent>
@@ -1684,7 +1667,7 @@ export default function TenantSettingsPage() {
                     <div className="flex items-center gap-2">
                       <span className="font-medium">Habilitar MFA</span>
                       {formData.mfaEnabled && (
-                        <Badge className="bg-green-500/10 text-green-500 border-green-500/20">
+                        <Badge className="bg-success/10 text-success border-success/20">
                           Activo
                         </Badge>
                       )}
@@ -1718,13 +1701,10 @@ export default function TenantSettingsPage() {
                       />
                     </div>
                     
-                    <Alert>
-                      <Info className="h-4 w-4" />
-                      <AlertDescription className="text-sm">
+                    <InlineAlert variant="info">
                         Los métodos de MFA disponibles son: TOTP (Google Authenticator, Authy) 
                         y códigos de respaldo. WebAuthn/passkeys estará disponible próximamente.
-                      </AlertDescription>
-                    </Alert>
+                    </InlineAlert>
                   </div>
                 )}
               </CardContent>
@@ -1746,7 +1726,7 @@ export default function TenantSettingsPage() {
                     <div className="flex items-center gap-2">
                       <span className="font-medium">Habilitar Login Social</span>
                       {formData.socialLoginEnabled && (
-                        <Badge className="bg-blue-500/10 text-blue-500 border-blue-500/20">
+                        <Badge className="bg-info/10 text-info border-info/20">
                           Activo
                         </Badge>
                       )}
@@ -1762,18 +1742,15 @@ export default function TenantSettingsPage() {
                 </div>
                 
                 {formData.socialLoginEnabled && (
-                  <Alert className="border-blue-500/30 bg-blue-500/10">
-                    <ExternalLink className="h-4 w-4 text-blue-400" />
-                    <AlertDescription>
+                  <InlineAlert variant="info">
                       Configura los proveedores sociales en{" "}
                       <Link 
                         href={`/admin/providers?id=${tenantId}`}
-                        className="text-blue-400 hover:underline font-medium"
+                        className="text-info hover:underline font-medium"
                       >
                         Social Providers →
                       </Link>
-                    </AlertDescription>
-                  </Alert>
+                  </InlineAlert>
                 )}
               </CardContent>
             </Card>
@@ -1817,14 +1794,11 @@ export default function TenantSettingsPage() {
           {/* TAB: ISSUER */}
           {/* ============================================================== */}
           <TabsContent value="issuer" className="space-y-6">
-            <Alert className="border-purple-500/30 bg-gradient-to-r from-purple-500/10 via-indigo-500/5 to-transparent">
-              <Info className="h-4 w-4 text-purple-400" />
-              <AlertDescription className="text-muted-foreground">
+            <InlineAlert variant="info">
                 <strong>¿Qué es el Issuer?</strong> El issuer es la URL que identifica a tu servidor 
                 de autorización en tokens JWT. Aparece en el claim &quot;iss&quot; y debe coincidir con 
                 la configuración de tus aplicaciones cliente.
-              </AlertDescription>
-            </Alert>
+            </InlineAlert>
             
             <Card>
               <CardHeader>
@@ -1885,7 +1859,7 @@ export default function TenantSettingsPage() {
                   </div>
                 )}
                 
-                <Separator />
+                <hr className="border-border" />
                 
                 <div className="p-4 rounded-lg border bg-muted/30">
                   <h4 className="text-sm font-medium mb-2">Issuer URL actual</h4>
@@ -1899,7 +1873,7 @@ export default function TenantSettingsPage() {
                     </code>
                     <Button
                       variant="ghost"
-                      size="icon"
+                      size="sm"
                       onClick={() => {
                         const url = formData.issuerMode === "global" && formData.issuerOverride
                           ? formData.issuerOverride
@@ -1915,14 +1889,11 @@ export default function TenantSettingsPage() {
                   </div>
                 </div>
                 
-                <Alert>
-                  <AlertTriangle className="h-4 w-4 text-amber-500" />
-                  <AlertDescription>
+                <InlineAlert variant="warning">
                     <strong>Precaución:</strong> Cambiar el modo de issuer puede invalidar 
                     tokens existentes y romper integraciones. Asegúrate de actualizar la 
                     configuración en todas tus aplicaciones cliente.
-                  </AlertDescription>
-                </Alert>
+                </InlineAlert>
               </CardContent>
             </Card>
             
@@ -1974,10 +1945,10 @@ export default function TenantSettingsPage() {
           {/* ============================================================== */}
           <TabsContent value="export" className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card className="border-green-500/20">
+              <Card className="border-success/20">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <FileDown className="h-5 w-5 text-green-500" />
+                    <FileDown className="h-5 w-5 text-success" />
                     Exportar Configuración
                   </CardTitle>
                   <CardDescription>
@@ -1987,23 +1958,23 @@ export default function TenantSettingsPage() {
                 <CardContent className="space-y-4">
                   <ul className="space-y-2 text-sm">
                     <li className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      <CheckCircle2 className="h-4 w-4 text-success" />
                       Configuración general y branding
                     </li>
                     <li className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      <CheckCircle2 className="h-4 w-4 text-success" />
                       Políticas de seguridad
                     </li>
                     <li className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      <CheckCircle2 className="h-4 w-4 text-success" />
                       Clientes OAuth2 y scopes
                     </li>
                     <li className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      <CheckCircle2 className="h-4 w-4 text-success" />
                       Claims personalizados
                     </li>
                     <li className="flex items-center gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      <CheckCircle2 className="h-4 w-4 text-success" />
                       Roles y permisos (opcional)
                     </li>
                     <li className="flex items-center gap-2 text-muted-foreground">
@@ -2012,15 +1983,12 @@ export default function TenantSettingsPage() {
                     </li>
                   </ul>
                   
-                  <Separator />
+                  <hr className="border-border" />
                   
-                  <Alert>
-                    <Info className="h-4 w-4" />
-                    <AlertDescription className="text-xs">
+                  <InlineAlert variant="info">
                       El archivo exportado <strong>no incluye</strong> secrets 
                       (client_secret, contraseñas SMTP, etc.) por seguridad.
-                    </AlertDescription>
-                  </Alert>
+                  </InlineAlert>
                   
                   <Button 
                     className="w-full"
@@ -2032,10 +2000,10 @@ export default function TenantSettingsPage() {
                 </CardContent>
               </Card>
               
-              <Card className="border-blue-500/20">
+              <Card className="border-info/20">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <FileUp className="h-5 w-5 text-blue-500" />
+                    <FileUp className="h-5 w-5 text-info" />
                     Importar Configuración
                     <Badge variant="outline">Próximamente</Badge>
                   </CardTitle>
@@ -2063,15 +2031,12 @@ export default function TenantSettingsPage() {
                     </li>
                   </ul>
                   
-                  <Separator />
+                  <hr className="border-border" />
                   
-                  <Alert className="border-amber-500/30 bg-amber-500/10">
-                    <AlertTriangle className="h-4 w-4 text-amber-500" />
-                    <AlertDescription className="text-xs">
+                  <InlineAlert variant="warning">
                       Esta funcionalidad requiere endpoints adicionales en el backend.
                       Ver requisitos en el diálogo de importación.
-                    </AlertDescription>
-                  </Alert>
+                  </InlineAlert>
                   
                   <Button 
                     variant="outline" 

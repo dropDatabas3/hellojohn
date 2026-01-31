@@ -34,6 +34,7 @@ export * from './feedback/toast'
 export * from './feedback/toaster'
 export * from './feedback/inline-alert'
 export * from './feedback/empty-state'
+export * from './feedback/progress'
 
 // Overlays (Ola 3)
 export * from './overlays/dialog'

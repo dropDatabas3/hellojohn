@@ -124,10 +124,27 @@ const config: Config = {
           '0%, 100%': { opacity: '0.6', transform: 'scale(1)' },
           '50%': { opacity: '0.8', transform: 'scale(1.05)' },
         },
+        // Progress component animations
+        'shimmer': {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(200%)' },
+        },
+        'indeterminate': {
+          '0%': { transform: 'translateX(-100%)' },
+          '50%': { transform: 'translateX(100%)' },
+          '100%': { transform: 'translateX(-100%)' },
+        },
+        'progress-glow': {
+          '0%, 100%': { opacity: '0.4', filter: 'blur(8px)' },
+          '50%': { opacity: '0.6', filter: 'blur(12px)' },
+        },
       },
       animation: {
         'blob-float': 'blob-float 20s ease-in-out infinite',
         'gentle-pulse': 'gentle-pulse 4s ease-in-out infinite',
+        'shimmer': 'shimmer 2s ease-in-out infinite',
+        'indeterminate': 'indeterminate 1.5s ease-in-out infinite',
+        'progress-glow': 'progress-glow 2s ease-in-out infinite',
       },
     },
   },

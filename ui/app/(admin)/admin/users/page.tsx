@@ -624,7 +624,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <StatCard icon={UsersIcon} label="Total Usuarios" value={totalCount} variant="default" />
                 <StatCard icon={ShieldCheck} label="Activos" value={stats.active} variant="success" />
-                <StatCard icon={ShieldAlert} label="Bloqueados" value={stats.blocked} variant="destructive" />
+                <StatCard icon={ShieldAlert} label="Bloqueados" value={stats.blocked} variant="danger" />
                 <StatCard icon={MailCheck} label="Verificados" value={stats.verified} variant="success" />
             </div>
 
@@ -716,7 +716,7 @@ function UsersList({ tenantId }: { tenantId: string }) {
                             Bloquear
                         </Button>
                         <Button
-                            variant="destructive"
+                            variant="danger"
                             size="sm"
                             onClick={() => {
                                 setBulkAction("delete")
@@ -1859,7 +1859,7 @@ function BlockUserDialog({ user, onClose, onBlock, isPending }: {
                 <DialogFooter>
                     <Button variant="outline" onClick={onClose} disabled={isPending}>Cancelar</Button>
                     <Button
-                        variant="destructive"
+                        variant="danger"
                         onClick={() => onBlock(user.id, reason, duration === "permanent" ? "" : duration)}
                         disabled={isPending || !reason.trim()}
                     >

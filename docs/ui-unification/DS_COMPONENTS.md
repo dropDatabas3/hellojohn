@@ -45,6 +45,13 @@
 | **InlineAlert** | default, info, success, warning, destructive | Contextual alerts | `inline-alert.tsx` |
 | **EmptyState** | - | Empty state with CTA | `empty-state.tsx` |
 
+### Overlays (`overlays/`) — Ola 3
+
+| Component | Subcomponents | Purpose | File |
+|-----------|---------------|---------|------|
+| **Dialog** | Dialog, DialogTrigger, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription, DialogClose | Modal dialogs | `dialog.tsx` |
+| **DropdownMenu** | DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuCheckboxItem, DropdownMenuRadioItem | Context menus | `dropdown-menu.tsx` |
+
 ### Utils (`utils/`)
 
 | Utility | Purpose | File |
@@ -177,6 +184,71 @@ import { Skeleton } from '@/components/ds'
 )}
 ```
 
+### Dialog (Ola 3)
+
+```tsx
+import { 
+  Dialog, DialogContent, DialogHeader, DialogFooter, 
+  DialogTitle, DialogDescription, Button 
+} from '@/components/ds'
+
+function DeleteConfirmation({ open, onOpenChange, onConfirm }) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete Item</DialogTitle>
+          <DialogDescription>
+            Are you sure you want to delete this item? This action cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="secondary" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={onConfirm}>
+            Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+```
+
+### DropdownMenu (Ola 3)
+
+```tsx
+import { 
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, 
+  DropdownMenuItem, DropdownMenuSeparator, Button 
+} from '@/components/ds'
+import { MoreHorizontal, Settings, Trash2 } from 'lucide-react'
+
+function ActionsMenu({ onEdit, onDelete }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm">
+          <MoreHorizontal className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={onEdit}>
+          <Settings className="mr-2 h-4 w-4" />
+          Edit
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="danger" onClick={onDelete}>
+          <Trash2 className="mr-2 h-4 w-4" />
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+```
+
 ### Toast Notifications
 
 ```tsx
@@ -295,15 +367,15 @@ focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
 
 ## 🔜 Next Olas (Future Components)
 
-### Ola 2 — Data Display
-- DataTable (sortable, server-side ready)
-- Pagination
-- EmptyState
-- InlineAlert
+### ✅ Ola 2 — Feedback (Complete)
+- InlineAlert ✅
+- EmptyState ✅
 
-### Ola 3 — Overlays & Advanced
-- Dialog
-- Dropdown
+### ✅ Ola 3 — Overlays (Complete)
+- Dialog ✅
+- DropdownMenu ✅
+
+### Ola 3.5 — Overlays (Pending)
 - Tooltip
 - Select
 
@@ -313,6 +385,10 @@ focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
 - KeyValueRow
 - Separator
 - Toolbar
+
+### Ola 5 — Data Display (As Needed)
+- DataTable (sortable, server-side ready)
+- Pagination
 
 ---
 
@@ -325,5 +401,5 @@ focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
 
 ---
 
-**Status:** ✅ Phase 2 Ola 1 Complete
-**Next:** Page Migrations (Phase 3)
+**Status:** ✅ Phase 2 Ola 3 Complete (Core, Layout, Feedback, Overlays)
+**Next:** Page Migrations (Phase 3) — `/admin/tenants` unblocked

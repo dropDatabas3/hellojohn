@@ -1,11 +1,8 @@
 'use client'
 
-import * as React from 'react'
-import {
-  ThemeProvider as NextThemesProvider,
-  type ThemeProviderProps,
-} from 'next-themes'
+/**
+ * @deprecated Use `@/components/providers/theme-provider` instead.
+ * This file is kept for backward compatibility but should not be used.
+ */
 
-export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
-  return <NextThemesProvider {...props}>{children}</NextThemesProvider>
-}
+export { ThemeProvider } from '@/components/providers/theme-provider'
