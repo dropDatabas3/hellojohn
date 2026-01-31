@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, Fragment } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
@@ -1027,7 +1027,7 @@ function MatrixTab({ tenantId }: { tenantId: string }) {
             </TableHeader>
             <TableBody>
               {resources.map((resource) => (
-                <>
+                <Fragment key={resource}>
                   <TableRow key={`header-${resource}`} className="bg-muted/10">
                     <TableCell colSpan={roles.length + 1} className="py-2">
                       <span className="text-xs font-semibold text-muted-foreground uppercase">{resource}</span>
@@ -1062,7 +1062,7 @@ function MatrixTab({ tenantId }: { tenantId: string }) {
                       })}
                     </TableRow>
                   ))}
-                </>
+                </Fragment>
               ))}
             </TableBody>
           </Table>

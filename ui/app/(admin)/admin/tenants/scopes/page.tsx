@@ -2,7 +2,14 @@
 
 import { useState, useMemo, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { useParams, useSearchParams } from "next/navigation"
+import { useParams, useSearchParams, useRouter } from "next/navigation"
+import { api } from "@/lib/api"
+import { useI18n } from "@/lib/i18n"
+import { useToast } from "@/hooks/use-toast"
+import Link from "next/link"
+import type { Scope, Tenant } from "@/lib/types"
+
+// Icons
 import {
     Plus,
     Search,
@@ -10,92 +17,87 @@ import {
     Eye,
     Copy,
     Check,
-    ArrowLeft,
+    ChevronLeft,
     Shield,
     ShieldCheck,
-    ShieldAlert,
-    ChevronRight,
-    Sparkles,
     Lock,
-    Unlock,
-    Settings2,
     Info,
     AlertTriangle,
-    CheckCircle2,
-    XCircle,
     Edit,
     MoreHorizontal,
     Link2,
     Loader2,
     ChevronDown,
     ChevronUp,
-    Globe,
     User,
     Mail,
     Phone,
     MapPin,
     Tag,
-    FileCode2,
     Layers,
     RefreshCw,
-    BookOpen,
-    Zap,
     Key,
-    Users,
-    Database,
-    ExternalLink,
 } from "lucide-react"
-import { api } from "@/lib/api"
-import { useI18n } from "@/lib/i18n"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+
+// Design System Components
 import {
+    Button,
+    Input,
+    Label,
+    Badge,
+    Switch,
+    Checkbox,
+    Textarea,
+    Skeleton,
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+    CardFooter,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
     Dialog,
     DialogContent,
     DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
-} from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import { useToast } from "@/hooks/use-toast"
-import { Badge } from "@/components/ui/badge"
-import { Switch } from "@/components/ui/switch"
-import { Checkbox } from "@/components/ui/checkbox"
-import {
     Select,
     SelectContent,
     SelectItem,
     SelectTrigger,
     SelectValue,
-} from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import {
+    Tabs,
+    TabsContent,
+    TabsList,
+    TabsTrigger,
+    InlineAlert,
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
-    DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
     Tooltip,
     TooltipContent,
     TooltipProvider,
     TooltipTrigger,
-} from "@/components/ui/tooltip"
+    BackgroundBlobs,
+    PageShell,
+    PageHeader,
+    cn,
+} from "@/components/ds"
+
+// UI Components (not yet in DS)
 import {
     Collapsible,
     CollapsibleContent,
     CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import Link from "next/link"
-import { cn } from "@/lib/utils"
-import type { Scope, Tenant } from "@/lib/types"
 
 // ============================================================================
 // TYPES
@@ -240,29 +242,37 @@ function InfoTooltip({ content }: { content: string }) {
     )
 }
 
-function StatCard({ icon: Icon, label, value, variant = "default" }: {
-    icon: any
-    label: string
-    value: string | number
-    variant?: "default" | "success" | "warning" | "danger"
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  variant = "default",
+}: {
+  icon: any
+  label: string
+  value: string | number
+  variant?: "default" | "success" | "warning" | "danger"
 }) {
-    const colorClasses = {
-        default: "bg-blue-500/10 text-blue-600",
-        success: "bg-green-500/10 text-green-600",
-        warning: "bg-amber-500/10 text-amber-600",
-        danger: "bg-red-500/10 text-red-600",
-    }
-    return (
-        <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 border">
-            <div className={cn("p-2 rounded-lg", colorClasses[variant])}>
-                <Icon className="h-4 w-4" />
-            </div>
-            <div>
-                <p className="text-xs text-muted-foreground">{label}</p>
-                <p className="text-lg font-semibold">{value}</p>
-            </div>
+  const colorClasses = {
+    default: "bg-accent/10 text-accent",
+    success: "bg-accent/10 text-accent",
+    warning: "bg-accent/10 text-accent",
+    danger: "bg-destructive/10 text-destructive",
+  }
+
+  return (
+    <Card interactive className="group p-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <h3 className="text-3xl font-display font-bold text-foreground mt-1">{value}</h3>
         </div>
-    )
+        <div className={cn("rounded-full p-3", colorClasses[variant])}>
+          <Icon className="h-6 w-6" />
+        </div>
+      </div>
+    </Card>
+  )
 }
 
 function ScopeCard({
@@ -282,20 +292,19 @@ function ScopeCard({
     const [expanded, setExpanded] = useState(false)
 
     return (
-        <Card className={cn(
-            "transition-all duration-200 hover:shadow-md",
-            isStandard
-                ? "border-blue-500/20 bg-gradient-to-br from-blue-500/5 to-indigo-500/5"
-                : "hover:border-primary/30"
-        )}>
+        <Card
+          interactive
+          className={cn(
+            "group hover:-translate-y-1 hover:shadow-clay-float transition-all duration-200",
+            isStandard && "border-accent/30 bg-accent/5"
+          )}
+        >
             <CardHeader className="pb-2">
                 <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
                         <div className={cn(
                             "p-2.5 rounded-xl",
-                            isStandard
-                                ? "bg-blue-500/10 text-blue-600"
-                                : "bg-purple-500/10 text-purple-600"
+                            "bg-accent/10 text-accent"
                         )}>
                             <Icon className="h-5 w-5" />
                         </div>
@@ -329,7 +338,7 @@ function ScopeCard({
                                     <Edit className="mr-2 h-4 w-4" /> Editar
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={onDelete} className="text-red-600">
+                                <DropdownMenuItem onClick={onDelete} className="text-destructive">
                                     <Trash2 className="mr-2 h-4 w-4" /> Eliminar
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
@@ -626,51 +635,55 @@ export default function ScopesClientPage() {
     // ========================================================================
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-500">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                    <Button variant="ghost" size="icon" asChild>
-                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
-                            <ArrowLeft className="h-4 w-4" />
-                        </Link>
-                    </Button>
-                    <div className="flex items-center gap-3">
-                        <div className="relative">
-                            <div className="absolute inset-0 bg-gradient-to-br from-indigo-400/20 to-purple-400/20 rounded-xl blur-xl" />
-                            <div className="relative p-3 bg-gradient-to-br from-indigo-500/10 to-purple-500/10 rounded-xl border border-indigo-500/20">
-                                <Shield className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
-                            </div>
-                        </div>
-                        <div>
-                            <h1 className="text-2xl font-bold tracking-tight">Scopes OAuth2</h1>
-                            <p className="text-sm text-muted-foreground">
-                                {tenant?.name} — Define qué información y permisos pueden solicitar las aplicaciones
-                            </p>
-                        </div>
-                    </div>
-                </div>
-                <Button onClick={() => { resetForm(); setCreateDialogOpen(true) }}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Nuevo Scope
+        <PageShell>
+            <BackgroundBlobs />
+
+            {/* Back Navigation */}
+            <div className="mb-6">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  asChild
+                  className="hover:-translate-y-0.5 hover:shadow-clay-card transition-all duration-200"
+                >
+                    <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+                        <ChevronLeft className="h-4 w-4 mr-2" />
+                        Volver a Tenant
+                    </Link>
                 </Button>
             </div>
 
+            <PageHeader
+                title="Scopes OAuth2"
+                description={`${tenant?.name ? tenant.name + " — " : ""}Define qué información y permisos pueden solicitar las aplicaciones`}
+            >
+                <Button
+                  variant="default"
+                  onClick={() => { resetForm(); setCreateDialogOpen(true) }}
+                  className="hover:-translate-y-0.5 hover:shadow-clay-card active:translate-y-0 transition-all duration-200"
+                >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Nuevo Scope
+                </Button>
+            </PageHeader>
+
             {/* Info Banner */}
-            <Alert className="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/20 dark:to-purple-950/20 border-indigo-200 dark:border-indigo-800">
-                <Shield className="h-4 w-4 text-indigo-600" />
-                <AlertTitle className="text-indigo-900 dark:text-indigo-100">¿Qué son los Scopes?</AlertTitle>
-                <AlertDescription className="text-indigo-800 dark:text-indigo-200">
-                    Los <strong>scopes</strong> definen qué información o permisos una aplicación puede solicitar.
-                    OIDC define scopes estándar (<code className="bg-indigo-100 dark:bg-indigo-900 px-1 rounded">openid</code>,{" "}
-                    <code className="bg-indigo-100 dark:bg-indigo-900 px-1 rounded">profile</code>,{" "}
-                    <code className="bg-indigo-100 dark:bg-indigo-900 px-1 rounded">email</code>).
-                    Puedes crear <strong>scopes personalizados</strong> para controlar acceso granular a tu API.
-                </AlertDescription>
-            </Alert>
+            <InlineAlert variant="info" className="mb-6">
+                <Shield className="h-4 w-4" />
+                <div>
+                    <h4 className="font-semibold mb-1">¿Qué son los Scopes?</h4>
+                    <p className="text-sm">
+                        Los <strong>scopes</strong> definen qué información o permisos una aplicación puede solicitar.
+                        OIDC define scopes estándar (<code className="bg-muted px-1 rounded">openid</code>,{" "}
+                        <code className="bg-muted px-1 rounded">profile</code>,{" "}
+                        <code className="bg-muted px-1 rounded">email</code>).
+                        Puedes crear <strong>scopes personalizados</strong> para controlar acceso granular a tu API.
+                    </p>
+                </div>
+            </InlineAlert>
 
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-3 gap-4 mb-8">
                 <StatCard icon={Layers} label="Total Scopes" value={stats.total} variant="default" />
                 <StatCard icon={ShieldCheck} label="OIDC Standard" value={stats.standard} variant="success" />
                 <StatCard icon={Tag} label="Personalizados" value={stats.custom} variant="warning" />
@@ -700,7 +713,7 @@ export default function ScopesClientPage() {
                         <div className="flex items-center justify-between">
                             <div>
                                 <h2 className="text-lg font-semibold flex items-center gap-2">
-                                    <ShieldCheck className="h-5 w-5 text-blue-600" />
+                                    <ShieldCheck className="h-5 w-5 text-accent" />
                                     Scopes OIDC Standard
                                 </h2>
                                 <p className="text-sm text-muted-foreground">
@@ -708,16 +721,31 @@ export default function ScopesClientPage() {
                                 </p>
                             </div>
                         </div>
-                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {allScopes.standard.map(scope => (
-                                <ScopeCard
-                                    key={scope.name}
-                                    scope={scope}
-                                    isStandard={true}
-                                    onView={() => openDetailDialog(scope)}
-                                />
-                            ))}
-                        </div>
+                        {isLoading ? (
+                            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {[...Array(6)].map((_, i) => (
+                                    <Card key={i} className="p-6">
+                                        <div className="space-y-3">
+                                            <Skeleton className="h-4 w-20" />
+                                            <Skeleton className="h-6 w-32" />
+                                            <Skeleton className="h-4 w-full" />
+                                            <Skeleton className="h-4 w-3/4" />
+                                        </div>
+                                    </Card>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {allScopes.standard.map(scope => (
+                                    <ScopeCard
+                                        key={scope.name}
+                                        scope={scope}
+                                        isStandard={true}
+                                        onView={() => openDetailDialog(scope)}
+                                    />
+                                ))}
+                            </div>
+                        )}
                     </div>
 
                     {/* Custom Scopes Section */}
@@ -725,7 +753,7 @@ export default function ScopesClientPage() {
                         <div className="flex items-center justify-between">
                             <div>
                                 <h2 className="text-lg font-semibold flex items-center gap-2">
-                                    <Tag className="h-5 w-5 text-purple-600" />
+                                    <Tag className="h-5 w-5 text-accent" />
                                     Scopes Personalizados
                                 </h2>
                                 <p className="text-sm text-muted-foreground">
@@ -738,23 +766,26 @@ export default function ScopesClientPage() {
                             </Button>
                         </div>
                         {allScopes.custom.length === 0 ? (
-                            <Card className="border-dashed">
-                                <CardContent className="flex flex-col items-center justify-center py-12">
-                                    <div className="relative mb-4">
-                                        <div className="absolute inset-0 bg-gradient-to-br from-purple-400/20 to-pink-400/20 rounded-full blur-2xl scale-150" />
-                                        <div className="relative rounded-2xl bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-950/50 dark:to-pink-950/50 p-6">
-                                            <Tag className="h-8 w-8 text-purple-600 dark:text-purple-400" />
-                                        </div>
+                            <Card className="border-dashed p-12">
+                                <div className="flex flex-col items-center text-center space-y-4">
+                                    <div className="rounded-full bg-muted p-4">
+                                        <Tag className="h-8 w-8 text-muted-foreground" />
                                     </div>
-                                    <h3 className="text-lg font-semibold mb-2">Sin scopes personalizados</h3>
-                                    <p className="text-muted-foreground text-center max-w-sm text-sm mb-4">
-                                        Crea scopes personalizados para controlar qué permisos pueden solicitar tus aplicaciones.
-                                    </p>
-                                    <Button onClick={() => { resetForm(); setCreateDialogOpen(true) }}>
+                                    <div className="space-y-2">
+                                        <h3 className="text-lg font-semibold text-foreground">Sin scopes personalizados</h3>
+                                        <p className="text-sm text-muted-foreground max-w-sm">
+                                            Crea scopes personalizados para controlar qué permisos pueden solicitar tus aplicaciones.
+                                        </p>
+                                    </div>
+                                    <Button
+                                      variant="default"
+                                      onClick={() => { resetForm(); setCreateDialogOpen(true) }}
+                                      className="hover:-translate-y-0.5 hover:shadow-clay-card transition-all duration-200"
+                                    >
                                         <Plus className="mr-2 h-4 w-4" />
                                         Crear primer scope
                                     </Button>
-                                </CardContent>
+                                </div>
                             </Card>
                         ) : (
                             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -798,11 +829,11 @@ export default function ScopesClientPage() {
                                 {allScopes.standard.map(scope => {
                                     const Icon = getScopeIcon(scope.name)
                                     return (
-                                        <TableRow key={scope.name}>
+                                        <TableRow key={scope.name} className="hover:bg-accent/5 transition-colors">
                                             <TableCell>
                                                 <div className="flex items-center gap-3">
-                                                    <div className="p-2 rounded-lg bg-blue-500/10">
-                                                        <Icon className="h-4 w-4 text-blue-600" />
+                                                    <div className="p-2 rounded-lg bg-accent/10">
+                                                        <Icon className="h-4 w-4 text-accent" />
                                                     </div>
                                                     <div>
                                                         <code className="font-mono font-medium">{scope.name}</code>
@@ -886,23 +917,26 @@ export default function ScopesClientPage() {
                                     <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                                 </div>
                             ) : filteredCustomScopes.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center py-12">
-                                    <div className="relative mb-6">
-                                        <div className="absolute inset-0 bg-gradient-to-br from-purple-400/20 to-pink-400/20 rounded-full blur-2xl scale-150" />
-                                        <div className="relative rounded-2xl bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-950/50 dark:to-pink-950/50 p-6">
-                                            <Tag className="h-10 w-10 text-purple-600 dark:text-purple-400" />
-                                        </div>
+                                <div className="flex flex-col items-center text-center py-12 space-y-4">
+                                    <div className="rounded-full bg-muted p-4">
+                                        <Tag className="h-10 w-10 text-muted-foreground" />
                                     </div>
-                                    <h3 className="text-lg font-semibold mb-2">
-                                        {search ? "Sin resultados" : "Sin scopes personalizados"}
-                                    </h3>
-                                    <p className="text-muted-foreground text-center max-w-sm text-sm mb-4">
-                                        {search
-                                            ? "No se encontraron scopes con ese criterio de búsqueda."
-                                            : "Crea tu primer scope personalizado para controlar permisos de tu API."}
-                                    </p>
+                                    <div className="space-y-2">
+                                        <h3 className="text-lg font-semibold text-foreground">
+                                            {search ? "Sin resultados" : "Sin scopes personalizados"}
+                                        </h3>
+                                        <p className="text-sm text-muted-foreground max-w-sm">
+                                            {search
+                                                ? "No se encontraron scopes con ese criterio de búsqueda."
+                                                : "Crea tu primer scope personalizado para controlar permisos de tu API."}
+                                        </p>
+                                    </div>
                                     {!search && (
-                                        <Button onClick={() => { resetForm(); setCreateDialogOpen(true) }}>
+                                        <Button
+                                          variant="default"
+                                          onClick={() => { resetForm(); setCreateDialogOpen(true) }}
+                                          className="hover:-translate-y-0.5 hover:shadow-clay-card transition-all duration-200"
+                                        >
                                             <Plus className="mr-2 h-4 w-4" />
                                             Crear primer scope
                                         </Button>
@@ -920,10 +954,10 @@ export default function ScopesClientPage() {
                                     </TableHeader>
                                     <TableBody>
                                         {filteredCustomScopes.map((scope) => (
-                                            <TableRow key={scope.name} className="cursor-pointer hover:bg-muted/50" onClick={() => openDetailDialog(scope)}>
+                                            <TableRow key={scope.name} className="cursor-pointer hover:bg-accent/5 transition-colors" onClick={() => openDetailDialog(scope)}>
                                                 <TableCell>
                                                     <div className="flex items-center gap-3">
-                                                        <div className="p-2 rounded-lg bg-purple-500/10 text-purple-600">
+                                                        <div className="p-2 rounded-lg bg-accent/10 text-accent">
                                                             <Tag className="h-4 w-4" />
                                                         </div>
                                                         <div>
@@ -977,7 +1011,7 @@ export default function ScopesClientPage() {
                                                             <DropdownMenuSeparator />
                                                             <DropdownMenuItem
                                                                 onClick={(e) => { e.stopPropagation(); setSelectedScope(scope); setDeleteDialogOpen(true) }}
-                                                                className="text-red-600"
+                                                                className="text-destructive"
                                                             >
                                                                 <Trash2 className="mr-2 h-4 w-4" /> Eliminar
                                                             </DropdownMenuItem>
@@ -1172,12 +1206,7 @@ export default function ScopesClientPage() {
                             <div className="flex items-center gap-3">
                                 {selectedScope && (
                                     <>
-                                        <div className={cn(
-                                            "p-2.5 rounded-xl",
-                                            selectedScope.system || OIDC_STANDARD_SCOPES.some(s => s.name === selectedScope.name)
-                                                ? "bg-blue-500/10 text-blue-600"
-                                                : "bg-purple-500/10 text-purple-600"
-                                        )}>
+                                        <div className="p-2.5 rounded-xl bg-accent/10 text-accent">
                                             {(() => { const Icon = getScopeIcon(selectedScope.name); return <Icon className="h-5 w-5" /> })()}
                                         </div>
                                         <div>
@@ -1212,7 +1241,7 @@ export default function ScopesClientPage() {
                                         size="sm"
                                         onClick={() => { setDeleteDialogOpen(true) }}
                                     >
-                                        <Trash2 className="h-4 w-4 mr-2 text-red-500" />
+                                        <Trash2 className="h-4 w-4 mr-2 text-destructive" />
                                         Eliminar
                                     </Button>
                                 </div>
@@ -1294,7 +1323,7 @@ export default function ScopesClientPage() {
             <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2 text-red-600">
+                        <DialogTitle className="flex items-center gap-2 text-destructive">
                             <AlertTriangle className="h-5 w-5" />
                             Eliminar Scope
                         </DialogTitle>
@@ -1324,6 +1353,6 @@ export default function ScopesClientPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div>
+        </PageShell>
     )
 }
