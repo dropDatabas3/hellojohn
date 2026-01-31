@@ -1,18 +1,21 @@
 # UI Unification Workplan
 
 **Current Phase:** 3 (Page Migrations) — `/admin/users` 🔍 AUDIT
-**Today's Task:** `/admin/users` audit complete, needs Ola 4 components before dark iteration
+**Today's Task:** Ola 4 components implemented ✅, ready for `/admin/users` dark iteration
 
 ## Next Steps
-1. **BLOCKER**: Implement Ola 4 (Forms) components before `/admin/users` dark iteration:
+1. ✅ **DONE**: Implemented Ola 4 (Forms) components:
    - Label, Select, Switch, Checkbox, Textarea (core form components)
-   - Tabs (navigation), Tooltip (overlays), Pagination (data)
-2. After Ola 4 ready: Start `/admin/users` dark iteration (COMPLEX: 2,205 lines, 5+ dialogs)
-3. Continue with remaining Priority 1 page: `/admin/clients`
-4. Move to Priority 2 pages after completing Priority 1
+   - Tabs (navigation)
+   - Commit: a722b79
+2. **DECISION NEEDED**: `/admin/users` dark iteration is COMPLEX (2,205 lines, 5+ dialogs, estimated 3-4 days)
+   - Option A: Proceed with `/admin/users` (multi-day effort, break into subtasks)
+   - Option B: Audit simpler Priority 2 pages first (/admin/keys, /admin/cluster, /admin/settings, /admin/scopes)
+   - Note: `/admin/clients` marked as Priority 1 doesn't exist yet in codebase
+3. Move to Priority 2 pages after completing available Priority 1 pages
 
 ## Blockers
-- None
+- **Complexity**: `/admin/users` requires breaking into multiple subtasks (3-4 days estimated effort)
 
 ## Design Decisions Made
 - **DataTable pattern**: Used list-style layout with dividers instead of traditional table (better responsive, cleaner DS styling)
@@ -22,8 +25,14 @@
 - ✅ `/admin` (Dashboard) — Full DS migration with InlineAlert + EmptyState
 - ✅ `/admin/tenants` — List pattern with dividers, Ola 3 Dialog + Dropdown
 
+## Completed DS Components (Olas)
+- ✅ **Ola 1** (Core): Button, Card, Input, Badge, PageShell, PageHeader, Section, Skeleton
+- ✅ **Ola 2** (Feedback): InlineAlert, EmptyState, Toast, Toaster
+- ✅ **Ola 3** (Overlays): Dialog, DropdownMenu
+- ✅ **Ola 4** (Forms & Navigation): Label, Checkbox, Switch, Textarea, Select, Tabs
+
 ## Pages in Progress
-- 🔍 `/admin/users` (AUDIT) — 2,205 lines, requires Ola 4 (Forms) components: Label, Select, Switch, Checkbox, Textarea, Tabs, Tooltip, Pagination
+- 🔍 `/admin/users` (AUDIT) — 2,205 lines, COMPLEX (estimated 3-4 days), all required DS components now available
 
 ## Phase 1 Completado
 - ✅ ThemeProvider canónico (`ui/components/providers/theme-provider.tsx`)
