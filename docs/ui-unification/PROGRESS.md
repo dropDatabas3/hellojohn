@@ -5,7 +5,7 @@
 | Page | Dark (Iter 1) | Light (Iter 2) | Status | Last Commit | Updated | Notes |
 |------|---------------|----------------|--------|-------------|---------|-------|
 | **/admin** | ✅ | ✅ | ✅ DONE | 4e1b427 | 2026-01-30 | Migrated to DS, added Empty/Error states |
-| **/admin/tenants** | ⏳ | ⏳ | 🔍 AUDIT | - | 2026-01-30 | Blocked by Ola 3 (Dialog, Dropdown) |
+| **/admin/tenants** | ✅ | ⏳ | 🚧 DARK_IN_PROGRESS | - | 2026-01-31 | Dark complete, list pattern, ready for light |
 | **/admin/users** | ⏳ | ⏳ | ⏳ PENDING | - | - | Priority 1 |
 | **/admin/clients** | ⏳ | ⏳ | ⏳ PENDING | - | - | Priority 1 |
 | **/admin/keys** | ⏳ | ⏳ | ⏳ PENDING | - | - | Priority 2 |

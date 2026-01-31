@@ -1,15 +1,19 @@
 # UI Unification Workplan
 
-**Current Phase:** 3 (Page Migrations) — `/admin/tenants` audit complete
-**Today's Task:** page(tenants) audit
+**Current Phase:** 3 (Page Migrations) — `/admin/tenants` dark iteration complete
+**Today's Task:** page(tenants) dark iteration
 
 ## Next Steps
-1. Implement Ola 3 DS components: `Dialog` + `Dropdown` (blockers for /admin/tenants)
-2. Design decisions: DataTable pattern (inline vs component), SearchInput pattern (extend Input vs separate)
-3. Dark iteration for `/admin/tenants` (after Ola 3 ready)
+1. Light iteration for `/admin/tenants` (verify contrast, shadows, readability)
+2. Cierre: DoD verification + commit
+3. Start next Priority 1 page (/admin/users or /admin/clients)
 
 ## Blockers
-- `/admin/tenants` blocked by missing Ola 3 components: `Dialog` (delete confirmation), `Dropdown` (actions menu)
+- None
+
+## Design Decisions Made
+- **DataTable pattern**: Used list-style layout with dividers instead of traditional table (better responsive, cleaner DS styling)
+- **SearchInput pattern**: Used Input with manual icon positioning (no separate component needed yet)
 
 ## Completed Pages
 - ✅ `/admin` (Dashboard) — Full DS migration with InlineAlert + EmptyState

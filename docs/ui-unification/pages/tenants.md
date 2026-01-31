@@ -1,6 +1,6 @@
 # Page Audit — /admin/tenants
 
-**Status**: 🔍 AUDIT
+**Status**: 🚧 DARK_IN_PROGRESS
 
 ---
 
@@ -181,4 +181,73 @@ The `/admin/tenants` page is the main tenant management interface. It displays a
 
 ---
 
-**Conclusion**: Page is **BLOCKED** by missing Ola 3 components (`Dialog`, `Dropdown`). Additionally, design decisions needed for DataTable and SearchInput patterns. Recommend implementing Dialog + Dropdown as reusable DS components, then proceeding with dark iteration.
+---
+
+## 10. Dark Iteration Implementation Notes
+
+**Completed Changes:**
+
+### Layout & Structure:
+- ✅ Replaced custom page wrapper with `PageShell` + `PageHeader` + `Section`
+- ✅ Added create button in PageHeader actions with `leftIcon` prop
+- ✅ Removed old UI kit components completely (no imports from `@/components/ui/*`)
+
+### Components Migrated to DS:
+- ✅ `Button` — All buttons (create, actions, dialog) using DS with proper variants
+- ✅ `Card` — Main content container with DS styling
+- ✅ `Input` — Search input with semantic tokens
+- ✅ `Badge` — Tenant slug display with `variant="outline"`
+- ✅ `Dialog` — Delete confirmation using Ola 3 Dialog component
+- ✅ `DropdownMenu` — Actions menu using Ola 3 Dropdown component
+- ✅ `Skeleton` — Loading placeholders preserving layout (5 rows with avatar + text)
+- ✅ `EmptyState` — No tenants / no search results with icon + CTA
+- ✅ `InlineAlert` — Error state with retry button
+
+### States Implemented:
+- ✅ **Loading**: Skeleton rows with avatar placeholder + text skeletons (preserves exact layout)
+- ✅ **Empty (no tenants)**: EmptyState with Building2 icon + "Create Tenant" CTA
+- ✅ **Empty (no search results)**: EmptyState with search message, no CTA
+- ✅ **Error (fetch failed)**: InlineAlert with error message + Retry button
+- ✅ **Success (delete)**: Toast with success message
+- ✅ **Error (delete failed)**: Toast with error message
+- ✅ **Deleting**: Button shows loading state with `loading` prop
+
+### Hardcoded Colors Removed:
+- ✅ Avatar background: `bg-slate-100` → `bg-muted`
+- ✅ Avatar text: `text-slate-700` → `text-foreground`
+- ✅ Logo border: `border` → `border-border`
+- ✅ Search icon: `text-muted-foreground` → `text-muted`
+- ✅ Dropdown delete item: `text-destructive` → `text-danger`
+
+### Accessibility Improvements:
+- ✅ Search input has `aria-label="Search tenants"`
+- ✅ Dropdown trigger has `aria-label` with tenant name
+- ✅ Icons have `aria-hidden="true"`
+- ✅ Tenant rows are keyboard navigable with `tabIndex={0}` and `onKeyDown` handler
+- ✅ Proper `role="button"` on clickable tenant rows
+- ✅ Focus rings with `focus-visible:ring-accent` + `ring-offset-background`
+
+### UX Improvements:
+- ✅ Hover state on tenant rows: `hover:bg-surface`
+- ✅ Smooth transitions with `transition-all duration-200`
+- ✅ Actions dropdown appears on hover/open with opacity transition
+- ✅ Delete button uses `loading` prop instead of text change
+- ✅ Empty state differentiates between "no tenants" and "no search results"
+- ✅ Error state shows retry action instead of just message
+
+### Design Decisions Made:
+1. **Table pattern**: Used list-style layout with dividers instead of traditional table
+   - Reason: Better responsive behavior, cleaner DS styling, no need for DataTable component
+   - Pattern: `divide-y divide-border` with clickable rows
+2. **Search pattern**: Used Input with manual icon positioning (`pl-9`)
+   - Reason: No need for separate SearchInput component yet (not 2+ uses)
+   - Can extract if pattern repeats in other pages
+
+### Performance Notes:
+- No heavy animations on list items (only subtle hover lift)
+- Shadows applied to Card container, not individual rows
+- Skeleton uses base shimmer animation (prefers-reduced-motion respected)
+
+---
+
+**Conclusion**: Page migrated to DS successfully. All Ola 3 components (Dialog, Dropdown) were already available. Dark iteration complete, ready for light verification.
