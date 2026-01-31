@@ -1,15 +1,15 @@
 # UI Unification Workplan
 
-**Current Phase:** 3 (Page Migrations) — `/admin` ✅ DONE
-**Today's Task:** Ready for next page
+**Current Phase:** 3 (Page Migrations) — `/admin/tenants` audit complete
+**Today's Task:** page(tenants) audit
 
 ## Next Steps
-1. Start next Priority 1 page: `/admin/tenants` (Audit → Dark → Light → Done)
-2. Continue with remaining Priority 1 pages: `/admin/users`, `/admin/clients`
-3. Move to Priority 2 pages after completing Priority 1
+1. Implement Ola 3 DS components: `Dialog` + `Dropdown` (blockers for /admin/tenants)
+2. Design decisions: DataTable pattern (inline vs component), SearchInput pattern (extend Input vs separate)
+3. Dark iteration for `/admin/tenants` (after Ola 3 ready)
 
 ## Blockers
-- None
+- `/admin/tenants` blocked by missing Ola 3 components: `Dialog` (delete confirmation), `Dropdown` (actions menu)
 
 ## Completed Pages
 - ✅ `/admin` (Dashboard) — Full DS migration with InlineAlert + EmptyState
