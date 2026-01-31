@@ -16,6 +16,11 @@ export * from './core/button'
 export * from './core/card'
 export * from './core/input'
 export * from './core/badge'
+export * from './core/label'
+export * from './core/checkbox'
+export * from './core/switch'
+export * from './core/textarea'
+export * from './core/select'
 
 // Layout
 export * from './layout/page-shell'
@@ -28,3 +33,10 @@ export * from './feedback/toast'
 export * from './feedback/toaster'
 export * from './feedback/inline-alert'
 export * from './feedback/empty-state'
+
+// Overlays (Ola 3)
+export * from './overlays/dialog'
+export * from './overlays/dropdown-menu'
+
+// Navigation (Ola 4)
+export * from './navigation/tabs'
