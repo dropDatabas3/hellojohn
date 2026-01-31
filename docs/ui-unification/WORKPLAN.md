@@ -1,18 +1,13 @@
 # UI Unification Workplan
 
-**Current Phase:** 3 (Page Migrations) — `/admin/users` 🔍 AUDIT
-**Today's Task:** Ola 4 components implemented ✅, ready for `/admin/users` dark iteration
+**Current Phase:** 3 (Page Migrations) — `/admin/users` 🚧 DARK_IN_PROGRESS
+**Today's Task:** `/admin/users` dark iteration completed ✅ (1,785 lines, all DS components)
 
 ## Next Steps
-1. ✅ **DONE**: Implemented Ola 4 (Forms) components:
-   - Label, Select, Switch, Checkbox, Textarea (core form components)
-   - Tabs (navigation)
-   - Commit: a722b79
-2. **DECISION NEEDED**: `/admin/users` dark iteration is COMPLEX (2,205 lines, 5+ dialogs, estimated 3-4 days)
-   - Option A: Proceed with `/admin/users` (multi-day effort, break into subtasks)
-   - Option B: Audit simpler Priority 2 pages first (/admin/keys, /admin/cluster, /admin/settings, /admin/scopes)
-   - Note: `/admin/clients` marked as Priority 1 doesn't exist yet in codebase
-3. Move to Priority 2 pages after completing available Priority 1 pages
+1. ✅ **DONE**: Implemented Ola 4 (Forms) components - Commit: a722b79
+2. ✅ **DONE**: `/admin/users` dark iteration - Full migration to DS (1,785 lines, -19% reduction)
+3. **NEXT**: `/admin/users` light iteration (verify contrast, shadows, readability in light mode)
+4. After `/admin/users` complete: Move to Priority 2 pages (/admin/keys, /admin/cluster, /admin/settings, /admin/scopes)
 
 ## Blockers
 - **Complexity**: `/admin/users` requires breaking into multiple subtasks (3-4 days estimated effort)
@@ -32,7 +27,7 @@
 - ✅ **Ola 4** (Forms & Navigation): Label, Checkbox, Switch, Textarea, Select, Tabs
 
 ## Pages in Progress
-- 🔍 `/admin/users` (AUDIT) — 2,205 lines, COMPLEX (estimated 3-4 days), all required DS components now available
+- 🚧 `/admin/users` (DARK COMPLETE) — Migrated to 1,785 lines (-19%), all DS components, ready for light iteration
 
 ## Phase 1 Completado
 - ✅ ThemeProvider canónico (`ui/components/providers/theme-provider.tsx`)
