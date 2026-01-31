@@ -1,6 +1,6 @@
 # Page Audit — /admin/tenants
 
-**Status**: 🚧 DARK_IN_PROGRESS
+**Status**: ✅ DONE
 
 ---
 
@@ -250,4 +250,71 @@ The `/admin/tenants` page is the main tenant management interface. It displays a
 
 ---
 
-**Conclusion**: Page migrated to DS successfully. All Ola 3 components (Dialog, Dropdown) were already available. Dark iteration complete, ready for light verification.
+---
+
+## 11. Light Iteration Verification
+
+**Light Mode Quality Check:**
+- ✅ **Contrast verified**: All text elements meet WCAG AA minimum
+  - `text-foreground` (222 47% 11%) on `bg-background` (0 0% 100%) — excellent contrast
+  - `text-muted` on light backgrounds — readable
+  - Badge outline variant legible
+  - Danger text in dropdown clearly differentiated
+- ✅ **Shadows clay**: Light mode shadows maintain high-fidelity depth
+  - `shadow-card` on Card container — multi-layer with inset highlights
+  - No flat appearance, proper depth perception
+- ✅ **Borders visible**: `border-border` (220 13% 91%) provides clear separation
+  - Dividers between list items visible
+  - Search bar border clear
+  - Avatar/logo borders visible
+- ✅ **Surface hierarchy**:
+  - `hover:bg-surface` (220 14% 96%) perceptible on hover
+  - Card background distinct from page background
+- ✅ **Interactive states**:
+  - Hover states subtle but visible
+  - Focus rings `ring-primary` (254 75% 64%) highly visible
+  - `ring-offset-background` ensures proper separation
+  - Dropdown trigger opacity transition works correctly
+- ✅ **Empty states & alerts**:
+  - `InlineAlert` backgrounds appropriate and visible
+  - `EmptyState` icon with opacity balanced
+  - CTA buttons clearly actionable
+- ✅ **Dialog**:
+  - Overlay backdrop appropriately darkens content
+  - Dialog content stands out clearly
+  - Button variants (ghost vs danger) clearly differentiated
+- ✅ **Dropdown menu**:
+  - Menu content has sufficient contrast
+  - Delete item `text-danger` clearly red/destructive
+  - Focus states visible
+
+**No Token Changes Required**: Light mode tokens are well-balanced and provide premium appearance.
+
+---
+
+## 12. Final Status
+
+**Migration Complete:** ✅ DONE
+
+**What Changed:**
+- Migrated from old UI kit (`@/components/ui/*`) to Design System (`@/components/ds`)
+- Implemented `PageShell` + `PageHeader` + `Section` layout pattern
+- Replaced table with list-style layout using `divide-y divide-border` pattern (better responsive)
+- Added comprehensive state handling: Loading (Skeleton), Empty (EmptyState), Error (InlineAlert with retry)
+- Removed all hardcoded colors (`bg-slate-100`, `text-slate-700`, etc.), using only semantic tokens
+- Improved accessibility with ARIA labels, keyboard navigation, and focus rings
+- Used Ola 3 Dialog and Dropdown components for delete confirmation and actions menu
+
+**DS Components Used:**
+- Ola 1: PageShell, PageHeader, Section, Card, Button, Input, Badge, Skeleton
+- Ola 2: InlineAlert, EmptyState
+- Ola 3: Dialog, DropdownMenu
+
+**Design Patterns Established:**
+- List-style layout with dividers (reusable pattern for other admin list pages)
+- Search input with icon positioning (`pl-9`)
+- Clickable rows with keyboard navigation support
+
+**Known Issues:** None
+
+**Theme Support:** ✅ Dark & Light both verified and working

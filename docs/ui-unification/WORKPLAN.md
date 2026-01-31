@@ -1,12 +1,12 @@
 # UI Unification Workplan
 
-**Current Phase:** 3 (Page Migrations) — `/admin/tenants` dark iteration complete
-**Today's Task:** page(tenants) dark iteration
+**Current Phase:** 3 (Page Migrations) — `/admin/tenants` ✅ DONE
+**Today's Task:** Ready for next page
 
 ## Next Steps
-1. Light iteration for `/admin/tenants` (verify contrast, shadows, readability)
-2. Cierre: DoD verification + commit
-3. Start next Priority 1 page (/admin/users or /admin/clients)
+1. Start next Priority 1 page: `/admin/users` (Audit → Dark → Light → Done)
+2. Continue with remaining Priority 1 page: `/admin/clients`
+3. Move to Priority 2 pages after completing Priority 1
 
 ## Blockers
 - None
@@ -17,6 +17,7 @@
 
 ## Completed Pages
 - ✅ `/admin` (Dashboard) — Full DS migration with InlineAlert + EmptyState
+- ✅ `/admin/tenants` — List pattern with dividers, Ola 3 Dialog + Dropdown
 
 ## Phase 1 Completado
 - ✅ ThemeProvider canónico (`ui/components/providers/theme-provider.tsx`)
