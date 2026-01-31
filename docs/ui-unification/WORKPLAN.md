@@ -1,15 +1,15 @@
 # UI Unification Workplan
 
-**Current Phase:** 3 (Page Migrations) — Audit complete for `/admin`
-**Today's Task:** page(admin) audit
+**Current Phase:** 3 (Page Migrations) — Dark iteration complete for `/admin`
+**Today's Task:** page(admin) dark iteration
 
 ## Next Steps
-1. Implement Ola 2 DS components: `InlineAlert` + `EmptyState` (blockers for /admin)
-2. Start dark iteration for `/admin` (after Ola 2 ready)
-3. Light iteration for `/admin`
+1. Light iteration for `/admin` (verify contrast, shadows, readability)
+2. Cierre: DoD verification + screenshots + commit
+3. Start next priority 1 page (/admin/tenants or /admin/users)
 
 ## Blockers
-- `/admin` page blocked by missing Ola 2 components: `InlineAlert`, `EmptyState`
+- None
 
 ## Phase 1 Completado
 - ✅ ThemeProvider canónico (`ui/components/providers/theme-provider.tsx`)

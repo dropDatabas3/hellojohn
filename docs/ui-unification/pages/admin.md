@@ -1,6 +1,6 @@
 # Page Audit — /admin (Dashboard)
 
-**Status**: 🔍 AUDIT
+**Status**: 🚧 DARK_IN_PROGRESS
 
 ---
 
@@ -88,6 +88,56 @@ The `/admin` page is the main dashboard that provides a system-wide overview for
 ## 8. Screenshots
 
 **NOTE: As per project rules, screenshots are NOT required and should NOT be added to this document.**
+
+---
+
+## 9. Dark Iteration Implementation Notes
+
+**Completed Changes:**
+- ✅ Replaced custom page wrapper with `PageShell` + `PageHeader`
+- ✅ Added refresh action button in PageHeader for refetching data
+- ✅ Replaced old UI kit components with DS equivalents:
+  - `Card`, `Badge`, `Button` from `@/components/ds`
+  - Removed all imports from `@/components/ui/*`
+- ✅ Implemented `InlineAlert` for degraded/unavailable status and error states with retry actions
+- ✅ Implemented `EmptyState` for no-data scenarios (cluster, components, tenants)
+- ✅ Replaced loading text with `Skeleton` components that preserve layout
+- ✅ Added error handling with `isError` state and retry buttons
+- ✅ Removed hardcoded colors:
+  - `getStatusColor()` function removed (was using `bg-green-500`, etc)
+  - Replaced with semantic Badge variants (`success`, `warning`, `danger`)
+  - Icons use `text-muted` or `text-accent` semantic tokens
+- ✅ Added `aria-hidden="true"` to all decorative icons
+- ✅ Quick action cards use semantic tokens (`text-accent`, `border-border`, `bg-surface`)
+- ✅ Improved focus states with `focus-visible:ring-accent` and `ring-offset-background`
+- ✅ Tenant list items have hover lift effect and proper focus rings
+
+**DS Patterns Used:**
+- **PageShell + PageHeader + Section**: Consistent page layout with proper spacing
+- **Card**: All content sections wrapped in Card with clay shadows
+- **Skeleton**: Loading states preserve layout (stat cards, cluster details, components grid, tenant list)
+- **InlineAlert**: System status alerts with variants and retry actions
+- **EmptyState**: No-data scenarios with icons, messages, and CTAs
+- **Badge**: Status indicators with semantic variants (success/warning/danger/outline)
+- **Button**: Actions with variants (primary/secondary), sizes, and leftIcon support
+
+**States Implemented:**
+- **Loading**: Skeleton placeholders for all data sections
+- **Empty**: EmptyState components for cluster, components, and tenants
+- **Error**: InlineAlert with retry actions for health and tenants API failures
+- **Success**: Data displays correctly with proper semantic styling
+- **Degraded/Unavailable**: InlineAlert banner at top of page
+
+**Accessibility Improvements:**
+- All decorative icons have `aria-hidden="true"`
+- Focus rings use `focus-visible:ring-2 ring-accent ring-offset-2 ring-offset-background`
+- Proper semantic HTML structure maintained
+- Tab order is logical (PageHeader actions → alerts → content sections)
+
+**Performance:**
+- No heavy animations on grid items (subtle hover lift only)
+- Shadows applied to Card containers, not individual rows
+- Skeleton animations use base shimmer (prefers-reduced-motion respected)
 
 ---
 
