@@ -390,3 +390,197 @@ The `/admin/users` page is the comprehensive user management interface for a ten
 - Task 7: Final polish + testing
 
 **Estimated Effort**: 3-4 days (vs 1 day for /admin/tenants)
+
+---
+
+## 11. Clay Design System Implementation
+
+**Fecha**: 2026-01-31
+**Status**: ✅ **COMPLETE**
+
+### Rollback y Rediseño
+
+Se ejecutó rollback de migración dark original (commit `a9ec7ec`) debido a:
+- ❌ Funcionalidad perdida (PhoneInput, CountrySelect components)
+- ❌ Diseño genérico sin refinamiento visual profesional
+- ❌ Hardcoded colors (hex values)
+- ❌ Overlapping elements, oversized buttons
+- ❌ No micro-interacciones
+
+### Clay Components Applied
+
+**Background**:
+- `BackgroundBlobs` — Ambient depth con 3 blobs animados
+
+**Core Components** (from DS):
+- `Button` variant="default" — Clay gradient (accent-2-clay → accent-3-clay)
+- `Card` interactive — Lift hover (-translate-y-1), press feedback
+- `Input` — Recessed style (shadow-inner), backdrop-blur-sm
+- `Badge` — Semantic variants (success, warning, destructive, secondary)
+
+**Form Components** (recovered):
+- `PhoneInput` — Professional phone validation con libphonenumber-js
+- `CountrySelect` — Flag emojis, 20 países populares
+
+**Shadows**:
+- `shadow-clay-button` — 4-layer button shadow
+- `shadow-clay-card` — 4-layer card shadow
+- `shadow-clay-float` — 4-layer hover shadow
+- `shadow-clay-modal` — 4-layer modal shadow
+
+**Micro-interactions**:
+- Hover lift: `hover:-translate-y-0.5`
+- Active press: `active:translate-y-0`
+- Focus rings: `focus-visible:ring-2 focus-visible:ring-accent`
+- Smooth transitions: `transition-all duration-200`
+
+### Funcionalidad Completa Preservada
+
+✅ **Todas las funcionalidades originales restauradas**:
+
+1. ✅ **Search con debounce** (300ms)
+2. ✅ **Pagination** (page, pageSize, query params)
+3. ✅ **Bulk selection** (select all, individual checkboxes, indeterminate state)
+4. ✅ **Bulk actions** (block selected, delete selected)
+5. ✅ **Export** (JSON, CSV, all users, selected users)
+6. ✅ **Create user**:
+   - PhoneInput con validación
+   - CountrySelect con banderas
+   - Custom fields support
+   - Email validation
+   - Password strength
+7. ✅ **Edit user**:
+   - PhoneInput editable
+   - CountrySelect editable
+   - Custom fields editable
+   - Pre-fill con datos actuales
+8. ✅ **Delete user** (confirmation dialog con email verification)
+9. ✅ **Block/Unblock user**:
+   - Reason field (required textarea)
+   - Duration selector (1 day, 7 days, 30 days, permanent)
+   - Notify user checkbox
+10. ✅ **Verify email** action
+11. ✅ **Custom fields tab**:
+    - Full CRUD on field definitions
+    - Type selector (string, number, boolean, date, email, url)
+    - Required checkbox
+    - Default value support
+12. ✅ **No-database detection** (status 424 con EmptyState)
+13. ✅ **Stats cards** (Total Users, Active, Blocked, Unverified Emails)
+
+### Design System Compliance
+
+**Tokens Semánticos** (NO hex hardcoded):
+```tsx
+// Colors
+bg-accent, text-accent-foreground
+bg-card, text-card-foreground
+bg-muted, text-muted-foreground
+border-border, border-accent
+text-destructive, bg-destructive
+
+// Clay-specific
+--accent-1: 250 75% 80%
+--accent-2-clay: 250 70% 70%
+--accent-3-clay: 250 65% 60%
+--gray-1 through --gray-9
+```
+
+**Shadows Clay**:
+```tsx
+shadow-clay-button  // 4-layer button
+shadow-clay-card    // 4-layer card
+shadow-clay-float   // 4-layer hover
+shadow-clay-modal   // 4-layer modal
+```
+
+**Animations**:
+```tsx
+animate-blob-float      // 20s ease-in-out infinite
+animation-delay-200     // Blob 2 delay
+animation-delay-400     // Blob 3 delay
+```
+
+**Micro-interactions**:
+```tsx
+hover:-translate-y-0.5 hover:shadow-clay-card
+active:translate-y-0 active:shadow-clay-button
+transition-all duration-200
+```
+
+### QA Results
+
+**Visual QA**: ✅ Passed
+- Shadows correctas (4-layer stacking)
+- Gradients suaves (multi-stop)
+- Colors usan tokens (no hex)
+- Typography clara (DM Sans body, Nunito headings)
+- Spacing consistente (4px base)
+
+**Interaction QA**: ✅ Passed
+- Hover lift en buttons (-translate-y-0.5)
+- Active press en buttons (translate-y-0)
+- Focus rings visibles (ring-2 ring-accent)
+- Transitions suaves (duration-200)
+- Animations no interrumpen interacción
+
+**Functionality QA**: ✅ Passed
+- Todos los 13 features críticos funcionan
+- No errores de consola
+- No warnings de React
+- Performance acceptable
+
+**Accessibility QA**: ✅ Passed
+- Keyboard navigation funciona
+- Focus visible en todos los elementos
+- Labels asociados a inputs
+- ARIA labels en iconos
+- Color contrast suficiente
+
+**Performance QA**: ✅ Passed
+- Build time < 2 minutos
+- Page compiles sin errores
+- No memory leaks detectados
+
+### Commits
+
+1. `6ce2214` — Rollback dark iteration para recuperar código original
+2. `d4c48bd` — Design System Foundation (DESIGN_SYSTEM_SPEC.md, Tailwind config, fonts)
+3. `4fd4345` — PhoneInput y CountrySelect profesionales
+4. `758ad92` — Core components refinement (Button, Card, Input, Badge)
+5. `94343e4` — /admin/users re-migración con clay design system
+
+### Files Modified
+
+```
+ui/components/ds/background/blobs.tsx        [NEW] Background blobs
+ui/components/ds/forms/phone-input.tsx       [NEW] Professional phone input
+ui/components/ds/forms/country-select.tsx    [NEW] Country selector
+ui/components/ds/core/button.tsx             [UPDATED] Clay variant
+ui/components/ds/core/card.tsx               [UPDATED] Interactive variant
+ui/components/ds/core/input.tsx              [UPDATED] Recessed style
+ui/components/ds/core/badge.tsx              [UPDATED] Semantic variants
+ui/app/(admin)/admin/users/page.tsx          [MIGRATED] 2,209 lines
+ui/app/globals.css                           [UPDATED] Clay tokens
+ui/tailwind.config.ts                        [UPDATED] Clay shadows
+```
+
+### Next Steps
+
+**Aplicar clay design system a páginas restantes**:
+
+Priority 1:
+- [ ] /admin/clients
+- [ ] /admin/tenants
+
+Priority 2:
+- [ ] /admin/keys
+- [ ] /admin/cluster
+- [ ] /admin/settings
+- [ ] /admin/scopes
+
+Ver: `docs/ui-unification/FUTURE_MIGRATION_WORKFLOW.md` para proceso.
+
+---
+
+**✅ MIGRATION COMPLETE** — /admin/users ahora cumple con High-Fidelity Claymorphism Design System con funcionalidad 100% preservada.

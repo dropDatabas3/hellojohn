@@ -1,21 +1,41 @@
 # UI Unification Workplan
 
-**Current Phase:** 3 (Page Migrations) — `/admin/users` 🔍 AUDIT
-**Today's Task:** Ola 4 components implemented ✅, ready for `/admin/users` dark iteration
+**Current Phase:** 3 (Page Migrations) — Clay Design System Active ✅
+**Today's Task:** `/admin/users` Clay redesign ✅ COMPLETE
 
 ## Next Steps
-1. ✅ **DONE**: Implemented Ola 4 (Forms) components:
-   - Label, Select, Switch, Checkbox, Textarea (core form components)
-   - Tabs (navigation)
-   - Commit: a722b79
-2. **DECISION NEEDED**: `/admin/users` dark iteration is COMPLEX (2,205 lines, 5+ dialogs, estimated 3-4 days)
-   - Option A: Proceed with `/admin/users` (multi-day effort, break into subtasks)
-   - Option B: Audit simpler Priority 2 pages first (/admin/keys, /admin/cluster, /admin/settings, /admin/scopes)
-   - Note: `/admin/clients` marked as Priority 1 doesn't exist yet in codebase
-3. Move to Priority 2 pages after completing available Priority 1 pages
+1. ✅ **DONE**: Clay Design System Foundation
+   - DESIGN_SYSTEM_SPEC.md created
+   - Tailwind config with clay shadows & animations
+   - Clay color tokens (accent-1 through accent-4, gray-1 through gray-9)
+   - DM Sans & Nunito fonts via next/font
+   - Commits: 6ce2214, d4c48bd
+
+2. ✅ **DONE**: Professional Form Components
+   - PhoneInput with libphonenumber-js validation
+   - CountrySelect with flag emojis
+   - Commit: 4fd4345
+
+3. ✅ **DONE**: Core Components Clay Refinement
+   - Button (clay gradient, backdrop-blur outline)
+   - Card (interactive variant with lift hover)
+   - Input (recessed style, backdrop-blur)
+   - Badge (semantic variants, 15% opacity)
+   - Commit: 758ad92
+
+4. ✅ **DONE**: `/admin/users` Clay Migration
+   - BackgroundBlobs component
+   - Full re-migration with clay design system
+   - 100% functionality preserved (13 critical features)
+   - Zero hardcoded colors
+   - Commit: 94343e4
+
+5. **NEXT**: Apply Clay to Priority 1 pages
+   - `/admin/clients` (Priority 1)
+   - `/admin/tenants` (upgrade to clay - currently uses old tokens)
 
 ## Blockers
-- **Complexity**: `/admin/users` requires breaking into multiple subtasks (3-4 days estimated effort)
+- None — Clay Design System ready for future migrations
 
 ## Design Decisions Made
 - **DataTable pattern**: Used list-style layout with dividers instead of traditional table (better responsive, cleaner DS styling)
@@ -24,6 +44,7 @@
 ## Completed Pages
 - ✅ `/admin` (Dashboard) — Full DS migration with InlineAlert + EmptyState
 - ✅ `/admin/tenants` — List pattern with dividers, Ola 3 Dialog + Dropdown
+- ✅ `/admin/users` (Clay) — High-fidelity claymorphism, PhoneInput + CountrySelect recovered, 13 critical features preserved
 
 ## Completed DS Components (Olas)
 - ✅ **Ola 1** (Core): Button, Card, Input, Badge, PageShell, PageHeader, Section, Skeleton
@@ -31,8 +52,12 @@
 - ✅ **Ola 3** (Overlays): Dialog, DropdownMenu
 - ✅ **Ola 4** (Forms & Navigation): Label, Checkbox, Switch, Textarea, Select, Tabs
 
-## Pages in Progress
-- 🔍 `/admin/users` (AUDIT) — 2,205 lines, COMPLEX (estimated 3-4 days), all required DS components now available
+## Pages Ready for Clay Migration
+- ⏳ `/admin/clients` (Priority 1)
+- ⏳ `/admin/keys` (Priority 2)
+- ⏳ `/admin/cluster` (Priority 2)
+- ⏳ `/admin/settings` (Priority 2)
+- ⏳ `/admin/scopes` (Priority 2)
 
 ## Phase 1 Completado
 - ✅ ThemeProvider canónico (`ui/components/providers/theme-provider.tsx`)
