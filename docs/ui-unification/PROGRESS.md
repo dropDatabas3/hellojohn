@@ -14,6 +14,7 @@
 | **/admin/settings** | ⏳ | ⏳ | ⏳ PENDING | - | - | Priority 2 |
 | **/admin/scopes** | ⏳ | ⏳ | ⏳ PENDING | - | - | Priority 2 |
 | **/admin/sessions** | ⏳ | ⏳ | ⏳ PENDING | - | - | Priority 3 |
+| **/admin/tenants/sessions** | ✅ | ✅ | ✅ DONE | - | 2026-01-31 | COMPLEX migrated, Table/Tooltip DS created |
 | **/admin/tokens** | ⏳ | ⏳ | ⏳ PENDING | - | - | Priority 3 |
 | **/admin/rbac** | ⏳ | ⏳ | ⏳ PENDING | - | - | Priority 3 |
 | **/admin/consents** | ⏳ | ⏳ | ⏳ PENDING | - | - | Priority 3 |

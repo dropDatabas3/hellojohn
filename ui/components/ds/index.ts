@@ -21,6 +21,7 @@ export * from './core/checkbox'
 export * from './core/switch'
 export * from './core/textarea'
 export * from './core/select'
+export * from './core/table'
 
 // Layout
 export * from './layout/page-shell'
@@ -37,6 +38,7 @@ export * from './feedback/empty-state'
 // Overlays (Ola 3)
 export * from './overlays/dialog'
 export * from './overlays/dropdown-menu'
+export * from './overlays/tooltip'
 
 // Navigation (Ola 4)
 export * from './navigation/tabs'
