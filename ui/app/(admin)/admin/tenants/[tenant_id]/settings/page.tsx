@@ -1261,7 +1261,7 @@ export default function TenantSettingsPage() {
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="sm" asChild>
-              <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+              <Link href={`/admin/tenants/${tenantId}/detail`}>
                 <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>
@@ -1746,7 +1746,7 @@ export default function TenantSettingsPage() {
                   <InlineAlert variant="info">
                       Configura los proveedores sociales en{" "}
                       <Link 
-                        href={`/admin/tenants/providers?id=${tenantId}`}
+                        href={`/admin/tenants/${tenantId}/providers`}
                         className="text-info hover:underline font-medium"
                       >
                         Social Providers →

@@ -343,7 +343,7 @@ export default function RBACPage() {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="sm" asChild>
-            <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+            <Link href={`/admin/tenants/${tenantId}/detail`}>
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>

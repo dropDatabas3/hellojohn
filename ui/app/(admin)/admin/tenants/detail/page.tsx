@@ -200,21 +200,21 @@ export default function TenantDetailPage() {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <QuickLinkCard
-              href={`/admin/tenants/users?id=${tenantId}`}
+              href={`/admin/tenants/${tenantId}/users`}
               icon={Users}
               title="Users"
               description="Manage user accounts and profiles"
               variant="info"
             />
             <QuickLinkCard
-              href={`/admin/tenants/sessions?id=${tenantId}`}
+              href={`/admin/tenants/${tenantId}/sessions`}
               icon={Activity}
               title="Sessions"
               description="View and manage active sessions"
               variant="success"
             />
             <QuickLinkCard
-              href={`/admin/tenants/consents?id=${tenantId}`}
+              href={`/admin/tenants/${tenantId}/consents`}
               icon={FileText}
               title="Consents"
               description="User consent management"
@@ -230,21 +230,21 @@ export default function TenantDetailPage() {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <QuickLinkCard
-              href={`/admin/tenants/rbac?id=${tenantId}`}
+              href={`/admin/tenants/${tenantId}/rbac`}
               icon={Shield}
               title="RBAC & Roles"
               description="Role-based access control"
               variant="info"
             />
             <QuickLinkCard
-              href={`/admin/tenants/scopes?id=${tenantId}`}
+              href={`/admin/tenants/${tenantId}/scopes`}
               icon={Lock}
               title="Scopes"
               description="OAuth2 scope definitions"
               variant="info"
             />
             <QuickLinkCard
-              href={`/admin/tenants/claims?id=${tenantId}`}
+              href={`/admin/tenants/${tenantId}/claims`}
               icon={Fingerprint}
               title="Claims"
               description="Token claims configuration"
@@ -260,21 +260,21 @@ export default function TenantDetailPage() {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <QuickLinkCard
-              href={`/admin/tenants/clients?id=${tenantId}`}
+              href={`/admin/tenants/${tenantId}/clients`}
               icon={Boxes}
               title="Clients"
               description="OAuth2 client applications"
               variant="warning"
             />
             <QuickLinkCard
-              href={`/admin/tenants/tokens?id=${tenantId}`}
+              href={`/admin/tenants/${tenantId}/tokens`}
               icon={Key}
               title="Tokens"
               description="Token policies and active tokens"
               variant="info"
             />
             <QuickLinkCard
-              href={`/admin/tenants/providers?id=${tenantId}`}
+              href={`/admin/tenants/${tenantId}/providers`}
               icon={Globe2}
               title="Social Providers"
               description="External identity providers"
@@ -290,21 +290,21 @@ export default function TenantDetailPage() {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <QuickLinkCard
-              href={`/admin/tenants/settings?id=${tenantId}`}
+              href={`/admin/tenants/${tenantId}/settings`}
               icon={Settings}
               title="Settings"
               description="General tenant configuration"
               variant="default"
             />
             <QuickLinkCard
-              href={`/admin/tenants/mailing?id=${tenantId}`}
+              href={`/admin/tenants/${tenantId}/mailing`}
               icon={Mail}
               title="Mailing"
               description="Email templates and SMTP"
               variant="info"
             />
             <QuickLinkCard
-              href={`/admin/database?id=${tenantId}`}
+              href={`/admin/tenants/${tenantId}/database`}
               icon={Database}
               title="Storage"
               description="Database and data management"

@@ -1,0 +1,2 @@
+ui/app/(admin)/admin/tenants/page.tsx:157:                  onClick={() => router.push(`/admin/tenants/detail?id=${tenant.id}`)}
+ui/app/(admin)/admin/tenants/page.tsx:163:                      router.push(`/admin/tenants/detail?id=${tenant.id}`)

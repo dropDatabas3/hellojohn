@@ -396,7 +396,7 @@ export default function DashboardPage() {
                   {tenants.slice(0, 5).map((tenant) => (
                     <Link
                       key={tenant.id}
-                      href={`/admin/tenants/detail?id=${tenant.id}`}
+                      href={`/admin/tenants/${tenant.id}/detail`}
                       className="flex items-center justify-between p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200 group"
                     >
                       <div className="flex items-center gap-3">

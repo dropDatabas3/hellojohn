@@ -248,7 +248,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     } else {
       const t = tenants?.find((t) => t.slug === val)
       if (t) {
-        router.push(`/admin/tenants/detail?id=${t.id}`)
+        router.push(`/admin/tenants/${t.id}/detail`)
       }
     }
   }
@@ -370,7 +370,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         onOpenChange={setShowCreateWizard}
         onSuccess={(tenant) => {
           // Navegar al nuevo tenant al crearlo exitosamente
-          router.push(`/admin/tenants/detail?id=${tenant.id}`)
+          router.push(`/admin/tenants/${tenant.id}/detail`)
         }}
       />
 
@@ -574,8 +574,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                       Overview
                     </h4>
                     <nav className="space-y-0.5">
-                      <NavItem href={`/admin/tenants/detail?id=${currentTenantId}`} icon={LayoutDashboard} label="Details" />
-                      <NavItem href={`/admin/tenants/settings?id=${currentTenantId}`} icon={Settings} label="Settings" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/detail`} icon={LayoutDashboard} label="Details" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/settings`} icon={Settings} label="Settings" />
                     </nav>
                   </div>
 
@@ -589,11 +589,11 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                       Users & Access
                     </h4>
                     <nav className="space-y-0.5">
-                      <NavItem href={`/admin/tenants/users?id=${currentTenantId}`} icon={Users} label="Users" />
-                      <NavItem href={`/admin/tenants/sessions?id=${currentTenantId}`} icon={Shapes} label="Sessions" />
-                      <NavItem href={`/admin/tenants/rbac?id=${currentTenantId}`} icon={Shield} label="Roles & RBAC" />
-                      <NavItem href={`/admin/tenants/scopes?id=${currentTenantId}`} icon={Lock} label="Scopes" />
-                      <NavItem href={`/admin/tenants/claims?id=${currentTenantId}`} icon={Fingerprint} label="Claims" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/users`} icon={Users} label="Users" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/sessions`} icon={Shapes} label="Sessions" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/rbac`} icon={Shield} label="Roles & RBAC" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/scopes`} icon={Lock} label="Scopes" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/claims`} icon={Fingerprint} label="Claims" />
                     </nav>
                   </div>
 
@@ -607,9 +607,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                       Applications
                     </h4>
                     <nav className="space-y-0.5">
-                      <NavItem href={`/admin/tenants/clients?id=${currentTenantId}`} icon={Boxes} label="Clients" />
-                      <NavItem href={`/admin/tenants/tokens?id=${currentTenantId}`} icon={ListChecks} label="Tokens" />
-                      <NavItem href={`/admin/tenants/consents?id=${currentTenantId}`} icon={FileText} label="Consents" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/clients`} icon={Boxes} label="Clients" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/tokens`} icon={ListChecks} label="Tokens" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/consents`} icon={FileText} label="Consents" />
                     </nav>
                   </div>
 
@@ -623,8 +623,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                       Integrations
                     </h4>
                     <nav className="space-y-0.5">
-                      <NavItem href={`/admin/tenants/providers?id=${currentTenantId}`} icon={Globe2} label="Social Providers" />
-                      <NavItem href={`/admin/tenants/mailing?id=${currentTenantId}`} icon={Mail} label="Mailing" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/providers`} icon={Globe2} label="Social Providers" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/mailing`} icon={Mail} label="Mailing" />
                       <NavItem href={`/admin/database?id=${currentTenantId}`} icon={Database} label="Storage" />
                     </nav>
                   </div>

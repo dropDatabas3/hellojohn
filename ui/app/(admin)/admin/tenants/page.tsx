@@ -154,13 +154,13 @@ export default function TenantsPage() {
                 <div
                   key={tenant.id}
                   className="group p-6 flex items-center justify-between transition-all duration-200 hover:bg-surface cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                  onClick={() => router.push(`/admin/tenants/detail?id=${tenant.id}`)}
+                  onClick={() => router.push(`/admin/tenants/${tenant.id}/detail`)}
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault()
-                      router.push(`/admin/tenants/detail?id=${tenant.id}`)
+                      router.push(`/admin/tenants/${tenant.id}/detail`)
                     }
                   }}
                 >
@@ -207,7 +207,7 @@ export default function TenantsPage() {
                     <DropdownMenuContent align="end" className="w-48">
                       <DropdownMenuItem asChild>
                         <Link
-                          href={`/admin/tenants/settings?id=${tenant.id}`}
+                          href={`/admin/tenants/${tenant.id}/settings`}
                           className="flex w-full cursor-pointer items-center"
                           onClick={(e) => e.stopPropagation()}
                         >

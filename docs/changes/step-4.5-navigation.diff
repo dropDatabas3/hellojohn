@@ -1,0 +1,385 @@
+diff --git a/ui/app/(admin)/admin/admin-shell.tsx b/ui/app/(admin)/admin/admin-shell.tsx
+index 41c4afd..0b51df6 100644
+--- a/ui/app/(admin)/admin/admin-shell.tsx
++++ b/ui/app/(admin)/admin/admin-shell.tsx
+@@ -248,7 +248,7 @@ export default function AdminShell({ children }: { children: React.ReactNode })
+     } else {
+       const t = tenants?.find((t) => t.slug === val)
+       if (t) {
+-        router.push(`/admin/tenants/detail?id=${t.id}`)
++        router.push(`/admin/tenants/${t.id}/detail`)
+       }
+     }
+   }
+@@ -370,7 +370,7 @@ export default function AdminShell({ children }: { children: React.ReactNode })
+         onOpenChange={setShowCreateWizard}
+         onSuccess={(tenant) => {
+           // Navegar al nuevo tenant al crearlo exitosamente
+-          router.push(`/admin/tenants/detail?id=${tenant.id}`)
++          router.push(`/admin/tenants/${tenant.id}/detail`)
+         }}
+       />
+ 
+@@ -574,8 +574,8 @@ export default function AdminShell({ children }: { children: React.ReactNode })
+                       Overview
+                     </h4>
+                     <nav className="space-y-0.5">
+-                      <NavItem href={`/admin/tenants/detail?id=${currentTenantId}`} icon={LayoutDashboard} label="Details" />
+-                      <NavItem href={`/admin/tenants/settings?id=${currentTenantId}`} icon={Settings} label="Settings" />
++                      <NavItem href={`/admin/tenants/${currentTenantId}/detail`} icon={LayoutDashboard} label="Details" />
++                      <NavItem href={`/admin/tenants/${currentTenantId}/settings`} icon={Settings} label="Settings" />
+                     </nav>
+                   </div>
+ 
+@@ -589,11 +589,11 @@ export default function AdminShell({ children }: { children: React.ReactNode })
+                       Users & Access
+                     </h4>
+                     <nav className="space-y-0.5">
+-                      <NavItem href={`/admin/tenants/users?id=${currentTenantId}`} icon={Users} label="Users" />
+-                      <NavItem href={`/admin/tenants/sessions?id=${currentTenantId}`} icon={Shapes} label="Sessions" />
+-                      <NavItem href={`/admin/tenants/rbac?id=${currentTenantId}`} icon={Shield} label="Roles & RBAC" />
+-                      <NavItem href={`/admin/tenants/scopes?id=${currentTenantId}`} icon={Lock} label="Scopes" />
+-                      <NavItem href={`/admin/tenants/claims?id=${currentTenantId}`} icon={Fingerprint} label="Claims" />
++                      <NavItem href={`/admin/tenants/${currentTenantId}/users`} icon={Users} label="Users" />
++                      <NavItem href={`/admin/tenants/${currentTenantId}/sessions`} icon={Shapes} label="Sessions" />
++                      <NavItem href={`/admin/tenants/${currentTenantId}/rbac`} icon={Shield} label="Roles & RBAC" />
++                      <NavItem href={`/admin/tenants/${currentTenantId}/scopes`} icon={Lock} label="Scopes" />
++                      <NavItem href={`/admin/tenants/${currentTenantId}/claims`} icon={Fingerprint} label="Claims" />
+                     </nav>
+                   </div>
+ 
+@@ -607,9 +607,9 @@ export default function AdminShell({ children }: { children: React.ReactNode })
+                       Applications
+                     </h4>
+                     <nav className="space-y-0.5">
+-                      <NavItem href={`/admin/tenants/clients?id=${currentTenantId}`} icon={Boxes} label="Clients" />
+-                      <NavItem href={`/admin/tenants/tokens?id=${currentTenantId}`} icon={ListChecks} label="Tokens" />
+-                      <NavItem href={`/admin/tenants/consents?id=${currentTenantId}`} icon={FileText} label="Consents" />
++                      <NavItem href={`/admin/tenants/${currentTenantId}/clients`} icon={Boxes} label="Clients" />
++                      <NavItem href={`/admin/tenants/${currentTenantId}/tokens`} icon={ListChecks} label="Tokens" />
++                      <NavItem href={`/admin/tenants/${currentTenantId}/consents`} icon={FileText} label="Consents" />
+                     </nav>
+                   </div>
+ 
+@@ -623,8 +623,8 @@ export default function AdminShell({ children }: { children: React.ReactNode })
+                       Integrations
+                     </h4>
+                     <nav className="space-y-0.5">
+-                      <NavItem href={`/admin/tenants/providers?id=${currentTenantId}`} icon={Globe2} label="Social Providers" />
+-                      <NavItem href={`/admin/tenants/mailing?id=${currentTenantId}`} icon={Mail} label="Mailing" />
++                      <NavItem href={`/admin/tenants/${currentTenantId}/providers`} icon={Globe2} label="Social Providers" />
++                      <NavItem href={`/admin/tenants/${currentTenantId}/mailing`} icon={Mail} label="Mailing" />
+                       <NavItem href={`/admin/database?id=${currentTenantId}`} icon={Database} label="Storage" />
+                     </nav>
+                   </div>
+diff --git a/ui/app/(admin)/admin/page.tsx b/ui/app/(admin)/admin/page.tsx
+index c8fcf78..de503f2 100644
+--- a/ui/app/(admin)/admin/page.tsx
++++ b/ui/app/(admin)/admin/page.tsx
+@@ -396,7 +396,7 @@ export default function DashboardPage() {
+                   {tenants.slice(0, 5).map((tenant) => (
+                     <Link
+                       key={tenant.id}
+-                      href={`/admin/tenants/detail?id=${tenant.id}`}
++                      href={`/admin/tenants/${tenant.id}/detail`}
+                       className="flex items-center justify-between p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200 group"
+                     >
+                       <div className="flex items-center gap-3">
+diff --git a/ui/app/(admin)/admin/tenants/[tenant_id]/claims/page.tsx b/ui/app/(admin)/admin/tenants/[tenant_id]/claims/page.tsx
+index 9b8c6bb..6022510 100644
+--- a/ui/app/(admin)/admin/tenants/[tenant_id]/claims/page.tsx
++++ b/ui/app/(admin)/admin/tenants/[tenant_id]/claims/page.tsx
+@@ -792,7 +792,7 @@ export default function ClaimsClientPage() {
+             <div className="flex items-center justify-between mb-6">
+                 <div className="flex items-center gap-4">
+                     <Button variant="ghost" size="sm" asChild>
+-                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
++                        <Link href={`/admin/tenants/${tenantId}/detail`}>
+                             <ArrowLeft className="h-4 w-4" />
+                         </Link>
+                     </Button>
+diff --git a/ui/app/(admin)/admin/tenants/[tenant_id]/clients/page.tsx b/ui/app/(admin)/admin/tenants/[tenant_id]/clients/page.tsx
+index 900f383..405bb4b 100644
+--- a/ui/app/(admin)/admin/tenants/[tenant_id]/clients/page.tsx
++++ b/ui/app/(admin)/admin/tenants/[tenant_id]/clients/page.tsx
+@@ -614,7 +614,7 @@ export default function ClientsClientPage() {
+             <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-4">
+                     <Button variant="ghost" size="sm" asChild>
+-                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
++                        <Link href={`/admin/tenants/${tenantId}/detail`}>
+                             <ArrowLeft className="h-4 w-4" />
+                         </Link>
+                     </Button>
+diff --git a/ui/app/(admin)/admin/tenants/[tenant_id]/consents/page.tsx b/ui/app/(admin)/admin/tenants/[tenant_id]/consents/page.tsx
+index 5ebf6ff..0565a80 100644
+--- a/ui/app/(admin)/admin/tenants/[tenant_id]/consents/page.tsx
++++ b/ui/app/(admin)/admin/tenants/[tenant_id]/consents/page.tsx
+@@ -531,7 +531,7 @@ function ConsentsContent() {
+         <div className="flex items-center justify-between">
+           <div className="flex items-center gap-4">
+             <Button variant="ghost" size="sm" asChild>
+-              <Link href={`/admin/tenants/detail?id=${tenantId}`}>
++              <Link href={`/admin/tenants/${tenantId}/detail`}>
+                 <ArrowLeft className="h-4 w-4" />
+               </Link>
+             </Button>
+diff --git a/ui/app/(admin)/admin/tenants/[tenant_id]/mailing/page.tsx b/ui/app/(admin)/admin/tenants/[tenant_id]/mailing/page.tsx
+index 9656b0c..99b619e 100644
+--- a/ui/app/(admin)/admin/tenants/[tenant_id]/mailing/page.tsx
++++ b/ui/app/(admin)/admin/tenants/[tenant_id]/mailing/page.tsx
+@@ -301,7 +301,7 @@ export default function MailingPage() {
+             <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-4">
+                     <Button variant="ghost" size="sm" asChild>
+-                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
++                        <Link href={`/admin/tenants/${tenantId}/detail`}>
+                             <ArrowLeft className="h-4 w-4" />
+                         </Link>
+                     </Button>
+diff --git a/ui/app/(admin)/admin/tenants/[tenant_id]/providers/page.tsx b/ui/app/(admin)/admin/tenants/[tenant_id]/providers/page.tsx
+index 41e75ac..677932f 100644
+--- a/ui/app/(admin)/admin/tenants/[tenant_id]/providers/page.tsx
++++ b/ui/app/(admin)/admin/tenants/[tenant_id]/providers/page.tsx
+@@ -560,7 +560,7 @@ function SocialProvidersContent() {
+         <div className="flex items-center justify-between">
+           <div className="flex items-center gap-4">
+             <Button variant="ghost" size="sm" asChild>
+-              <Link href={`/admin/tenants/detail?id=${tenantId}`}>
++              <Link href={`/admin/tenants/${tenantId}/detail`}>
+                 <ArrowLeft className="h-4 w-4" />
+               </Link>
+             </Button>
+diff --git a/ui/app/(admin)/admin/tenants/[tenant_id]/rbac/page.tsx b/ui/app/(admin)/admin/tenants/[tenant_id]/rbac/page.tsx
+index 8c94638..e5aebbe 100644
+--- a/ui/app/(admin)/admin/tenants/[tenant_id]/rbac/page.tsx
++++ b/ui/app/(admin)/admin/tenants/[tenant_id]/rbac/page.tsx
+@@ -343,7 +343,7 @@ export default function RBACPage() {
+       <div className="flex items-center justify-between mb-6">
+         <div className="flex items-center gap-4">
+           <Button variant="ghost" size="sm" asChild>
+-            <Link href={`/admin/tenants/detail?id=${tenantId}`}>
++            <Link href={`/admin/tenants/${tenantId}/detail`}>
+               <ArrowLeft className="h-4 w-4" />
+             </Link>
+           </Button>
+diff --git a/ui/app/(admin)/admin/tenants/[tenant_id]/scopes/page.tsx b/ui/app/(admin)/admin/tenants/[tenant_id]/scopes/page.tsx
+index 5d7c89e..1e86bd7 100644
+--- a/ui/app/(admin)/admin/tenants/[tenant_id]/scopes/page.tsx
++++ b/ui/app/(admin)/admin/tenants/[tenant_id]/scopes/page.tsx
+@@ -653,7 +653,7 @@ export default function ScopesClientPage() {
+             <div className="flex items-center justify-between mb-6">
+                 <div className="flex items-center gap-4">
+                     <Button variant="ghost" size="sm" asChild>
+-                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
++                        <Link href={`/admin/tenants/${tenantId}/detail`}>
+                             <ArrowLeft className="h-4 w-4" />
+                         </Link>
+                     </Button>
+diff --git a/ui/app/(admin)/admin/tenants/[tenant_id]/sessions/page.tsx b/ui/app/(admin)/admin/tenants/[tenant_id]/sessions/page.tsx
+index e947c70..456f75e 100644
+--- a/ui/app/(admin)/admin/tenants/[tenant_id]/sessions/page.tsx
++++ b/ui/app/(admin)/admin/tenants/[tenant_id]/sessions/page.tsx
+@@ -588,7 +588,7 @@ function SessionsContent() {
+             <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-4">
+                     <Button variant="ghost" size="sm" asChild>
+-                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
++                        <Link href={`/admin/tenants/${tenantId}/detail`}>
+                             <ArrowLeft className="h-4 w-4" />
+                         </Link>
+                     </Button>
+diff --git a/ui/app/(admin)/admin/tenants/[tenant_id]/settings/page.tsx b/ui/app/(admin)/admin/tenants/[tenant_id]/settings/page.tsx
+index e906d99..7ff9d44 100644
+--- a/ui/app/(admin)/admin/tenants/[tenant_id]/settings/page.tsx
++++ b/ui/app/(admin)/admin/tenants/[tenant_id]/settings/page.tsx
+@@ -1261,7 +1261,7 @@ export default function TenantSettingsPage() {
+         <div className="flex items-start justify-between">
+           <div className="flex items-center gap-4">
+             <Button variant="ghost" size="sm" asChild>
+-              <Link href={`/admin/tenants/detail?id=${tenantId}`}>
++              <Link href={`/admin/tenants/${tenantId}/detail`}>
+                 <ArrowLeft className="h-4 w-4" />
+               </Link>
+             </Button>
+@@ -1746,7 +1746,7 @@ export default function TenantSettingsPage() {
+                   <InlineAlert variant="info">
+                       Configura los proveedores sociales en{" "}
+                       <Link 
+-                        href={`/admin/tenants/providers?id=${tenantId}`}
++                        href={`/admin/tenants/${tenantId}/providers`}
+                         className="text-info hover:underline font-medium"
+                       >
+                         Social Providers →
+diff --git a/ui/app/(admin)/admin/tenants/[tenant_id]/tokens/page.tsx b/ui/app/(admin)/admin/tenants/[tenant_id]/tokens/page.tsx
+index 2e1b884..12db4f3 100644
+--- a/ui/app/(admin)/admin/tenants/[tenant_id]/tokens/page.tsx
++++ b/ui/app/(admin)/admin/tenants/[tenant_id]/tokens/page.tsx
+@@ -436,7 +436,7 @@ export default function TokensClientPage() {
+             <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-4">
+                     <Button variant="ghost" size="sm" asChild>
+-                        <Link href={`/admin/tenants/detail?id=${selectedTenantId}`}>
++                        <Link href={`/admin/tenants/${selectedTenantId}/detail`}>
+                             <ArrowLeft className="h-4 w-4" />
+                         </Link>
+                     </Button>
+diff --git a/ui/app/(admin)/admin/tenants/[tenant_id]/users/page.tsx b/ui/app/(admin)/admin/tenants/[tenant_id]/users/page.tsx
+index 39ddfd4..fe3da83 100644
+--- a/ui/app/(admin)/admin/tenants/[tenant_id]/users/page.tsx
++++ b/ui/app/(admin)/admin/tenants/[tenant_id]/users/page.tsx
+@@ -261,7 +261,7 @@ export default function UsersPage() {
+             <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-4">
+                     <Button variant="ghost" size="sm" asChild>
+-                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
++                        <Link href={`/admin/tenants/${tenantId}/detail`}>
+                             <ArrowLeft className="h-4 w-4" />
+                         </Link>
+                     </Button>
+diff --git a/ui/app/(admin)/admin/tenants/detail/page.tsx b/ui/app/(admin)/admin/tenants/detail/page.tsx
+index a1961d1..893aa19 100644
+--- a/ui/app/(admin)/admin/tenants/detail/page.tsx
++++ b/ui/app/(admin)/admin/tenants/detail/page.tsx
+@@ -200,21 +200,21 @@ export default function TenantDetailPage() {
+           </h3>
+           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+             <QuickLinkCard
+-              href={`/admin/tenants/users?id=${tenantId}`}
++              href={`/admin/tenants/${tenantId}/users`}
+               icon={Users}
+               title="Users"
+               description="Manage user accounts and profiles"
+               variant="info"
+             />
+             <QuickLinkCard
+-              href={`/admin/tenants/sessions?id=${tenantId}`}
++              href={`/admin/tenants/${tenantId}/sessions`}
+               icon={Activity}
+               title="Sessions"
+               description="View and manage active sessions"
+               variant="success"
+             />
+             <QuickLinkCard
+-              href={`/admin/tenants/consents?id=${tenantId}`}
++              href={`/admin/tenants/${tenantId}/consents`}
+               icon={FileText}
+               title="Consents"
+               description="User consent management"
+@@ -230,21 +230,21 @@ export default function TenantDetailPage() {
+           </h3>
+           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+             <QuickLinkCard
+-              href={`/admin/tenants/rbac?id=${tenantId}`}
++              href={`/admin/tenants/${tenantId}/rbac`}
+               icon={Shield}
+               title="RBAC & Roles"
+               description="Role-based access control"
+               variant="info"
+             />
+             <QuickLinkCard
+-              href={`/admin/tenants/scopes?id=${tenantId}`}
++              href={`/admin/tenants/${tenantId}/scopes`}
+               icon={Lock}
+               title="Scopes"
+               description="OAuth2 scope definitions"
+               variant="info"
+             />
+             <QuickLinkCard
+-              href={`/admin/tenants/claims?id=${tenantId}`}
++              href={`/admin/tenants/${tenantId}/claims`}
+               icon={Fingerprint}
+               title="Claims"
+               description="Token claims configuration"
+@@ -260,21 +260,21 @@ export default function TenantDetailPage() {
+           </h3>
+           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+             <QuickLinkCard
+-              href={`/admin/tenants/clients?id=${tenantId}`}
++              href={`/admin/tenants/${tenantId}/clients`}
+               icon={Boxes}
+               title="Clients"
+               description="OAuth2 client applications"
+               variant="warning"
+             />
+             <QuickLinkCard
+-              href={`/admin/tenants/tokens?id=${tenantId}`}
++              href={`/admin/tenants/${tenantId}/tokens`}
+               icon={Key}
+               title="Tokens"
+               description="Token policies and active tokens"
+               variant="info"
+             />
+             <QuickLinkCard
+-              href={`/admin/tenants/providers?id=${tenantId}`}
++              href={`/admin/tenants/${tenantId}/providers`}
+               icon={Globe2}
+               title="Social Providers"
+               description="External identity providers"
+@@ -290,21 +290,21 @@ export default function TenantDetailPage() {
+           </h3>
+           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+             <QuickLinkCard
+-              href={`/admin/tenants/settings?id=${tenantId}`}
++              href={`/admin/tenants/${tenantId}/settings`}
+               icon={Settings}
+               title="Settings"
+               description="General tenant configuration"
+               variant="default"
+             />
+             <QuickLinkCard
+-              href={`/admin/tenants/mailing?id=${tenantId}`}
++              href={`/admin/tenants/${tenantId}/mailing`}
+               icon={Mail}
+               title="Mailing"
+               description="Email templates and SMTP"
+               variant="info"
+             />
+             <QuickLinkCard
+-              href={`/admin/database?id=${tenantId}`}
++              href={`/admin/tenants/${tenantId}/database`}
+               icon={Database}
+               title="Storage"
+               description="Database and data management"
+diff --git a/ui/app/(admin)/admin/tenants/page.tsx b/ui/app/(admin)/admin/tenants/page.tsx
+index 0b84783..0139c1a 100644
+--- a/ui/app/(admin)/admin/tenants/page.tsx
++++ b/ui/app/(admin)/admin/tenants/page.tsx
+@@ -154,13 +154,13 @@ export default function TenantsPage() {
+                 <div
+                   key={tenant.id}
+                   className="group p-6 flex items-center justify-between transition-all duration-200 hover:bg-surface cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+-                  onClick={() => router.push(`/admin/tenants/detail?id=${tenant.id}`)}
++                  onClick={() => router.push(`/admin/tenants/${tenant.id}/detail`)}
+                   role="button"
+                   tabIndex={0}
+                   onKeyDown={(e) => {
+                     if (e.key === "Enter" || e.key === " ") {
+                       e.preventDefault()
+-                      router.push(`/admin/tenants/detail?id=${tenant.id}`)
++                      router.push(`/admin/tenants/${tenant.id}/detail`)
+                     }
+                   }}
+                 >
+@@ -207,7 +207,7 @@ export default function TenantsPage() {
+                     <DropdownMenuContent align="end" className="w-48">
+                       <DropdownMenuItem asChild>
+                         <Link
+-                          href={`/admin/tenants/settings?id=${tenant.id}`}
++                          href={`/admin/tenants/${tenant.id}/settings`}
+                           className="flex w-full cursor-pointer items-center"
+                           onClick={(e) => e.stopPropagation()}
+                         >
+diff --git a/ui/app/(admin)/admin/users/page.tsx b/ui/app/(admin)/admin/users/page.tsx
+index 5a63d7b..1a52963 100644
+--- a/ui/app/(admin)/admin/users/page.tsx
++++ b/ui/app/(admin)/admin/users/page.tsx
+@@ -263,7 +263,7 @@ export default function UsersPage() {
+             <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-4">
+                     <Button variant="ghost" size="sm" asChild>
+-                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
++                        <Link href={`/admin/tenants/${tenantId}/detail`}>
+                             <ArrowLeft className="h-4 w-4" />
+                         </Link>
+                     </Button>
