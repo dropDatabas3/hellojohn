@@ -11,6 +11,7 @@ type Role struct {
 	TenantID     string
 	Name         string
 	Description  string
+	Permissions  []string
 	InheritsFrom *string
 	System       bool
 	CreatedAt    time.Time

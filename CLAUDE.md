@@ -473,7 +473,66 @@ settings:
 
 ---
 
-## 7. DATA ACCESS LAYER (DAL)
+## 7. SCHEMA REFERENCE
+
+### RBAC Tables (IMPORTANTE)
+
+**CRITICAL: Estas son las tablas reales en tenant databases. NO usar nombres antiguos.**
+
+#### `rbac_role` - Definición de Roles
+```sql
+CREATE TABLE rbac_role (
+  id UUID DEFAULT gen_random_uuid(),
+  name TEXT PRIMARY KEY,
+  description TEXT,
+  permissions TEXT[] NOT NULL DEFAULT '{}',  -- Array de permisos
+  inherits_from TEXT,
+  system BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+**Campos clave:**
+- `permissions`: Array de strings con permisos (e.g., `['users:read', 'users:write']`)
+- `system`: Roles de sistema no se pueden eliminar
+- NO hay tabla `role_permission` separada - los permisos están en la columna array
+
+#### `rbac_user_role` - Asignación Usuario-Rol
+```sql
+CREATE TABLE rbac_user_role (
+  user_id UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+  role_name TEXT NOT NULL REFERENCES rbac_role(name) ON DELETE CASCADE,
+  assigned_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, role_name)
+);
+```
+
+**IMPORTANTE - Convenciones de Queries:**
+- **NO usar `tenant_id` en queries RBAC** - El aislamiento viene por pool de conexión (cada tenant = DB separada)
+- **Permisos via UNNEST:** `SELECT perm FROM rbac_role CROSS JOIN UNNEST(permissions) AS perm`
+- **Agregar permiso:** `UPDATE rbac_role SET permissions = array_append(permissions, $1) WHERE ...`
+- **Eliminar permiso:** `UPDATE rbac_role SET permissions = array_remove(permissions, $1) WHERE ...`
+
+#### Ejemplo de Query Correcto
+```go
+// ✅ CORRECTO - Sin tenant_id, usando UNNEST
+const query = `
+    SELECT DISTINCT perm
+    FROM rbac_user_role ur
+    JOIN rbac_role r ON r.name = ur.role_name
+    CROSS JOIN UNNEST(r.permissions) AS perm
+    WHERE ur.user_id = $1
+`
+
+// ❌ INCORRECTO - NO usar estas tablas/columnas
+FROM role WHERE tenant_id = $1                  -- tabla 'role' no existe
+FROM role_permission WHERE tenant_id = $1       -- tabla 'role_permission' no existe
+```
+
+---
+
+## 8. DATA ACCESS LAYER (DAL)
 
 ### 4 Modos Operacionales
 
