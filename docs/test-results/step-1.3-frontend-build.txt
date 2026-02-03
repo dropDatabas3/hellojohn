@@ -1,0 +1,20 @@
+
+
+Import traces:
+  Client Component Browser:
+    ./app/(admin)/admin/metrics/page.tsx [Client Component Browser]
+    ./app/(admin)/admin/metrics/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/(admin)/admin/metrics/page.tsx [Client Component SSR]
+    ./app/(admin)/admin/metrics/page.tsx [Server Component]
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+    at <unknown> (./app/(admin)/admin/metrics/page.tsx:5:1)
+    at <unknown> (https://nextjs.org/docs/messages/module-not-found)
+    at <unknown> (./app/(admin)/admin/metrics/page.tsx:6:1)
+    at <unknown> (https://nextjs.org/docs/messages/module-not-found)
+    at <unknown> (./app/(admin)/admin/metrics/page.tsx:4:1)
+    at <unknown> (https://nextjs.org/docs/messages/module-not-found)
