@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { useParams, useSearchParams } from "next/navigation"
+import { useParams } from "next/navigation"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
@@ -406,8 +406,7 @@ function DistributionBar({ items, total }: { items: { label: string; count: numb
 // ----- Main Component -----
 export default function TokensClientPage() {
     const params = useParams()
-    const searchParams = useSearchParams()
-    const tenantIdParam = (params.id as string) || searchParams.get("id") || ""
+    const tenantIdParam = params.tenant_id as string
     const { t } = useI18n()
     const { token: authToken } = useAuthStore()
     const { toast } = useToast()

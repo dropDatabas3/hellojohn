@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import { useParams, useSearchParams } from "next/navigation"
+import { useParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
     Key, Tag, Code2, Settings2, Eye, Plus, Trash2, Edit2,
@@ -564,11 +564,10 @@ function ClaimEditorDialog({
 
 export default function ClaimsClientPage() {
     const params = useParams()
-    const searchParams = useSearchParams()
     const { t } = useI18n()
     const { toast } = useToast()
     const queryClient = useQueryClient()
-    const tenantId = (params.id as string) || (searchParams.get("id") as string)
+    const tenantId = params.tenant_id as string
 
     // UI State
     const [activeTab, setActiveTab] = useState("standard")

@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { useParams, useSearchParams, useRouter } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { useToast } from "@/hooks/use-toast"
@@ -412,11 +412,10 @@ function ScopeCard({
 
 export default function ScopesClientPage() {
     const params = useParams()
-    const searchParams = useSearchParams()
     const { t } = useI18n()
     const { toast } = useToast()
     const queryClient = useQueryClient()
-    const tenantId = (params.id as string) || (searchParams.get("id") as string)
+    const tenantId = params.tenant_id as string
 
     // UI State
     const [search, setSearch] = useState("")

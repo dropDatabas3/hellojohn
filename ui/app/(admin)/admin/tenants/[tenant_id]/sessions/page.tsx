@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo, Suspense } from "react"
-import { useParams, useSearchParams } from "next/navigation"
+import { useParams } from "next/navigation"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
@@ -430,8 +430,7 @@ function SessionsSkeleton() {
 
 function SessionsContent() {
     const params = useParams()
-    const searchParams = useSearchParams()
-    const tenantId = (params.id as string) || (searchParams.get("id") as string)
+    const tenantId = params.tenant_id as string
     const { toast } = useToast()
     const queryClient = useQueryClient()
 

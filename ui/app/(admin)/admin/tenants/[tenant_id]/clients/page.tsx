@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { useParams, useSearchParams } from "next/navigation"
+import { useParams } from "next/navigation"
 import {
     Plus,
     Search,
@@ -323,11 +323,10 @@ function StatCard({ icon: Icon, label, value, variant = "default", isLoading = f
 
 export default function ClientsClientPage() {
     const params = useParams()
-    const searchParams = useSearchParams()
     const { t } = useI18n()
     const { toast } = useToast()
     const queryClient = useQueryClient()
-    const tenantId = (params.id as string) || (searchParams.get("id") as string)
+    const tenantId = params.tenant_id as string
 
     // UI State
     const [search, setSearch] = useState("")

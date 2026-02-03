@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, Fragment } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
@@ -283,9 +283,9 @@ function StatCard({
 
 // ----- Main Component -----
 export default function RBACPage() {
-  const searchParams = useSearchParams()
+  const params = useParams()
   const router = useRouter()
-  const tenantId = searchParams.get("id")
+  const tenantId = params.tenant_id as string
   const { t } = useI18n()
   const { token } = useAuthStore()
   const { toast } = useToast()

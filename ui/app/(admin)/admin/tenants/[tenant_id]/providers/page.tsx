@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo, useCallback, Suspense } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   Globe, CheckCircle2, XCircle, AlertCircle, ExternalLink, Settings2,
@@ -334,14 +334,14 @@ function getStatusColor(status: string) {
 // ─── Main Component ───
 
 function SocialProvidersContent() {
-  const searchParams = useSearchParams()
+  const params = useParams()
   const router = useRouter()
   const { t } = useI18n()
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
-  // State - use query param like all other pages
-  const tenantId = searchParams.get("id") || ""
+  // State - use dynamic route param
+  const tenantId = params.tenant_id as string
   const [currentTab, setCurrentTab] = useState("providers")
   const [configureDialog, setConfigureDialog] = useState<ProviderConfig | null>(null)
   const [testDialog, setTestDialog] = useState<ProviderConfig | null>(null)

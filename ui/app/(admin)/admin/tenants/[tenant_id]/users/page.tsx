@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback } from "react"
-import { useSearchParams, useParams, useRouter } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
     Card,
@@ -236,10 +236,8 @@ function StatCard({ icon: Icon, label, value, variant = "default", isLoading = f
 
 // ----- Main Component -----
 export default function UsersPage() {
-    const searchParams = useSearchParams()
-    const tenantIdParam = searchParams.get("id")
     const params = useParams()
-    const tenantId = tenantIdParam || (params?.id as string)
+    const tenantId = params.tenant_id as string
 
     const { t } = useI18n()
     const [activeTab, setActiveTab] = useState("list")
