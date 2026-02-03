@@ -69,30 +69,30 @@ func RegisterAdminRoutes(mux *http.ServeMux, deps AdminRouterDeps) {
 	// User CRUD (Data Plane - requiere DB)
 	// Note: No trailing slash to avoid conflict with tenant routes
 	userHandler := adminUserCRUDHandler(dal, issuer, limiter, c.UsersCRUD, true)
-	mux.Handle("POST /v2/admin/tenants/{id}/users", userHandler)
-	mux.Handle("GET /v2/admin/tenants/{id}/users", userHandler)
-	mux.Handle("GET /v2/admin/tenants/{id}/users/{userId}", userHandler)
-	mux.Handle("PUT /v2/admin/tenants/{id}/users/{userId}", userHandler)
-	mux.Handle("DELETE /v2/admin/tenants/{id}/users/{userId}", userHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/users", userHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/users", userHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/users/{userId}", userHandler)
+	mux.Handle("PUT /v2/admin/tenants/{tenant_id}/users/{userId}", userHandler)
+	mux.Handle("DELETE /v2/admin/tenants/{tenant_id}/users/{userId}", userHandler)
 
 	// Token Management (Data Plane - requiere DB)
 	tokenHandler := adminTokensHandler(dal, issuer, limiter, c.Tokens, true)
-	mux.Handle("GET /v2/admin/tenants/{id}/tokens", tokenHandler)
-	mux.Handle("GET /v2/admin/tenants/{id}/tokens/stats", tokenHandler)
-	mux.Handle("GET /v2/admin/tenants/{id}/tokens/{tokenId}", tokenHandler)
-	mux.Handle("DELETE /v2/admin/tenants/{id}/tokens/{tokenId}", tokenHandler)
-	mux.Handle("POST /v2/admin/tenants/{id}/tokens/revoke-by-user", tokenHandler)
-	mux.Handle("POST /v2/admin/tenants/{id}/tokens/revoke-by-client", tokenHandler)
-	mux.Handle("POST /v2/admin/tenants/{id}/tokens/revoke-all", tokenHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/tokens", tokenHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/tokens/stats", tokenHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/tokens/{tokenId}", tokenHandler)
+	mux.Handle("DELETE /v2/admin/tenants/{tenant_id}/tokens/{tokenId}", tokenHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/tokens/revoke-by-user", tokenHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/tokens/revoke-by-client", tokenHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/tokens/revoke-all", tokenHandler)
 
 	// Session Management (Data Plane - requiere DB)
 	sessionHandler := adminSessionsHandler(dal, issuer, limiter, c.Sessions, true)
-	mux.Handle("GET /v2/admin/tenants/{id}/sessions", sessionHandler)
-	mux.Handle("GET /v2/admin/tenants/{id}/sessions/stats", sessionHandler)
-	mux.Handle("GET /v2/admin/tenants/{id}/sessions/{sessionId}", sessionHandler)
-	mux.Handle("POST /v2/admin/tenants/{id}/sessions/{sessionId}/revoke", sessionHandler)
-	mux.Handle("POST /v2/admin/tenants/{id}/sessions/revoke-by-user", sessionHandler)
-	mux.Handle("POST /v2/admin/tenants/{id}/sessions/revoke-all", sessionHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/sessions", sessionHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/sessions/stats", sessionHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/sessions/{sessionId}", sessionHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/sessions/{sessionId}/revoke", sessionHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/sessions/revoke-by-user", sessionHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/sessions/revoke-all", sessionHandler)
 }
 
 // ─── Helpers para crear handlers con middleware chain ───
@@ -412,7 +412,7 @@ func adminUserCRUDHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 		path := r.URL.Path
 
 		switch {
-		// POST /v2/admin/tenants/{id}/users/{userId}/disable
+		// POST /v2/admin/tenants/{tenant_id}/users/{userId}/disable
 		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/disable"):
 			if r.Method != http.MethodPost {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
@@ -420,7 +420,7 @@ func adminUserCRUDHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 			}
 			c.DisableUser(w, r)
 
-		// POST /v2/admin/tenants/{id}/users/{userId}/enable
+		// POST /v2/admin/tenants/{tenant_id}/users/{userId}/enable
 		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/enable"):
 			if r.Method != http.MethodPost {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
@@ -428,7 +428,7 @@ func adminUserCRUDHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 			}
 			c.EnableUser(w, r)
 
-		// POST /v2/admin/tenants/{id}/users/{userId}/set-email-verified
+		// POST /v2/admin/tenants/{tenant_id}/users/{userId}/set-email-verified
 		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/set-email-verified"):
 			if r.Method != http.MethodPost {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
@@ -436,7 +436,7 @@ func adminUserCRUDHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 			}
 			c.SetEmailVerified(w, r)
 
-		// POST /v2/admin/tenants/{id}/users/{userId}/set-password
+		// POST /v2/admin/tenants/{tenant_id}/users/{userId}/set-password
 		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/set-password"):
 			if r.Method != http.MethodPost {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
@@ -444,7 +444,7 @@ func adminUserCRUDHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 			}
 			c.SetPassword(w, r)
 
-		// POST/GET /v2/admin/tenants/{id}/users - Create user or List users
+		// POST/GET /v2/admin/tenants/{tenant_id}/users - Create user or List users
 		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/users"):
 			if r.Method == http.MethodPost {
 				c.CreateUser(w, r)
@@ -454,7 +454,7 @@ func adminUserCRUDHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET/PUT/DELETE /v2/admin/tenants/{id}/users/{userId}
+		// GET/PUT/DELETE /v2/admin/tenants/{tenant_id}/users/{userId}
 		case strings.Contains(path, "/tenants/") && strings.Contains(path, "/users/"):
 			switch r.Method {
 			case http.MethodGet:
@@ -483,7 +483,7 @@ func adminTokensHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 		path := r.URL.Path
 
 		switch {
-		// GET /v2/admin/tenants/{id}/tokens/stats
+		// GET /v2/admin/tenants/{tenant_id}/tokens/stats
 		case strings.Contains(path, "/tokens/stats"):
 			if r.Method == http.MethodGet {
 				c.GetStats(w, r)
@@ -491,7 +491,7 @@ func adminTokensHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// POST /v2/admin/tenants/{id}/tokens/revoke-by-user
+		// POST /v2/admin/tenants/{tenant_id}/tokens/revoke-by-user
 		case strings.Contains(path, "/tokens/revoke-by-user"):
 			if r.Method == http.MethodPost {
 				c.RevokeByUser(w, r)
@@ -499,7 +499,7 @@ func adminTokensHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// POST /v2/admin/tenants/{id}/tokens/revoke-by-client
+		// POST /v2/admin/tenants/{tenant_id}/tokens/revoke-by-client
 		case strings.Contains(path, "/tokens/revoke-by-client"):
 			if r.Method == http.MethodPost {
 				c.RevokeByClient(w, r)
@@ -507,7 +507,7 @@ func adminTokensHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// POST /v2/admin/tenants/{id}/tokens/revoke-all
+		// POST /v2/admin/tenants/{tenant_id}/tokens/revoke-all
 		case strings.Contains(path, "/tokens/revoke-all"):
 			if r.Method == http.MethodPost {
 				c.RevokeAll(w, r)
@@ -515,7 +515,7 @@ func adminTokensHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET/DELETE /v2/admin/tenants/{id}/tokens/{tokenId}
+		// GET/DELETE /v2/admin/tenants/{tenant_id}/tokens/{tokenId}
 		case strings.Contains(path, "/tokens/") && !strings.HasSuffix(path, "/tokens") && !strings.HasSuffix(path, "/tokens/"):
 			switch r.Method {
 			case http.MethodGet:
@@ -526,7 +526,7 @@ func adminTokensHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET /v2/admin/tenants/{id}/tokens
+		// GET /v2/admin/tenants/{tenant_id}/tokens
 		case strings.HasSuffix(path, "/tokens") || strings.HasSuffix(path, "/tokens/"):
 			if r.Method == http.MethodGet {
 				c.List(w, r)
@@ -549,7 +549,7 @@ func adminSessionsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 		path := r.URL.Path
 
 		switch {
-		// GET /v2/admin/tenants/{id}/sessions/stats
+		// GET /v2/admin/tenants/{tenant_id}/sessions/stats
 		case strings.Contains(path, "/sessions/stats"):
 			if r.Method == http.MethodGet {
 				c.GetStats(w, r)
@@ -557,7 +557,7 @@ func adminSessionsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// POST /v2/admin/tenants/{id}/sessions/revoke-by-user
+		// POST /v2/admin/tenants/{tenant_id}/sessions/revoke-by-user
 		case strings.Contains(path, "/sessions/revoke-by-user"):
 			if r.Method == http.MethodPost {
 				c.RevokeUserSessions(w, r)
@@ -565,7 +565,7 @@ func adminSessionsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// POST /v2/admin/tenants/{id}/sessions/revoke-all
+		// POST /v2/admin/tenants/{tenant_id}/sessions/revoke-all
 		case strings.Contains(path, "/sessions/revoke-all"):
 			if r.Method == http.MethodPost {
 				c.RevokeAllSessions(w, r)
@@ -573,7 +573,7 @@ func adminSessionsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// POST /v2/admin/tenants/{id}/sessions/{sessionId}/revoke
+		// POST /v2/admin/tenants/{tenant_id}/sessions/{sessionId}/revoke
 		case strings.Contains(path, "/revoke") && strings.Contains(path, "/sessions/"):
 			if r.Method == http.MethodPost {
 				c.RevokeSession(w, r)
@@ -581,7 +581,7 @@ func adminSessionsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET /v2/admin/tenants/{id}/sessions/{sessionId}
+		// GET /v2/admin/tenants/{tenant_id}/sessions/{sessionId}
 		case strings.Contains(path, "/sessions/") && !strings.HasSuffix(path, "/sessions") && !strings.HasSuffix(path, "/sessions/"):
 			if r.Method == http.MethodGet {
 				c.GetSession(w, r)
@@ -589,7 +589,7 @@ func adminSessionsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET /v2/admin/tenants/{id}/sessions
+		// GET /v2/admin/tenants/{tenant_id}/sessions
 		case strings.HasSuffix(path, "/sessions") || strings.HasSuffix(path, "/sessions/"):
 			if r.Method == http.MethodGet {
 				c.ListSessions(w, r)
