@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useRouter, useParams } from "next/navigation"
 import {
     Building2,
     Key,
@@ -53,8 +53,8 @@ export function CommandPalette() {
     const clearAuth = useAuthStore((state) => state.clearAuth)
     const toggleTheme = useUIStore((state) => state.toggleTheme)
     const theme = useUIStore((state) => state.theme)
-    const searchParams = useSearchParams()
-    const currentTenantId = searchParams.get("id") || searchParams.get("tenant")
+    const params = useParams()
+    const currentTenantId = (params?.tenant_id as string)
 
     // Fetch tenants para búsqueda y contexto
     const { data: tenants } = useQuery({
@@ -173,7 +173,7 @@ export function CommandPalette() {
                                         value={tenant.name}
                                         keywords={[tenant.slug, tenant.name, 'tenant', 'tenants']}
                                         onSelect={() => {
-                                            runCommand(() => router.push(`/admin/tenants/detail?id=${tenant.id}`))
+                                            runCommand(() => router.push(`/admin/tenants/${tenant.id}/detail`))
                                         }}
                                         className="cursor-pointer relative overflow-hidden group aria-selected:bg-primary/15"
                                     >
@@ -218,7 +218,7 @@ export function CommandPalette() {
                         </CommandItem>
                         {currentTenantId && (
                             <CommandItem
-                                onSelect={() => runCommand(() => router.push(`/admin/tenants/users?id=${currentTenantId}`))}
+                                onSelect={() => runCommand(() => router.push(`/admin/tenants/${currentTenantId}/users`))}
                                 className="cursor-pointer"
                             >
                                 <Users className="mr-2 h-4 w-4" />
@@ -228,7 +228,7 @@ export function CommandPalette() {
                         )}
                         {currentTenantId && (
                             <CommandItem
-                                onSelect={() => runCommand(() => router.push(`/admin/tenants/clients?id=${currentTenantId}`))}
+                                onSelect={() => runCommand(() => router.push(`/admin/tenants/${currentTenantId}/clients`))}
                                 className="cursor-pointer"
                             >
                                 <Boxes className="mr-2 h-4 w-4" />
@@ -291,70 +291,63 @@ export function CommandPalette() {
                             <CommandSeparator />
                             <CommandGroup heading="Tenant Actual">
                                 <CommandItem
-                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/detail?id=${currentTenantId}`))}
+                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/${currentTenantId}/detail`))}
                                     className="cursor-pointer"
                                 >
                                     <LayoutDashboard className="mr-2 h-4 w-4" />
                                     <span>Tenant Details</span>
                                 </CommandItem>
                                 <CommandItem
-                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/settings?id=${currentTenantId}`))}
+                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/${currentTenantId}/settings`))}
                                     className="cursor-pointer"
                                 >
                                     <Settings className="mr-2 h-4 w-4" />
                                     <span>Tenant Settings</span>
                                 </CommandItem>
                                 <CommandItem
-                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/sessions?id=${currentTenantId}`))}
+                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/${currentTenantId}/sessions`))}
                                     className="cursor-pointer"
                                 >
                                     <Shapes className="mr-2 h-4 w-4" />
                                     <span>Sessions</span>
                                 </CommandItem>
                                 <CommandItem
-                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/rbac?id=${currentTenantId}`))}
+                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/${currentTenantId}/rbac`))}
                                     className="cursor-pointer"
                                 >
                                     <Shield className="mr-2 h-4 w-4" />
                                     <span>Roles & RBAC</span>
                                 </CommandItem>
                                 <CommandItem
-                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/scopes?id=${currentTenantId}`))}
+                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/${currentTenantId}/scopes`))}
                                     className="cursor-pointer"
                                 >
                                     <Lock className="mr-2 h-4 w-4" />
                                     <span>Scopes</span>
                                 </CommandItem>
                                 <CommandItem
-                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/tokens?id=${currentTenantId}`))}
+                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/${currentTenantId}/tokens`))}
                                     className="cursor-pointer"
                                 >
                                     <ListChecks className="mr-2 h-4 w-4" />
                                     <span>Tokens</span>
                                 </CommandItem>
                                 <CommandItem
-                                    onSelect={() => runCommand(() => router.push(`/admin/providers?id=${currentTenantId}`))}
+                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/${currentTenantId}/providers`))}
                                     className="cursor-pointer"
                                 >
                                     <Globe2 className="mr-2 h-4 w-4" />
                                     <span>Social Providers</span>
                                 </CommandItem>
                                 <CommandItem
-                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/mailing?id=${currentTenantId}`))}
+                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/${currentTenantId}/mailing`))}
                                     className="cursor-pointer"
                                 >
                                     <Mail className="mr-2 h-4 w-4" />
                                     <span>Mailing</span>
                                 </CommandItem>
                                 <CommandItem
-                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/forms?id=${currentTenantId}`))}
-                                    className="cursor-pointer"
-                                >
-                                    <LayoutTemplate className="mr-2 h-4 w-4" />
-                                    <span>Forms</span>
-                                </CommandItem>
-                                <CommandItem
-                                    onSelect={() => runCommand(() => router.push(`/admin/database?id=${currentTenantId}`))}
+                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/${currentTenantId}/database`))}
                                     className="cursor-pointer"
                                 >
                                     <Database className="mr-2 h-4 w-4" />

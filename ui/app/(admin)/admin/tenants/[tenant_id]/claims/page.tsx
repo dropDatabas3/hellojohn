@@ -4,11 +4,11 @@ import { useState, useMemo } from "react"
 import { useParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
-    Key, Tag, Code2, Settings2, Eye, Plus, Trash2, Edit2,
-    ToggleLeft, CheckCircle2, ChevronLeft, AlertCircle, Info,
+    Tag, Code2, Settings2, Eye, Plus, Trash2, Edit2,
+    AlertCircle, Info,
     HelpCircle, Copy, Check, Sparkles, Shield, Database,
-    Braces, Webhook, FileJson, RefreshCw, Lock, FileCode,
-    Pencil, User, ArrowLeft
+    Webhook, FileJson, Lock,
+    ArrowLeft
 } from "lucide-react"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
@@ -28,7 +28,7 @@ import {
     Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
     Textarea,
     Tooltip, TooltipTrigger, TooltipContent, TooltipProvider,
-    InlineAlert, BackgroundBlobs, PageShell, PageHeader, cn,
+    InlineAlert, cn,
 } from "@/components/ds"
 
 // ─── Mock Data (Replace with real API when backend is ready) ───
@@ -590,9 +590,7 @@ export default function ClaimsClientPage() {
     const { data: claimsConfig, isLoading: isLoadingClaims } = useQuery({
         queryKey: ["claims", tenantId],
         enabled: !!tenantId,
-        queryFn: () => api.get<ClaimsConfig>(`/v2/admin/claims`, {
-            headers: { "X-Tenant-ID": tenantId }
-        }),
+        queryFn: () => api.get<ClaimsConfig>(`/v2/admin/tenants/${tenantId}/claims`),
     })
 
     // Derive data from backend or use defaults
@@ -608,9 +606,7 @@ export default function ClaimsClientPage() {
     // Toggle standard claim
     const toggleStandardMutation = useMutation({
         mutationFn: ({ name, enabled }: { name: string; enabled: boolean }) =>
-            api.patch(`/v2/admin/claims/standard/${name}`, { enabled }, {
-                headers: { "X-Tenant-ID": tenantId }
-            }),
+            api.patch(`/v2/admin/tenants/${tenantId}/claims/standard/${name}`, { enabled }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["claims", tenantId] })
             toast({
@@ -630,7 +626,7 @@ export default function ClaimsClientPage() {
     // Create custom claim
     const createClaimMutation = useMutation({
         mutationFn: (data: Omit<ClaimDefinition, "id">) =>
-            api.post<ClaimDefinition>(`/v2/admin/claims/custom`, {
+            api.post<ClaimDefinition>(`/v2/admin/tenants/${tenantId}/claims/custom`, {
                 name: data.name,
                 description: data.description || "",
                 source: data.source,
@@ -638,8 +634,6 @@ export default function ClaimsClientPage() {
                 always_include: data.always_include,
                 scopes: data.scopes || [],
                 enabled: data.enabled,
-            }, {
-                headers: { "X-Tenant-ID": tenantId }
             }),
         onSuccess: (_, variables) => {
             queryClient.invalidateQueries({ queryKey: ["claims", tenantId] })
@@ -661,15 +655,13 @@ export default function ClaimsClientPage() {
     // Update custom claim
     const updateClaimMutation = useMutation({
         mutationFn: ({ id, data }: { id: string; data: Omit<ClaimDefinition, "id"> }) =>
-            api.put(`/v2/admin/claims/custom/${id}`, {
+            api.put(`/v2/admin/tenants/${tenantId}/claims/custom/${id}`, {
                 description: data.description || "",
                 source: data.source,
                 value: data.value,
                 always_include: data.always_include,
                 scopes: data.scopes || [],
                 enabled: data.enabled,
-            }, undefined, {
-                headers: { "X-Tenant-ID": tenantId }
             }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["claims", tenantId] })
@@ -692,9 +684,7 @@ export default function ClaimsClientPage() {
     // Delete custom claim
     const deleteClaimMutation = useMutation({
         mutationFn: (id: string) =>
-            api.delete(`/v2/admin/claims/custom/${id}`, {
-                headers: { "X-Tenant-ID": tenantId }
-            }),
+            api.delete(`/v2/admin/tenants/${tenantId}/claims/custom/${id}`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["claims", tenantId] })
             setDeleteDialogOpen(false)
@@ -716,9 +706,7 @@ export default function ClaimsClientPage() {
     // Update settings
     const updateSettingsMutation = useMutation({
         mutationFn: (newSettings: Partial<ClaimsSettings>) =>
-            api.patch(`/v2/admin/claims/settings`, newSettings, {
-                headers: { "X-Tenant-ID": tenantId }
-            }),
+            api.patch(`/v2/admin/tenants/${tenantId}/claims/settings`, newSettings),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["claims", tenantId] })
             toast({

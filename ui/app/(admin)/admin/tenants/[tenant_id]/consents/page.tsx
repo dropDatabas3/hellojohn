@@ -325,9 +325,7 @@ function ConsentsContent() {
     enabled: !!tenantId,
     queryFn: async () => {
       try {
-        return await api.get<Client[]>(`${API_ROUTES.ADMIN_CLIENTS}`, {
-          headers: { "X-Tenant-ID": tenantId },
-        })
+        return await api.get<Client[]>(`${API_ROUTES.ADMIN_CLIENTS}?tenant_id=${tenantId}`)
       } catch {
         return [] as Client[]
       }
@@ -338,11 +336,9 @@ function ConsentsContent() {
 
   const revokeMutation = useMutation({
     mutationFn: async (consent: ConsentResponse) => {
-      return api.post(`${API_ROUTES.ADMIN_CONSENTS_REVOKE}`, {
+      return api.post(`${API_ROUTES.ADMIN_CONSENTS_REVOKE}?tenant_id=${tenantId}`, {
         user_id: consent.user_id,
         client_id: consent.client_id,
-      }, {
-        headers: { "X-Tenant-ID": tenantId },
       })
     },
     onSuccess: () => {
@@ -369,11 +365,9 @@ function ConsentsContent() {
       )
       return Promise.all(
         selectedList.map(consent =>
-          api.post(`${API_ROUTES.ADMIN_CONSENTS_REVOKE}`, {
+          api.post(`${API_ROUTES.ADMIN_CONSENTS_REVOKE}?tenant_id=${tenantId}`, {
             user_id: consent.user_id,
             client_id: consent.client_id,
-          }, {
-            headers: { "X-Tenant-ID": tenantId },
           })
         )
       )

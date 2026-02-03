@@ -327,65 +327,41 @@ func (s *loginService) loginAsAdmin(ctx context.Context, in dto.LoginRequest, lo
 	// Actualizar last seen (best effort)
 	_ = adminRepo.UpdateLastSeen(ctx, admin.ID)
 
-	// Construir claims para admin global
-	amr := []string{"pwd"}
-	acr := "urn:hellojohn:loa:1"
-	grantedScopes := []string{"openid", "profile", "email"}
-
-	std := map[string]any{
-		"tid": "global",
-		"amr": amr,
-		"acr": acr,
-		"scp": strings.Join(grantedScopes, " "),
-	}
-	custom := map[string]any{
-		"admin_type": string(admin.Type),
-		"roles":      []string{"sys:admin"},
+	// 4. Emitir access token usando el Issuer estándar de admin
+	// Esto asegura que aud="hellojohn:admin" y admin_type estén en el nivel superior
+	accessToken, expiresIn, err := s.deps.Issuer.IssueAdminAccess(ctx, jwtx.AdminAccessClaims{
+		AdminID:   admin.ID,
+		Email:     admin.Email,
+		AdminType: string(admin.Type),
+		Tenants:   admin.AssignedTenants,
+	})
+	if err != nil {
+		log.Error("failed to issue access token", logger.Err(err))
+		return nil, ErrTokenIssueFailed
 	}
 
-	now := time.Now().UTC()
-	exp := now.Add(s.deps.Issuer.AccessTTL)
+	// Recalcular expiración para el response (IssueAdminAccess devuelve duración en segundos)
+	// Nota: `expiresIn` ya es int segundos.
+	// exp para refresh token:
+	refreshExp := time.Now().Add(s.deps.RefreshTTL)
 
-	// Obtener clave de firma global
+	// Para admins vía loginAsAdmin, emitir refresh token como JWT stateless
+	// Obtener clave de firma global (requerida para firmar el refresh token manualmente)
 	kid, priv, _, kerr := s.deps.Issuer.Keys.Active()
 	if kerr != nil {
 		log.Error("failed to get signing key", logger.Err(kerr))
 		return nil, ErrTokenIssueFailed
 	}
 
-	// Construir JWT claims
-	claims := jwtv5.MapClaims{
-		"iss": s.deps.Issuer.Iss,
-		"sub": admin.ID,
-		"aud": "admin",
-		"iat": now.Unix(),
-		"nbf": now.Unix(),
-		"exp": exp.Unix(),
-	}
-	for k, v := range std {
-		claims[k] = v
-	}
-	claims["custom"] = custom
-
-	// Firmar access token
-	tk := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, claims)
-	tk.Header["kid"] = kid
-	tk.Header["typ"] = "JWT"
-
-	accessToken, err := tk.SignedString(priv)
-	if err != nil {
-		log.Error("failed to sign access token", logger.Err(err))
-		return nil, ErrTokenIssueFailed
-	}
-
-	// Para admins, emitir refresh token como JWT stateless (no persistido en DB)
+	// Importante: aud debe coincidir con lo esperado si se verificara, o al menos no ser "admin" genérico si causa conflictos.
+	// Por consistencia usamos "hellojohn:admin"
 	rtClaims := jwtv5.MapClaims{
 		"iss":       s.deps.Issuer.Iss,
 		"sub":       admin.ID,
-		"aud":       "admin",
-		"iat":       now.Unix(),
-		"nbf":       now.Unix(),
-		"exp":       now.Add(s.deps.RefreshTTL).Unix(),
+		"aud":       "hellojohn:admin",
+		"iat":       time.Now().Unix(),
+		"nbf":       time.Now().Unix(),
+		"exp":       refreshExp.Unix(),
 		"token_use": "refresh",
 	}
 	rtToken := jwtv5.NewWithClaims(jwtv5.SigningMethodEdDSA, rtClaims)
@@ -398,12 +374,12 @@ func (s *loginService) loginAsAdmin(ctx context.Context, in dto.LoginRequest, lo
 		return nil, ErrTokenIssueFailed
 	}
 
-	log.Info("admin login successful")
+	log.Info("admin login successful (via loginAsAdmin)")
 
 	return &dto.LoginResult{
 		Success:      true,
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-		ExpiresIn:    int64(time.Until(exp).Seconds()),
+		ExpiresIn:    int64(expiresIn),
 	}, nil
 }

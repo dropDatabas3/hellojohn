@@ -305,9 +305,7 @@ export default function RBACPage() {
     queryKey: ["rbac-roles", tenantId],
     enabled: !!tenantId,
     queryFn: () =>
-      api.get<RoleResponse[]>(`/v2/admin/rbac/roles`, {
-        headers: { "X-Tenant-ID": tenantId },
-      }),
+      api.get<RoleResponse[]>(`/v2/admin/tenants/${tenantId}/rbac/roles`),
   })
 
   // Calculate stats from data
@@ -317,7 +315,7 @@ export default function RBACPage() {
     const permissionsCount = PREDEFINED_PERMISSIONS.length
     const resourcesCount = Object.keys(PERMISSION_GROUPS).length
     const usersWithRoles = roles.reduce((sum, r) => sum + (r.users_count || 0), 0)
-    
+
     return {
       rolesCount,
       permissionsCount,
@@ -438,9 +436,7 @@ function RolesTab({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: strin
     queryKey: ["rbac-roles", tenantId],
     enabled: !!tenantId,
     queryFn: () =>
-      api.get<RoleResponse[]>(`/v2/admin/rbac/roles`, {
-        headers: { "X-Tenant-ID": tenantId },
-      }),
+      api.get<RoleResponse[]>(`/v2/admin/tenants/${tenantId}/rbac/roles`),
   })
 
   // Map backend response to frontend Role type
@@ -460,15 +456,12 @@ function RolesTab({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: strin
   const createRoleMutation = useMutation({
     mutationFn: (newRole: Role) =>
       api.post(
-        `/v2/admin/rbac/roles`,
+        `/v2/admin/tenants/${tenantId}/rbac/roles`,
         {
           name: newRole.name,
           description: newRole.description,
           inherits_from: newRole.inherits || null,
           permissions: newRole.permissions,
-        },
-        {
-          headers: { "X-Tenant-ID": tenantId },
         }
       ),
     onSuccess: (_, variables) => {
@@ -484,15 +477,11 @@ function RolesTab({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: strin
   const updateRoleMutation = useMutation({
     mutationFn: (updated: Role) =>
       api.put(
-        `/v2/admin/rbac/roles/${updated.name}`,
+        `/v2/admin/tenants/${tenantId}/rbac/roles/${updated.name}`,
         {
           description: updated.description,
           inherits_from: updated.inherits || null,
           permissions: updated.permissions,
-        },
-        undefined,
-        {
-          headers: { "X-Tenant-ID": tenantId },
         }
       ),
     onSuccess: (_, variables) => {
@@ -507,9 +496,7 @@ function RolesTab({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: strin
 
   const deleteRoleMutation = useMutation({
     mutationFn: (roleName: string) =>
-      api.delete(`/v2/admin/rbac/roles/${roleName}`, {
-        headers: { "X-Tenant-ID": tenantId },
-      }),
+      api.delete(`/v2/admin/tenants/${tenantId}/rbac/roles/${roleName}`),
     onSuccess: (_, roleName) => {
       queryClient.invalidateQueries({ queryKey: ["rbac-roles", tenantId] })
       toast({ title: "Rol eliminado", description: `El rol "${roleName}" ha sido eliminado.` })
@@ -1152,19 +1139,14 @@ function AssignmentsTab({ tenantId }: { tenantId: string }) {
     queryKey: ["rbac-user-roles", userId, tenantId],
     enabled: false,
     queryFn: () =>
-      api.get<UserRolesResponse>(API_ROUTES.ADMIN_RBAC_USER_ROLES(userId), {
-        headers: { "X-Tenant-ID": tenantId },
-      }),
+      api.get<UserRolesResponse>(`${API_ROUTES.ADMIN_RBAC_USER_ROLES(userId)}?tenant_id=${tenantId}`),
   })
 
   const addUserRole = useMutation({
     mutationFn: (role: string) =>
       api.post<UserRolesResponse>(
-        API_ROUTES.ADMIN_RBAC_USER_ROLES(userId),
-        { add: [role], remove: [] },
-        {
-          headers: { "X-Tenant-ID": tenantId },
-        }
+        `${API_ROUTES.ADMIN_RBAC_USER_ROLES(userId)}?tenant_id=${tenantId}`,
+        { add: [role], remove: [] }
       ),
     onSuccess: () => {
       setNewUserRole("")
@@ -1177,11 +1159,8 @@ function AssignmentsTab({ tenantId }: { tenantId: string }) {
   const removeUserRole = useMutation({
     mutationFn: (role: string) =>
       api.post<UserRolesResponse>(
-        API_ROUTES.ADMIN_RBAC_USER_ROLES(userId),
-        { add: [], remove: [role] },
-        {
-          headers: { "X-Tenant-ID": tenantId },
-        }
+        `${API_ROUTES.ADMIN_RBAC_USER_ROLES(userId)}?tenant_id=${tenantId}`,
+        { add: [], remove: [role] }
       ),
     onSuccess: () => {
       refetchUserRoles()
@@ -1202,19 +1181,14 @@ function AssignmentsTab({ tenantId }: { tenantId: string }) {
     queryKey: ["rbac-role-perms", roleName, tenantId],
     enabled: false,
     queryFn: () =>
-      api.get<RolePermsResponse>(API_ROUTES.ADMIN_RBAC_ROLE_PERMS(roleName), {
-        headers: { "X-Tenant-ID": tenantId },
-      }),
+      api.get<RolePermsResponse>(`${API_ROUTES.ADMIN_RBAC_ROLE_PERMS(roleName)}?tenant_id=${tenantId}`),
   })
 
   const addPerm = useMutation({
     mutationFn: (perm: string) =>
       api.post<RolePermsResponse>(
-        API_ROUTES.ADMIN_RBAC_ROLE_PERMS(roleName),
-        { add: [perm], remove: [] },
-        {
-          headers: { "X-Tenant-ID": tenantId },
-        }
+        `${API_ROUTES.ADMIN_RBAC_ROLE_PERMS(roleName)}?tenant_id=${tenantId}`,
+        { add: [perm], remove: [] }
       ),
     onSuccess: () => {
       setNewPerm("")
@@ -1227,11 +1201,8 @@ function AssignmentsTab({ tenantId }: { tenantId: string }) {
   const removePerm = useMutation({
     mutationFn: (perm: string) =>
       api.post<RolePermsResponse>(
-        API_ROUTES.ADMIN_RBAC_ROLE_PERMS(roleName),
-        { add: [], remove: [perm] },
-        {
-          headers: { "X-Tenant-ID": tenantId },
-        }
+        `${API_ROUTES.ADMIN_RBAC_ROLE_PERMS(roleName)}?tenant_id=${tenantId}`,
+        { add: [], remove: [perm] }
       ),
     onSuccess: () => {
       refetchRolePerms()

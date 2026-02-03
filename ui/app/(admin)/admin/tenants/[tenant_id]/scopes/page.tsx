@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { useParams, useRouter } from "next/navigation"
+import { useParams } from "next/navigation"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { useToast } from "@/hooks/use-toast"
@@ -17,16 +17,12 @@ import {
     Eye,
     Copy,
     Check,
-    ChevronLeft,
     ArrowLeft,
-    Shield,
     ShieldCheck,
     Lock,
     Info,
-    AlertTriangle,
     Edit,
     MoreHorizontal,
-    Link2,
     Loader2,
     ChevronDown,
     ChevronUp,
@@ -443,9 +439,7 @@ export default function ScopesClientPage() {
     const { data: scopesRaw, isLoading, refetch } = useQuery({
         queryKey: ["scopes", tenantId],
         enabled: !!tenantId,
-        queryFn: () => api.get<ScopeRow[]>(`/v2/admin/scopes`, {
-            headers: { "X-Tenant-ID": tenantId }
-        }),
+        queryFn: () => api.get<ScopeRow[]>(`/v2/admin/tenants/${tenantId}/scopes`),
     })
 
     // Merge standard scopes with backend scopes
@@ -473,14 +467,12 @@ export default function ScopesClientPage() {
 
     const createMutation = useMutation({
         mutationFn: (data: ScopeFormState) =>
-            api.post<ScopeRow>(`/v2/admin/scopes`, {
+            api.post<ScopeRow>(`/v2/admin/tenants/${tenantId}/scopes`, {
                 name: data.name,
                 description: data.description || "",
                 display_name: data.displayName || "",
                 claims: data.claims || [],
                 depends_on: data.dependsOn || "",
-            }, {
-                headers: { "X-Tenant-ID": tenantId }
             }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["scopes", tenantId] })
@@ -502,14 +494,12 @@ export default function ScopesClientPage() {
 
     const updateMutation = useMutation({
         mutationFn: (data: ScopeFormState) =>
-            api.post<ScopeRow>(`/v2/admin/scopes`, {
+            api.post<ScopeRow>(`/v2/admin/tenants/${tenantId}/scopes`, {
                 name: data.name,
                 description: data.description || "",
                 display_name: data.displayName || "",
                 claims: data.claims || [],
                 depends_on: data.dependsOn || "",
-            }, {
-                headers: { "X-Tenant-ID": tenantId }
             }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["scopes", tenantId] })
@@ -531,9 +521,7 @@ export default function ScopesClientPage() {
     })
 
     const deleteMutation = useMutation({
-        mutationFn: (scopeName: string) => api.delete(`/v2/admin/scopes/${encodeURIComponent(scopeName)}`, {
-            headers: { "X-Tenant-ID": tenantId }
-        }),
+        mutationFn: (scopeName: string) => api.delete(`/v2/admin/tenants/${tenantId}/scopes/${encodeURIComponent(scopeName)}`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["scopes", tenantId] })
             setDeleteDialogOpen(false)

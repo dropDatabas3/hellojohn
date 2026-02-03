@@ -1,6 +1,6 @@
 "use client"
 
-import { useSearchParams } from "next/navigation"
+import { useParams } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
 import Link from "next/link"
 import {
@@ -108,8 +108,8 @@ function TenantDetailSkeleton() {
 }
 
 export default function TenantDetailPage() {
-  const searchParams = useSearchParams()
-  const tenantId = searchParams.get("id")
+  const params = useParams()
+  const tenantId = params.tenant_id as string
 
   const { data: tenant, isLoading, isError } = useQuery({
     queryKey: ["tenant", tenantId],

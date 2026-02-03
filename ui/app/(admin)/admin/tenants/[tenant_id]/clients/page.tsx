@@ -243,18 +243,18 @@ function ClientTypeCard({
         >
             <div className={cn(
                 "p-3 rounded-xl mb-4 transition-all duration-300",
-                selected 
-                    ? "bg-white/20 backdrop-blur-sm" 
-                    : type === "public" 
-                        ? "bg-success/10 group-hover:bg-success/20" 
+                selected
+                    ? "bg-white/20 backdrop-blur-sm"
+                    : type === "public"
+                        ? "bg-success/10 group-hover:bg-success/20"
                         : "bg-accent/10 group-hover:bg-accent/20"
             )}>
                 <Icon className={cn(
                     "h-6 w-6 transition-colors",
-                    selected 
-                        ? "text-white" 
-                        : type === "public" 
-                            ? "text-success" 
+                    selected
+                        ? "text-white"
+                        : type === "public"
+                            ? "text-success"
                             : "text-accent"
                 )} />
             </div>
@@ -265,10 +265,10 @@ function ClientTypeCard({
                     <li key={i} className="flex items-center gap-2">
                         <span className={cn(
                             "text-xs font-bold",
-                            selected 
-                                ? "text-white/90" 
-                                : type === "public" 
-                                    ? "text-success" 
+                            selected
+                                ? "text-white/90"
+                                : type === "public"
+                                    ? "text-success"
                                     : "text-accent"
                         )}>✓</span> {f}
                     </li>
@@ -362,9 +362,7 @@ export default function ClientsClientPage() {
     const { data: clientsRaw, isLoading, refetch } = useQuery({
         queryKey: ["clients", tenantId],
         enabled: !!tenantId,
-        queryFn: () => api.get<ClientRow[]>(`/v2/admin/clients`, {
-            headers: { "X-Tenant-ID": tenantId }
-        }),
+        queryFn: () => api.get<ClientRow[]>(`/v2/admin/tenants/${tenantId}/clients`),
     })
 
     const clients = clientsRaw || []
@@ -385,7 +383,7 @@ export default function ClientsClientPage() {
 
     const createMutation = useMutation({
         mutationFn: (data: ClientFormState) =>
-            api.post<ClientRow>(`/v2/admin/clients`, {
+            api.post<ClientRow>(`/v2/admin/tenants/${tenantId}/clients`, {
                 client_id: data.clientId,
                 name: data.name,
                 type: data.type,
@@ -403,8 +401,6 @@ export default function ClientsClientPage() {
                 verify_email_url: data.verifyEmailUrl || "",
                 front_channel_logout_url: data.frontChannelLogoutUrl || "",
                 back_channel_logout_url: data.backChannelLogoutUrl || "",
-            }, {
-                headers: { "X-Tenant-ID": tenantId }
             }),
         onSuccess: (data) => {
             queryClient.invalidateQueries({ queryKey: ["clients", tenantId] })
@@ -430,7 +426,7 @@ export default function ClientsClientPage() {
 
     const updateMutation = useMutation({
         mutationFn: ({ clientId, data }: { clientId: string; data: Partial<ClientFormState> }) =>
-            api.put<ClientRow>(`/v2/admin/clients/${clientId}`, {
+            api.put<ClientRow>(`/v2/admin/tenants/${tenantId}/clients/${clientId}`, {
                 name: data.name,
                 redirect_uris: data.redirectUris,
                 allowed_origins: data.allowedOrigins || [],
@@ -446,7 +442,7 @@ export default function ClientsClientPage() {
                 verify_email_url: data.verifyEmailUrl || "",
                 front_channel_logout_url: data.frontChannelLogoutUrl || "",
                 back_channel_logout_url: data.backChannelLogoutUrl || "",
-            }, tenantId),
+            }),
         onSuccess: (data) => {
             queryClient.invalidateQueries({ queryKey: ["clients", tenantId] })
             setSelectedClient(data)
@@ -465,9 +461,7 @@ export default function ClientsClientPage() {
     })
 
     const deleteMutation = useMutation({
-        mutationFn: (clientId: string) => api.delete(`/v2/admin/clients/${clientId}`, {
-            headers: { "X-Tenant-ID": tenantId }
-        }),
+        mutationFn: (clientId: string) => api.delete(`/v2/admin/tenants/${tenantId}/clients/${clientId}`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["clients", tenantId] })
             setDeleteDialogOpen(false)
@@ -488,9 +482,7 @@ export default function ClientsClientPage() {
     })
 
     const rotateSecretMutation = useMutation({
-        mutationFn: (clientId: string) => api.post<{ client_id: string; new_secret: string }>(`/v2/admin/clients/${clientId}/revoke`, {}, {
-            headers: { "X-Tenant-ID": tenantId }
-        }),
+        mutationFn: (clientId: string) => api.post<{ client_id: string; new_secret: string }>(`/v2/admin/tenants/${tenantId}/clients/${clientId}/revoke`, {}),
         onSuccess: (data) => {
             queryClient.invalidateQueries({ queryKey: ["clients", tenantId] })
             setNewSecret(data.new_secret)
@@ -635,9 +627,9 @@ export default function ClientsClientPage() {
 
             {/* Info Banner - Premium gradient */}
             <InlineAlert variant="success">
-                    Un <strong>Client</strong> representa una aplicación que puede autenticar usuarios mediante HelloJohn.
-                    Los clients <strong>públicos</strong> (SPAs, apps móviles) usan PKCE sin secreto.
-                    Los clients <strong>confidenciales</strong> (backends, APIs) tienen un client_secret seguro.
+                Un <strong>Client</strong> representa una aplicación que puede autenticar usuarios mediante HelloJohn.
+                Los clients <strong>públicos</strong> (SPAs, apps móviles) usan PKCE sin secreto.
+                Los clients <strong>confidenciales</strong> (backends, APIs) tienen un client_secret seguro.
             </InlineAlert>
 
             {/* Stats */}
@@ -1357,8 +1349,8 @@ export default function ClientsClientPage() {
                                         <CardContent className="space-y-4">
                                             {newSecret ? (
                                                 <div className="space-y-3">
-                                                    <InlineAlert 
-                                                        variant="destructive" 
+                                                    <InlineAlert
+                                                        variant="destructive"
                                                         title="¡Guarda este secret ahora!"
                                                         description="No podrás verlo de nuevo. Si lo pierdes, tendrás que rotarlo."
                                                     />
@@ -1431,8 +1423,8 @@ export default function ClientsClientPage() {
 
                                 {/* PKCE info for public clients */}
                                 {selectedClient.type === "public" && (
-                                    <InlineAlert 
-                                        variant="info" 
+                                    <InlineAlert
+                                        variant="info"
                                         title="PKCE habilitado"
                                         description="Los clients públicos usan PKCE (Proof Key for Code Exchange) automáticamente para proteger el flujo de autorización sin necesidad de un client_secret."
                                     />
@@ -1480,8 +1472,8 @@ export default function ClientsClientPage() {
                                     </Card>
                                 </div>
 
-                                <InlineAlert 
-                                    variant="default" 
+                                <InlineAlert
+                                    variant="default"
                                     description="Los tiempos de vida de tokens se pueden modificar editando el cliente. Valores más cortos son más seguros pero requieren renovación más frecuente."
                                 />
                             </TabsContent>
@@ -1534,8 +1526,8 @@ export default function ClientsClientPage() {
                                     </div>
                                 </div>
 
-                                <InlineAlert 
-                                    variant="default" 
+                                <InlineAlert
+                                    variant="default"
                                     description="El logout federado permite cerrar sesión en múltiples aplicaciones simultáneamente. Configura las URLs de logout para habilitar esta funcionalidad."
                                 />
                             </TabsContent>
@@ -1587,8 +1579,8 @@ export default function ClientsClientPage() {
                             El secret actual dejará de funcionar inmediatamente.
                         </DialogDescription>
                     </DialogHeader>
-                    <InlineAlert 
-                        variant="danger" 
+                    <InlineAlert
+                        variant="danger"
                         className="my-4"
                         description="Todas las aplicaciones que usen el secret actual dejarán de funcionar hasta que actualices la configuración con el nuevo secret."
                     />
