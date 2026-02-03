@@ -29,6 +29,7 @@ import {
 // Icons
 import {
   ChevronLeft,
+  ArrowLeft,
   Save,
   Download,
   Upload,
@@ -1261,17 +1262,17 @@ export default function TenantSettingsPage() {
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="sm" asChild>
               <Link href={`/admin/tenants/detail?id=${tenantId}`}>
-                <ChevronLeft className="h-4 w-4" />
+                <ArrowLeft className="h-4 w-4" />
               </Link>
             </Button>
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-muted/50 to-muted/30 border border-border">
-                <Settings className="h-6 w-6 text-muted-foreground" />
+              <div className="relative group">
+                <div className="absolute inset-0 bg-gradient-to-br from-muted-foreground/30 to-accent/20 rounded-xl blur-xl group-hover:blur-2xl transition-all duration-500" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold">Configuración</h1>
+                <h1 className="text-2xl font-bold tracking-tight">Configuración</h1>
                 <p className="text-sm text-muted-foreground">
-                  {tenant?.name || "Tenant"}
+                  {tenant?.name} — Ajustes generales del tenant
                 </p>
               </div>
             </div>
@@ -1745,7 +1746,7 @@ export default function TenantSettingsPage() {
                   <InlineAlert variant="info">
                       Configura los proveedores sociales en{" "}
                       <Link 
-                        href={`/admin/providers?id=${tenantId}`}
+                        href={`/admin/tenants/providers?id=${tenantId}`}
                         className="text-info hover:underline font-medium"
                       >
                         Social Providers →

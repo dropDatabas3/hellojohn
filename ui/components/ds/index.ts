@@ -27,6 +27,9 @@ export * from './core/table'
 export * from './layout/page-shell'
 export * from './layout/page-header'
 export * from './layout/section'
+export * from './layout/collapsible'
+export * from './layout/separator'
+export * from './layout/accordion'
 
 // Feedback
 export * from './feedback/skeleton'
@@ -35,6 +38,7 @@ export * from './feedback/toaster'
 export * from './feedback/inline-alert'
 export * from './feedback/empty-state'
 export * from './feedback/progress'
+export * from './feedback/alert'
 
 // Overlays (Ola 3)
 export * from './overlays/dialog'
@@ -44,9 +48,11 @@ export * from './overlays/tooltip'
 // Navigation (Ola 4)
 export * from './navigation/tabs'
 export * from './navigation/quick-link-card'
+export * from './navigation/command'
 
 // Forms (Professional Components)
 export * from './forms/phone-input'
+export * from './forms/slider'
 export * from './forms/country-select'
 
 // Background

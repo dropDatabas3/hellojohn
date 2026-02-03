@@ -28,7 +28,7 @@ const PageShell = React.forwardRef<HTMLDivElement, PageShellProps>(
       <div
         ref={ref}
         className={cn(
-          'min-h-screen w-full px-6 py-8 md:px-8 md:py-10',
+          'w-full px-2 py-4 md:px-4 md:py-5',
           contained && 'mx-auto max-w-7xl',
           className
         )}

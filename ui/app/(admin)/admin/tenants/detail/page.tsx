@@ -6,7 +6,7 @@ import Link from "next/link"
 import {
   Users, Key, Shield, Settings, Mail, Boxes, FileText,
   Lock, Fingerprint, LayoutTemplate, Globe2, Activity, Clock,
-  CheckCircle2, AlertCircle
+  CheckCircle2, AlertCircle, Database
 } from "lucide-react"
 import { api } from "@/lib/api"
 import type { Tenant } from "@/lib/types"
@@ -172,12 +172,6 @@ export default function TenantDetailPage() {
             </div>
           </div>
         </div>
-        <Button asChild variant="outline" size="sm">
-          <Link href={`/admin/tenants/settings?id=${tenantId}`}>
-            <Settings className="h-4 w-4 mr-2" />
-            Settings
-          </Link>
-        </Button>
       </header>
 
       {/* Quick Stats Grid */}
@@ -206,7 +200,7 @@ export default function TenantDetailPage() {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <QuickLinkCard
-              href={`/admin/users?id=${tenantId}`}
+              href={`/admin/tenants/users?id=${tenantId}`}
               icon={Users}
               title="Users"
               description="Manage user accounts and profiles"
@@ -240,7 +234,7 @@ export default function TenantDetailPage() {
               icon={Shield}
               title="RBAC & Roles"
               description="Role-based access control"
-              variant="accent"
+              variant="info"
             />
             <QuickLinkCard
               href={`/admin/tenants/scopes?id=${tenantId}`}
@@ -277,10 +271,10 @@ export default function TenantDetailPage() {
               icon={Key}
               title="Tokens"
               description="Token policies and active tokens"
-              variant="accent"
+              variant="info"
             />
             <QuickLinkCard
-              href={`/admin/providers?id=${tenantId}`}
+              href={`/admin/tenants/providers?id=${tenantId}`}
               icon={Globe2}
               title="Social Providers"
               description="External identity providers"
@@ -310,10 +304,10 @@ export default function TenantDetailPage() {
               variant="info"
             />
             <QuickLinkCard
-              href={`/admin/tenants/forms?id=${tenantId}`}
-              icon={LayoutTemplate}
-              title="Forms"
-              description="Login and registration forms"
+              href={`/admin/database?id=${tenantId}`}
+              icon={Database}
+              title="Storage"
+              description="Database and data management"
               variant="success"
             />
           </div>

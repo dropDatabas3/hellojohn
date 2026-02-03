@@ -59,6 +59,7 @@ import {
     InlineAlert,
     DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
     Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+    Skeleton,
     cn,
 } from "@/components/ds"
 
@@ -277,11 +278,12 @@ function ClientTypeCard({
     )
 }
 
-function StatCard({ icon: Icon, label, value, variant = "default" }: {
+function StatCard({ icon: Icon, label, value, variant = "default", isLoading = false }: {
     icon: any
     label: string
     value: string | number
     variant?: "default" | "success" | "warning" | "danger"
+    isLoading?: boolean
 }) {
     const colorClasses = {
         default: "bg-info/10 text-info",
@@ -291,12 +293,25 @@ function StatCard({ icon: Icon, label, value, variant = "default" }: {
     }
     return (
         <div className="flex items-center gap-4 p-4 rounded-xl bg-gradient-to-br from-card to-muted/30 border shadow-clay-card hover:shadow-clay-float transition-all duration-300 hover:-translate-y-0.5">
-            <div className={cn("p-3 rounded-xl shadow-inner", colorClasses[variant])}>
-                <Icon className="h-5 w-5" />
+            <div className={cn("p-3 rounded-xl shadow-inner", isLoading ? "bg-muted/30" : colorClasses[variant])}>
+                {isLoading ? (
+                    <Skeleton className="h-5 w-5 rounded-full" />
+                ) : (
+                    <Icon className="h-5 w-5" />
+                )}
             </div>
-            <div>
-                <p className="text-xs text-muted-foreground font-medium">{label}</p>
-                <p className="text-2xl font-bold">{value}</p>
+            <div className="space-y-1">
+                {isLoading ? (
+                    <>
+                        <Skeleton className="h-3 w-20" />
+                        <Skeleton className="h-7 w-10" />
+                    </>
+                ) : (
+                    <>
+                        <p className="text-xs text-muted-foreground font-medium">{label}</p>
+                        <p className="text-2xl font-bold">{value}</p>
+                    </>
+                )}
             </div>
         </div>
     )
@@ -599,18 +614,12 @@ export default function ClientsClientPage() {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                    <Button variant="ghost" size="icon" asChild>
+                    <Button variant="ghost" size="sm" asChild>
                         <Link href={`/admin/tenants/detail?id=${tenantId}`}>
                             <ArrowLeft className="h-4 w-4" />
                         </Link>
                     </Button>
                     <div className="flex items-center gap-3">
-                        <div className="relative group">
-                            <div className="absolute inset-0 bg-gradient-to-br from-success/30 to-accent/20 rounded-xl blur-xl group-hover:blur-2xl transition-all duration-500" />
-                            <div className="relative p-3 bg-gradient-to-br from-success/15 to-accent/10 rounded-xl border border-success/20 shadow-clay-card">
-                                <Globe className="h-6 w-6 text-success" />
-                            </div>
-                        </div>
                         <div>
                             <h1 className="text-2xl font-bold tracking-tight">Clients OAuth2</h1>
                             <p className="text-sm text-muted-foreground">
@@ -626,7 +635,7 @@ export default function ClientsClientPage() {
             </div>
 
             {/* Info Banner - Premium gradient */}
-            <InlineAlert variant="success" className="bg-gradient-to-r from-success/10 via-accent/5 to-transparent border-success/20">
+            <InlineAlert variant="success">
                     Un <strong>Client</strong> representa una aplicación que puede autenticar usuarios mediante HelloJohn.
                     Los clients <strong>públicos</strong> (SPAs, apps móviles) usan PKCE sin secreto.
                     Los clients <strong>confidenciales</strong> (backends, APIs) tienen un client_secret seguro.
@@ -634,9 +643,9 @@ export default function ClientsClientPage() {
 
             {/* Stats */}
             <div className="grid grid-cols-3 gap-4">
-                <StatCard icon={Globe} label="Total Clients" value={stats.total} variant="default" />
-                <StatCard icon={Monitor} label="Frontend (Públicos)" value={stats.public} variant="success" />
-                <StatCard icon={Server} label="Backend (Confidenciales)" value={stats.confidential} variant="warning" />
+                <StatCard icon={Globe} label="Total Clients" value={stats.total} variant="default" isLoading={isLoading} />
+                <StatCard icon={Monitor} label="Frontend (Públicos)" value={stats.public} variant="success" isLoading={isLoading} />
+                <StatCard icon={Server} label="Backend (Confidenciales)" value={stats.confidential} variant="warning" isLoading={isLoading} />
             </div>
 
             {/* Table Card */}
@@ -724,7 +733,7 @@ export default function ClientsClientPage() {
                                                 </code>
                                                 <Button
                                                     variant="ghost"
-                                                    size="icon"
+                                                    size="sm"
                                                     className="h-6 w-6"
                                                     onClick={(e) => { e.stopPropagation(); copyToClipboard(client.client_id, "Client ID") }}
                                                 >
@@ -757,7 +766,7 @@ export default function ClientsClientPage() {
                                         <TableCell className="text-right">
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                    <Button variant="ghost" size="sm" className="h-8 w-8">
                                                         <MoreHorizontal className="h-4 w-4" />
                                                     </Button>
                                                 </DropdownMenuTrigger>
@@ -879,7 +888,7 @@ export default function ClientsClientPage() {
                                     {form.clientId && (
                                         <Button
                                             variant="outline"
-                                            size="icon"
+                                            size="sm"
                                             onClick={() => setForm({ ...form, clientId: generateClientId(tenant?.slug || "", form.name, form.type) })}
                                             title="Regenerar"
                                         >
@@ -934,7 +943,7 @@ export default function ClientsClientPage() {
                                         {form.redirectUris.map((uri) => (
                                             <div key={uri} className="flex items-center justify-between rounded bg-muted p-2">
                                                 <code className="text-sm truncate flex-1">{uri}</code>
-                                                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => removeRedirectUri(uri)}>
+                                                <Button variant="ghost" size="sm" className="h-6 w-6" onClick={() => removeRedirectUri(uri)}>
                                                     <Trash2 className="h-3.5 w-3.5" />
                                                 </Button>
                                             </div>
@@ -964,7 +973,7 @@ export default function ClientsClientPage() {
                                             {form.allowedOrigins.map((origin) => (
                                                 <div key={origin} className="flex items-center justify-between rounded bg-muted p-2">
                                                     <code className="text-sm">{origin}</code>
-                                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => removeOrigin(origin)}>
+                                                    <Button variant="ghost" size="sm" className="h-6 w-6" onClick={() => removeOrigin(origin)}>
                                                         <Trash2 className="h-3.5 w-3.5" />
                                                     </Button>
                                                 </div>
@@ -994,7 +1003,7 @@ export default function ClientsClientPage() {
                                         {form.postLogoutUris.map((uri) => (
                                             <div key={uri} className="flex items-center justify-between rounded bg-muted p-2">
                                                 <code className="text-sm">{uri}</code>
-                                                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => removePostLogoutUri(uri)}>
+                                                <Button variant="ghost" size="sm" className="h-6 w-6" onClick={() => removePostLogoutUri(uri)}>
                                                     <Trash2 className="h-3.5 w-3.5" />
                                                 </Button>
                                             </div>
@@ -1256,7 +1265,7 @@ export default function ClientsClientPage() {
                                     </Label>
                                     <div className="flex items-center gap-2">
                                         <code className="flex-1 rounded bg-muted px-4 py-2.5 text-sm font-mono">{selectedClient.client_id}</code>
-                                        <Button variant="outline" size="icon" onClick={() => copyToClipboard(selectedClient.client_id, "Client ID")}>
+                                        <Button variant="outline" size="sm" onClick={() => copyToClipboard(selectedClient.client_id, "Client ID")}>
                                             {copiedField === "Client ID" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                                         </Button>
                                     </div>
@@ -1349,12 +1358,11 @@ export default function ClientsClientPage() {
                                         <CardContent className="space-y-4">
                                             {newSecret ? (
                                                 <div className="space-y-3">
-                                                    <InlineAlert variant="danger" icon={<AlertTriangle className="h-4 w-4" />}>
-                                                        <p className="font-semibold">¡Guarda este secret ahora!</p>
-                                                        <p className="text-sm opacity-90">
-                                                            No podrás verlo de nuevo. Si lo pierdes, tendrás que rotarlo.
-                                                        </p>
-                                                    </InlineAlert>
+                                                    <InlineAlert 
+                                                        variant="destructive" 
+                                                        title="¡Guarda este secret ahora!"
+                                                        description="No podrás verlo de nuevo. Si lo pierdes, tendrás que rotarlo."
+                                                    />
                                                     <div className="flex items-center gap-2">
                                                         <code className={cn(
                                                             "flex-1 rounded bg-muted px-4 py-2.5 text-sm font-mono",
@@ -1362,10 +1370,10 @@ export default function ClientsClientPage() {
                                                         )}>
                                                             {showSecret ? newSecret : "•".repeat(40)}
                                                         </code>
-                                                        <Button variant="outline" size="icon" onClick={() => setShowSecret(!showSecret)}>
+                                                        <Button variant="outline" size="sm" onClick={() => setShowSecret(!showSecret)}>
                                                             {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                                         </Button>
-                                                        <Button variant="outline" size="icon" onClick={() => copyToClipboard(newSecret, "Client Secret")}>
+                                                        <Button variant="outline" size="sm" onClick={() => copyToClipboard(newSecret, "Client Secret")}>
                                                             {copiedField === "Client Secret" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                                                         </Button>
                                                     </div>
@@ -1424,13 +1432,11 @@ export default function ClientsClientPage() {
 
                                 {/* PKCE info for public clients */}
                                 {selectedClient.type === "public" && (
-                                    <InlineAlert variant="info" icon={<ShieldCheck className="h-4 w-4" />}>
-                                        <p className="font-semibold">PKCE habilitado</p>
-                                        <p className="text-sm opacity-90">
-                                            Los clients públicos usan PKCE (Proof Key for Code Exchange) automáticamente
-                                            para proteger el flujo de autorización sin necesidad de un client_secret.
-                                        </p>
-                                    </InlineAlert>
+                                    <InlineAlert 
+                                        variant="info" 
+                                        title="PKCE habilitado"
+                                        description="Los clients públicos usan PKCE (Proof Key for Code Exchange) automáticamente para proteger el flujo de autorización sin necesidad de un client_secret."
+                                    />
                                 )}
                             </TabsContent>
 
@@ -1475,10 +1481,10 @@ export default function ClientsClientPage() {
                                     </Card>
                                 </div>
 
-                                <InlineAlert variant="default" icon={<Info className="h-4 w-4" />}>
-                                    Los tiempos de vida de tokens se pueden modificar editando el cliente.
-                                    Valores más cortos son más seguros pero requieren renovación más frecuente.
-                                </InlineAlert>
+                                <InlineAlert 
+                                    variant="default" 
+                                    description="Los tiempos de vida de tokens se pueden modificar editando el cliente. Valores más cortos son más seguros pero requieren renovación más frecuente."
+                                />
                             </TabsContent>
 
                             {/* Tab: Logout */}
@@ -1529,10 +1535,10 @@ export default function ClientsClientPage() {
                                     </div>
                                 </div>
 
-                                <InlineAlert variant="default" icon={<Info className="h-4 w-4" />}>
-                                    El logout federado permite cerrar sesión en múltiples aplicaciones simultáneamente.
-                                    Configura las URLs de logout para habilitar esta funcionalidad.
-                                </InlineAlert>
+                                <InlineAlert 
+                                    variant="default" 
+                                    description="El logout federado permite cerrar sesión en múltiples aplicaciones simultáneamente. Configura las URLs de logout para habilitar esta funcionalidad."
+                                />
                             </TabsContent>
                         </Tabs>
                     )}
@@ -1556,7 +1562,7 @@ export default function ClientsClientPage() {
                     </DialogHeader>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>Cancelar</Button>
-                        <Button variant="destructive" onClick={handleDelete} disabled={deleteMutation.isPending}>
+                        <Button variant="danger" onClick={handleDelete} disabled={deleteMutation.isPending}>
                             {deleteMutation.isPending ? (
                                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Eliminando...</>
                             ) : (
@@ -1582,13 +1588,14 @@ export default function ClientsClientPage() {
                             El secret actual dejará de funcionar inmediatamente.
                         </DialogDescription>
                     </DialogHeader>
-                    <InlineAlert variant="danger" icon={<AlertTriangle className="h-4 w-4" />} className="my-4">
-                        Todas las aplicaciones que usen el secret actual dejarán de funcionar hasta que actualices
-                        la configuración con el nuevo secret.
-                    </InlineAlert>
+                    <InlineAlert 
+                        variant="danger" 
+                        className="my-4"
+                        description="Todas las aplicaciones que usen el secret actual dejarán de funcionar hasta que actualices la configuración con el nuevo secret."
+                    />
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setRotateSecretDialogOpen(false)}>Cancelar</Button>
-                        <Button variant="destructive" onClick={handleRotateSecret} disabled={rotateSecretMutation.isPending}>
+                        <Button variant="danger" onClick={handleRotateSecret} disabled={rotateSecretMutation.isPending}>
                             {rotateSecretMutation.isPending ? (
                                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Rotando...</>
                             ) : (

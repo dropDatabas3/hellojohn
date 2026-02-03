@@ -10,13 +10,13 @@ import {
 import { api } from "@/lib/api"
 import { API_ROUTES } from "@/lib/routes"
 import { useI18n } from "@/lib/i18n"
-import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Button } from "@/components/ds"
+import { Card } from "@/components/ds"
+import { Skeleton } from "@/components/ds"
 import { useToast } from "@/hooks/use-toast"
-import { Badge } from "@/components/ui/badge"
-import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Badge } from "@/components/ds"
+import { Label } from "@/components/ds"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ds"
 import { cn } from "@/lib/utils"
 import {
   Dialog,
@@ -25,20 +25,20 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "@/components/ds"
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip"
+} from "@/components/ds"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
+} from "@/components/ds"
 import type { Tenant } from "@/lib/types"
 
 // ─── Types ───
@@ -91,10 +91,10 @@ const getGraceProgress = (retiredAt: string, graceSeconds: number): number => {
 
 const getStatusColor = (status: KeyStatus) => {
   switch (status) {
-    case "active": return "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-    case "retiring": return "bg-amber-500/10 text-amber-600 border-amber-500/20"
-    case "revoked": return "bg-red-500/10 text-red-500 border-red-500/20"
-    default: return "bg-zinc-500/10 text-zinc-500 border-zinc-500/20"
+    case "active": return "bg-success/10 text-success border-success/20"
+    case "retiring": return "bg-warning/10 text-warning border-warning/20"
+    case "revoked": return "bg-danger/10 text-danger border-danger/20"
+    default: return "bg-muted/10 text-muted-foreground border-muted/20"
   }
 }
 
@@ -133,39 +133,57 @@ function StatCard({
   label,
   value,
   subValue,
-  color = "zinc"
+  color = "zinc",
+  isLoading = false,
 }: {
   icon: React.ElementType
   label: string
   value: string | number
   subValue?: string
   color?: "zinc" | "emerald" | "blue" | "amber"
+  isLoading?: boolean
 }) {
   const colorClasses = {
-    zinc: "from-zinc-500/10 to-zinc-500/5 border-zinc-500/10",
-    emerald: "from-emerald-500/10 to-emerald-500/5 border-emerald-500/10",
-    blue: "from-blue-500/10 to-blue-500/5 border-blue-500/10",
-    amber: "from-amber-500/10 to-amber-500/5 border-amber-500/10",
+    zinc: "from-muted/10 to-muted/5 border-muted/10",
+    emerald: "from-success/10 to-success/5 border-success/10",
+    blue: "from-info/10 to-info/5 border-info/10",
+    amber: "from-warning/10 to-warning/5 border-warning/10",
   }
   const iconColors = {
-    zinc: "text-zinc-500",
-    emerald: "text-emerald-500",
-    blue: "text-blue-500",
-    amber: "text-amber-500",
+    zinc: "text-muted-foreground",
+    emerald: "text-success",
+    blue: "text-info",
+    amber: "text-warning",
   }
 
   return (
     <div className={cn(
       "rounded-xl border bg-gradient-to-br p-4",
+      "shadow-clay-float transition-all duration-300",
+      "hover:-translate-y-1 hover:shadow-clay-float hover:scale-[1.02]",
       colorClasses[color]
     )}>
       <div className="flex items-center gap-3">
-        <Icon className={cn("h-5 w-5", iconColors[color])} />
-        <div>
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="text-lg font-semibold">{value}</p>
-          {subValue && (
-            <p className="text-xs text-muted-foreground">{subValue}</p>
+        {isLoading ? (
+          <Skeleton className="h-5 w-5 rounded" />
+        ) : (
+          <Icon className={cn("h-5 w-5", iconColors[color])} />
+        )}
+        <div className="space-y-1">
+          {isLoading ? (
+            <>
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-5 w-12" />
+              {subValue !== undefined && <Skeleton className="h-3 w-24" />}
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">{label}</p>
+              <p className="text-lg font-semibold">{value}</p>
+              {subValue && (
+                <p className="text-xs text-muted-foreground">{subValue}</p>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -198,10 +216,11 @@ function KeyCard({
 
   return (
     <div className={cn(
-      "rounded-xl border transition-all",
-      keyInfo.status === "active" && "border-emerald-500/30 bg-emerald-500/5",
-      keyInfo.status === "retiring" && "border-amber-500/30 bg-amber-500/5",
-      keyInfo.status === "revoked" && "border-red-500/30 bg-red-500/5 opacity-60"
+      "rounded-xl border transition-all duration-300",
+      "shadow-clay-card hover:-translate-y-1 hover:shadow-clay-float",
+      keyInfo.status === "active" && "border-success/30 bg-success/5 hover:border-success/50",
+      keyInfo.status === "retiring" && "border-warning/30 bg-warning/5 hover:border-warning/50",
+      keyInfo.status === "revoked" && "border-danger/30 bg-danger/5 opacity-60"
     )}>
       <div className="p-4">
         {/* Header */}
@@ -209,16 +228,16 @@ function KeyCard({
           <div className="flex items-center gap-3">
             <div className={cn(
               "h-10 w-10 rounded-lg flex items-center justify-center",
-              keyInfo.status === "active" && "bg-emerald-500/10",
-              keyInfo.status === "retiring" && "bg-amber-500/10",
-              keyInfo.status === "revoked" && "bg-red-500/10"
+              keyInfo.status === "active" && "bg-success/10",
+              keyInfo.status === "retiring" && "bg-warning/10",
+              keyInfo.status === "revoked" && "bg-danger/10"
             )}>
               {keyInfo.status === "active" ? (
-                <CheckCircle className="h-5 w-5 text-emerald-500" />
+                <CheckCircle className="h-5 w-5 text-success" />
               ) : keyInfo.status === "retiring" ? (
-                <Clock className="h-5 w-5 text-amber-500" />
+                <Clock className="h-5 w-5 text-warning" />
               ) : (
-                <AlertTriangle className="h-5 w-5 text-red-500" />
+                <AlertTriangle className="h-5 w-5 text-danger" />
               )}
             </div>
             <div>
@@ -239,22 +258,22 @@ function KeyCard({
 
         {/* Grace Period Progress */}
         {isRetiring && gracePeriodRemaining && (
-          <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+          <div className="mb-4 p-3 rounded-lg bg-warning/10 border border-warning/20">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <Timer className="h-4 w-4 text-amber-500" />
-                <span className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                <Timer className="h-4 w-4 text-warning" />
+                <span className="text-sm font-medium text-warning">
                   Período de Gracia
                 </span>
                 <InfoTooltip content="Durante este período, los tokens firmados con esta clave siguen siendo válidos. Una vez finalizado, la clave dejará de incluirse en JWKS." />
               </div>
-              <span className="text-sm font-medium text-amber-700 dark:text-amber-400">
+              <span className="text-sm font-medium text-warning">
                 {gracePeriodRemaining}
               </span>
             </div>
-            <div className="h-2 bg-amber-200/30 rounded-full overflow-hidden">
+            <div className="h-2 bg-warning/30 rounded-full overflow-hidden">
               <div
-                className="h-full bg-amber-500 rounded-full transition-all duration-500"
+                className="h-full bg-warning rounded-full transition-all duration-500"
                 style={{ width: `${graceProgress}%` }}
               />
             </div>
@@ -275,11 +294,11 @@ function KeyCard({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 w-7 p-0"
+                className="h-7 w-7 p-0 transition-transform hover:scale-110 active:scale-95"
                 onClick={() => onCopy(keyInfo.kid)}
               >
                 {copiedKid === keyInfo.kid ? (
-                  <Check className="h-3.5 w-3.5 text-emerald-500" />
+                  <Check className="h-3.5 w-3.5 text-success" />
                 ) : (
                   <Copy className="h-3.5 w-3.5" />
                 )}
@@ -293,7 +312,7 @@ function KeyCard({
               Algoritmo
               <InfoTooltip content="EdDSA (Ed25519) es el algoritmo más moderno y seguro para firmas digitales, recomendado sobre RSA y ECDSA." />
             </span>
-            <Badge className="bg-indigo-500/10 text-indigo-600 border-indigo-500/20">
+            <Badge className="bg-accent/10 text-accent border-accent/20">
               {keyInfo.alg}
             </Badge>
           </div>
@@ -327,7 +346,7 @@ function KeyCard({
         {keyInfo.status !== "revoked" && (
           <div className="mt-4 pt-4 border-t border-border/50">
             <Button
-              variant="destructive"
+              variant="danger"
               size="sm"
               className="w-full gap-2"
               onClick={() => onRevoke(keyInfo.kid)}
@@ -477,22 +496,22 @@ export default function KeysPage() {
             Administra las claves criptográficas para firma de JWT tokens
           </p>
         </div>
-        <Button onClick={() => setRotateDialogOpen(true)} className="gap-2">
+        <Button onClick={() => setRotateDialogOpen(true)} className="gap-2 shadow-clay-button hover:shadow-clay-float transition-all hover:scale-105">
           <RotateCw className="h-4 w-4" />
           Rotar Clave
         </Button>
       </div>
 
       {/* Info Banner */}
-      <div className="rounded-xl border border-blue-500/20 bg-gradient-to-r from-blue-500/10 via-blue-500/5 to-transparent p-4">
+      <div className="rounded-xl border border-info/20 bg-gradient-to-r from-info/10 via-info/5 to-transparent p-4 shadow-clay-card">
         <div className="flex gap-4">
           <div className="flex-shrink-0">
-            <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-              <Info className="h-5 w-5 text-blue-500" />
+            <div className="h-10 w-10 rounded-lg bg-info/10 flex items-center justify-center">
+              <Info className="h-5 w-5 text-info" />
             </div>
           </div>
           <div className="space-y-2">
-            <h3 className="font-semibold text-blue-700 dark:text-blue-400 flex items-center gap-2">
+            <h3 className="font-semibold text-info flex items-center gap-2">
               ¿Qué son las Signing Keys?
               <InfoTooltip content="Las claves de firma son pares de claves criptográficas asimétricas (pública/privada) usadas en OAuth2/OIDC" />
             </h3>
@@ -504,11 +523,11 @@ export default function KeysPage() {
             </p>
             <div className="flex flex-wrap gap-4 pt-2">
               <div className="flex items-center gap-2 text-sm">
-                <Shield className="h-4 w-4 text-emerald-500" />
+                <Shield className="h-4 w-4 text-success" />
                 <span className="text-muted-foreground">Algoritmo: <strong>EdDSA (Ed25519)</strong></span>
               </div>
               <div className="flex items-center gap-2 text-sm">
-                <Clock className="h-4 w-4 text-amber-500" />
+                <Clock className="h-4 w-4 text-warning" />
                 <span className="text-muted-foreground">Grace period por defecto: <strong>24 horas</strong></span>
               </div>
             </div>
@@ -517,11 +536,11 @@ export default function KeysPage() {
       </div>
 
       {/* Rotation Warning */}
-      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+      <div className="rounded-xl border border-warning/20 bg-warning/5 p-4 shadow-clay-card">
         <div className="flex gap-3">
-          <AlertTriangle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
+          <AlertTriangle className="h-5 w-5 text-warning flex-shrink-0 mt-0.5" />
           <div>
-            <h4 className="font-medium text-amber-700 dark:text-amber-400">
+            <h4 className="font-medium text-warning">
               ¿Qué pasa cuando roto una clave?
             </h4>
             <p className="text-sm text-muted-foreground mt-1">
@@ -542,6 +561,7 @@ export default function KeysPage() {
           value={keys.length}
           subValue="En JWKS"
           color="blue"
+          isLoading={keysLoading}
         />
         <StatCard
           icon={CheckCircle}
@@ -549,6 +569,7 @@ export default function KeysPage() {
           value={activeKey ? "1" : "0"}
           subValue={activeKey ? `Creada ${formatTimeAgo(activeKey.created_at)}` : "Sin clave activa"}
           color="emerald"
+          isLoading={keysLoading}
         />
         <StatCard
           icon={Clock}
@@ -556,6 +577,7 @@ export default function KeysPage() {
           value={retiringKeys.length}
           subValue={retiringKeys.length > 0 ? "Expirando pronto" : "Ninguna"}
           color="amber"
+          isLoading={keysLoading}
         />
       </div>
 
@@ -603,8 +625,42 @@ export default function KeysPage() {
 
         <TabsContent value="current" className="mt-4 space-y-4">
           {keysLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            <div className="grid gap-4">
+              {/* Skeleton for Active Key Card */}
+              <Card className="p-6">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Skeleton className="h-10 w-10 rounded-lg" />
+                      <div className="space-y-2">
+                        <Skeleton className="h-5 w-32" />
+                        <Skeleton className="h-4 w-48" />
+                      </div>
+                    </div>
+                    <Skeleton className="h-6 w-20 rounded-full" />
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t">
+                    {[1, 2, 3, 4].map((i) => (
+                      <div key={i} className="space-y-1">
+                        <Skeleton className="h-3 w-16" />
+                        <Skeleton className="h-4 w-24" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </Card>
+              {/* Skeleton for potential retiring keys */}
+              <Card className="p-6">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <Skeleton className="h-8 w-8 rounded-lg" />
+                    <div className="space-y-2">
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="h-3 w-32" />
+                    </div>
+                  </div>
+                </div>
+              </Card>
             </div>
           ) : (
             <div className="grid gap-4">
@@ -722,11 +778,11 @@ export default function KeysPage() {
               </p>
             </div>
 
-            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+            <div className="rounded-lg border border-warning/20 bg-warning/5 p-3">
               <div className="flex gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                <AlertTriangle className="h-4 w-4 text-warning flex-shrink-0 mt-0.5" />
                 <div className="text-sm">
-                  <p className="font-medium text-amber-700 dark:text-amber-400">
+                  <p className="font-medium text-warning">
                     Impacto de la rotación
                   </p>
                   <ul className="text-muted-foreground mt-1 space-y-1 text-xs">
@@ -778,11 +834,11 @@ export default function KeysPage() {
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4">
+            <div className="rounded-lg border border-danger/20 bg-danger/5 p-4">
               <div className="flex gap-3">
-                <AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <AlertTriangle className="h-5 w-5 text-danger flex-shrink-0 mt-0.5" />
                 <div className="text-sm">
-                  <p className="font-medium text-red-700 dark:text-red-400 mb-2">
+                  <p className="font-medium text-danger mb-2">
                     ⚠️ Advertencia: Acción Destructiva
                   </p>
                   <ul className="text-muted-foreground space-y-1 text-xs">
@@ -810,7 +866,7 @@ export default function KeysPage() {
               Cancelar
             </Button>
             <Button
-              variant="destructive"
+              variant="danger"
               onClick={handleRevokeConfirm}
               disabled={revokeMutation.isPending}
               className="gap-2"

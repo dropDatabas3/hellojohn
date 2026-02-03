@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, Fragment } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
+import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { API_ROUTES } from "@/lib/routes"
@@ -98,6 +99,7 @@ import {
   Check,
   Minus,
   ChevronLeft,
+  ArrowLeft,
 } from "lucide-react"
 
 import type { Tenant } from "@/lib/types"
@@ -234,11 +236,13 @@ function StatCard({
   label,
   value,
   variant = "default",
+  isLoading = false,
 }: {
   icon: any
   label: string
   value: string | number
   variant?: "default" | "success" | "warning" | "danger"
+  isLoading?: boolean
 }) {
   const colorClasses = {
     default: "bg-accent/10 text-accent",
@@ -250,14 +254,27 @@ function StatCard({
   return (
     <Card interactive className="group p-6">
       <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <h3 className="text-3xl font-display font-bold text-foreground mt-1">
-            {value}
-          </h3>
+        <div className="space-y-1">
+          {isLoading ? (
+            <>
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-9 w-16 mt-1" />
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">{label}</p>
+              <h3 className="text-3xl font-display font-bold text-foreground mt-1">
+                {value}
+              </h3>
+            </>
+          )}
         </div>
-        <div className={cn("rounded-full p-3", colorClasses[variant])}>
-          <Icon className="h-6 w-6" />
+        <div className={cn("rounded-full p-3", isLoading ? "bg-muted/30" : colorClasses[variant])}>
+          {isLoading ? (
+            <Skeleton className="h-6 w-6 rounded-full" />
+          ) : (
+            <Icon className="h-6 w-6" />
+          )}
         </div>
       </div>
     </Card>
@@ -274,6 +291,7 @@ export default function RBACPage() {
   const { toast } = useToast()
 
   const [activeTab, setActiveTab] = useState("roles")
+  const [isCreateRoleOpen, setIsCreateRoleOpen] = useState(false)
 
   // Fetch tenant details to show name in header
   const { data: tenant, isLoading: isLoadingTenant } = useQuery<Tenant>({
@@ -281,6 +299,32 @@ export default function RBACPage() {
     queryFn: () => api.get<Tenant>(`/v2/admin/tenants/${tenantId}`),
     enabled: !!tenantId && !!token,
   })
+
+  // Fetch RBAC data for stats (roles count, permissions, etc.)
+  const { data: rolesData, isLoading: isLoadingRoles } = useQuery({
+    queryKey: ["rbac-roles", tenantId],
+    enabled: !!tenantId,
+    queryFn: () =>
+      api.get<RoleResponse[]>(`/v2/admin/rbac/roles`, {
+        headers: { "X-Tenant-ID": tenantId },
+      }),
+  })
+
+  // Calculate stats from data
+  const stats = useMemo(() => {
+    const roles = rolesData || []
+    const rolesCount = roles.length || PREDEFINED_ROLES.length
+    const permissionsCount = PREDEFINED_PERMISSIONS.length
+    const resourcesCount = Object.keys(PERMISSION_GROUPS).length
+    const usersWithRoles = roles.reduce((sum, r) => sum + (r.users_count || 0), 0)
+    
+    return {
+      rolesCount,
+      permissionsCount,
+      resourcesCount,
+      usersWithRoles,
+    }
+  }, [rolesData])
 
   // Redirect if no tenant ID
   useEffect(() => {
@@ -294,34 +338,32 @@ export default function RBACPage() {
   }
 
   return (
-    <PageShell>
-      <BackgroundBlobs />
-
-      {/* Back Navigation */}
-      <div className="mb-6">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => router.push("/admin/tenants")}
-          className="hover:-translate-y-0.5 hover:shadow-clay-card transition-all duration-200"
-        >
-          <ChevronLeft className="h-4 w-4 mr-2" />
-          Volver a Tenants
+    <div className=" animate-in fade-in duration-500">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+          </Button>
+          <div className="flex items-center gap-3">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Control de Acceso (RBAC)</h1>
+              <p className="text-sm text-muted-foreground">
+                {tenant?.name || tenant?.slug} — Gestiona roles, permisos y asignaciones de usuarios
+              </p>
+            </div>
+          </div>
+        </div>
+        <Button onClick={() => setIsCreateRoleOpen(true)} className="shadow-clay-button hover:shadow-clay-card transition-shadow">
+          <Plus className="mr-2 h-4 w-4" />
+          Nuevo Rol
         </Button>
       </div>
 
-      <PageHeader
-        title="Control de Acceso (RBAC)"
-        description={
-          isLoadingTenant
-            ? "Cargando información del tenant..."
-            : `Gestiona roles, permisos y asignaciones de usuarios para ${tenant?.name || tenant?.slug || "este tenant"}.`
-        }
-      />
-
       {/* Info Banner */}
       <InlineAlert variant="info" className="mb-6">
-        <Shield className="h-4 w-4" />
         <div>
           <h4 className="font-semibold mb-1">¿Qué es RBAC?</h4>
           <p className="text-sm">
@@ -334,10 +376,10 @@ export default function RBACPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard icon={Shield} label="Roles Definidos" value={PREDEFINED_ROLES.length} variant="default" />
-        <StatCard icon={Key} label="Permisos Totales" value={PREDEFINED_PERMISSIONS.length} variant="success" />
-        <StatCard icon={Layers} label="Recursos" value={Object.keys(PERMISSION_GROUPS).length} variant="warning" />
-        <StatCard icon={Users} label="Usuarios con Roles" value="—" variant="default" />
+        <StatCard icon={Shield} label="Roles Definidos" value={stats.rolesCount} variant="default" isLoading={isLoadingRoles} />
+        <StatCard icon={Key} label="Permisos Totales" value={stats.permissionsCount} variant="success" isLoading={isLoadingRoles} />
+        <StatCard icon={Layers} label="Recursos" value={stats.resourcesCount} variant="warning" isLoading={isLoadingRoles} />
+        <StatCard icon={Users} label="Usuarios con Roles" value={stats.usersWithRoles || "—"} variant="default" isLoading={isLoadingRoles} />
       </div>
 
       {/* Tabs */}
@@ -362,7 +404,7 @@ export default function RBACPage() {
         </TabsList>
 
         <TabsContent value="roles" className="space-y-4">
-          <RolesTab tenantId={tenantId} />
+          <RolesTab tenantId={tenantId} isCreateOpen={isCreateRoleOpen} setIsCreateOpen={setIsCreateRoleOpen} />
         </TabsContent>
 
         <TabsContent value="permissions" className="space-y-4">
@@ -377,18 +419,17 @@ export default function RBACPage() {
           <AssignmentsTab tenantId={tenantId} />
         </TabsContent>
       </Tabs>
-    </PageShell>
+    </div>
   )
 }
 
 // ----------------------------------------------------------------------
 // TAB: Roles
 // ----------------------------------------------------------------------
-function RolesTab({ tenantId }: { tenantId: string }) {
+function RolesTab({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: string; isCreateOpen: boolean; setIsCreateOpen: (open: boolean) => void }) {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const [search, setSearch] = useState("")
-  const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [editRole, setEditRole] = useState<Role | null>(null)
   const [viewRole, setViewRole] = useState<Role | null>(null)
 
@@ -515,23 +556,18 @@ function RolesTab({ tenantId }: { tenantId: string }) {
             className="pl-9 h-9 w-full sm:w-[250px]"
           />
         </div>
-        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-          <Button
-            variant="default"
-            onClick={() => setIsCreateOpen(true)}
-            className="hover:-translate-y-0.5 hover:shadow-clay-card active:translate-y-0 transition-all duration-200"
-          >
-            <Plus className="mr-2 h-4 w-4" /> Crear Rol
-          </Button>
-          <DialogContent className="sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Crear Nuevo Rol</DialogTitle>
-              <DialogDescription>Define un nuevo rol con sus permisos asociados.</DialogDescription>
-            </DialogHeader>
-            <RoleForm existingNames={roles.map((r) => r.name)} onSubmit={handleCreateRole} onCancel={() => setIsCreateOpen(false)} />
-          </DialogContent>
-        </Dialog>
       </div>
+
+      {/* Create Role Dialog */}
+      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Crear Nuevo Rol</DialogTitle>
+            <DialogDescription>Define un nuevo rol con sus permisos asociados.</DialogDescription>
+          </DialogHeader>
+          <RoleForm existingNames={roles.map((r) => r.name)} onSubmit={handleCreateRole} onCancel={() => setIsCreateOpen(false)} />
+        </DialogContent>
+      </Dialog>
 
       {/* Loading State */}
       {isLoadingRoles && (
@@ -902,7 +938,6 @@ function PermissionsTab({ tenantId }: { tenantId: string }) {
 
       {/* Info */}
       <InlineAlert variant="info">
-        <Info className="h-4 w-4" />
         <p className="text-sm">
           Los permisos siguen el formato <code className="bg-muted px-1 rounded">recurso:acción</code>. Puedes crear permisos personalizados asignándolos
           directamente a un rol.
@@ -1001,7 +1036,6 @@ function MatrixTab({ tenantId }: { tenantId: string }) {
     <div className="space-y-4">
       {/* Info */}
       <InlineAlert variant="info">
-        <Grid3X3 className="h-4 w-4" />
         <p className="text-sm">
           Vista matricial de roles y permisos. Haz clic en una celda para activar/desactivar un permiso. Los roles del sistema (admin) no pueden ser
           modificados directamente.

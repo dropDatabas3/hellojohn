@@ -4,15 +4,26 @@ import { AlertCircle, CheckCircle2, Info, AlertTriangle } from "lucide-react"
 import { cn } from "../utils/cn"
 
 const inlineAlertVariants = cva(
-  "relative w-full rounded-card border p-4 transition-colors duration-200",
+  [
+    "relative w-full rounded-xl border p-4 transition-all duration-300",
+    // Premium violet gradient overlay
+    "bg-gradient-to-r from-violet-500/10 via-purple-500/5 to-transparent",
+    "dark:from-violet-500/15 dark:via-purple-500/8 dark:to-transparent",
+    // 3D shadow and depth
+    "shadow-[0_2px_4px_rgba(139,92,246,0.06),0_4px_8px_rgba(139,92,246,0.04),0_8px_16px_rgba(0,0,0,0.03)]",
+    "dark:shadow-[0_2px_4px_rgba(139,92,246,0.1),0_4px_8px_rgba(139,92,246,0.08),0_8px_16px_rgba(0,0,0,0.15)]",
+    // Inner highlight
+    "ring-1 ring-inset ring-white/40 dark:ring-white/10",
+  ],
   {
     variants: {
       variant: {
-        default: "bg-card border-border text-text",
-        info: "bg-info/10 border-info/30 text-text",
-        success: "bg-success/10 border-success/30 text-text",
-        warning: "bg-warning/10 border-warning/30 text-text",
-        destructive: "bg-danger/10 border-danger/30 text-text",
+        default: "border-violet-200/60 dark:border-violet-500/30",
+        info: "border-info/40 dark:border-info/50",
+        success: "border-success/40 dark:border-success/50",
+        warning: "border-warning/40 dark:border-warning/50",
+        danger: "border-danger/40 dark:border-danger/50",
+        destructive: "border-danger/40 dark:border-danger/50",
       },
     },
     defaultVariants: {
@@ -26,6 +37,7 @@ const iconMap = {
   info: Info,
   success: CheckCircle2,
   warning: AlertTriangle,
+  danger: AlertCircle,
   destructive: AlertCircle,
 }
 
@@ -34,6 +46,7 @@ const iconColorMap = {
   info: "text-info",
   success: "text-success",
   warning: "text-warning",
+  danger: "text-danger",
   destructive: "text-danger",
 }
 
@@ -94,10 +107,10 @@ const InlineAlert = React.forwardRef<HTMLDivElement, InlineAlertProps>(
           )}
           <div className="flex-1 space-y-1">
             {title && (
-              <h5 className="font-medium leading-none tracking-tight">{title}</h5>
+              <h5 className="font-medium leading-none tracking-tight text-foreground">{title}</h5>
             )}
             {(description || children) && (
-              <div className="text-sm text-muted leading-relaxed">
+              <div className="text-sm text-foreground/80 leading-relaxed dark:text-foreground/85">
                 {description || children}
               </div>
             )}

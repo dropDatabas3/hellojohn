@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   Server, AlertCircle, CheckCircle2, Activity, RefreshCw, Plus, Trash2,
   Cpu, Network, Crown, Users, Zap, Clock, Shield,
-  Copy, Info, HelpCircle, Loader2, XCircle, 
+  Copy, Info, HelpCircle, Loader2, XCircle,
   Database, Download, AlertTriangle,
   Settings2, Terminal, History,
   Play, Pause, SkipForward, Circle, Eye, EyeOff, Hash
@@ -16,12 +16,13 @@ import { API_ROUTES } from "@/lib/routes"
 import { useToast } from "@/hooks/use-toast"
 
 // UI Components
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ds"
+import { Input } from "@/components/ds"
+import { Label } from "@/components/ds"
+import { Badge } from "@/components/ds"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ds"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ds"
+import { Skeleton } from "@/components/ds"
 import {
   Dialog,
   DialogContent,
@@ -29,18 +30,17 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "@/components/ds"
 import {
   Alert,
   AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert"
+} from "@/components/ds"
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip"
+} from "@/components/ds"
 import {
   Table,
   TableBody,
@@ -48,7 +48,13 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table"
+} from "@/components/ds"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ds"
+import { Separator } from "@/components/ds"
 
 // ─── Types ───
 
@@ -126,9 +132,9 @@ function InfoTooltip({ content }: { content: string }) {
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help ml-1.5 inline-block" />
+          <HelpCircle className="h-4 w-4 text-muted-foreground hover:text-foreground hover:scale-110 transition-all duration-200 cursor-help ml-1.5 inline-block" />
         </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-xs">
+        <TooltipContent side="top" className="max-w-xs shadow-clay-float">
           <p className="text-sm">{content}</p>
         </TooltipContent>
       </Tooltip>
@@ -141,46 +147,61 @@ function StatCard({
   value,
   icon: Icon,
   description,
-  color = "default",
+  variant = "default",
   badge,
+  isLoading = false,
 }: {
   title: string
   value: string | number
   icon: React.ElementType
   description?: string
-  color?: "default" | "green" | "amber" | "red" | "blue" | "purple"
+  variant?: "default" | "success" | "warning" | "destructive" | "accent" | "info"
   badge?: { text: string; variant: "default" | "secondary" | "destructive" | "outline" }
+  isLoading?: boolean
 }) {
-  const colorClasses = {
-    default: "from-zinc-500/20 to-zinc-600/5 text-zinc-400",
-    green: "from-emerald-500/20 to-emerald-600/5 text-emerald-400",
-    amber: "from-amber-500/20 to-amber-600/5 text-amber-400",
-    red: "from-red-500/20 to-red-600/5 text-red-400",
-    blue: "from-blue-500/20 to-blue-600/5 text-blue-400",
-    purple: "from-purple-500/20 to-purple-600/5 text-purple-400",
+  const variantStyles = {
+    default: "bg-muted/20 text-muted-foreground",
+    success: "bg-success/20 text-success",
+    warning: "bg-warning/20 text-warning",
+    destructive: "bg-destructive/20 text-destructive",
+    accent: "bg-accent/20 text-accent",
+    info: "bg-info/20 text-info",
   }
 
   return (
-    <Card className="relative overflow-hidden border-white/[0.08] bg-gradient-to-br from-white/[0.05] to-transparent">
-      <div className={cn("absolute top-0 right-0 w-32 h-32 bg-gradient-to-br opacity-50 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2", colorClasses[color])} />
+    <Card className="shadow-clay-card hover:shadow-clay-float transition-all duration-300">
       <CardContent className="p-5">
         <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</p>
-              {badge && (
-                <Badge variant={badge.variant} className="text-[10px] px-1.5 py-0">
-                  {badge.text}
-                </Badge>
-              )}
-            </div>
-            <p className="text-2xl font-bold mt-1">{value}</p>
-            {description && (
-              <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+          <div className="space-y-1">
+            {isLoading ? (
+              <>
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-8 w-24 mt-1" />
+                {description && <Skeleton className="h-3 w-16 mt-1" />}
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</p>
+                  {badge && (
+                    <Badge variant={badge.variant} className="text-[10px] px-1.5 py-0">
+                      {badge.text}
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-2xl font-bold mt-1">{value}</p>
+                {description && (
+                  <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+                )}
+              </>
             )}
           </div>
-          <div className={cn("p-2.5 rounded-xl bg-gradient-to-br", colorClasses[color])}>
-            <Icon className="h-5 w-5" />
+          <div className={cn("p-2.5 rounded-xl", isLoading ? "bg-muted/20" : variantStyles[variant])}>
+            {isLoading ? (
+              <Skeleton className="h-5 w-5 rounded" />
+            ) : (
+              <Icon className="h-5 w-5" />
+            )}
           </div>
         </div>
       </CardContent>
@@ -189,44 +210,37 @@ function StatCard({
 }
 
 function NodeStatusBadge({ state }: { state: string }) {
-  const config = {
-    healthy: { color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30", icon: CheckCircle2 },
-    degraded: { color: "bg-amber-500/20 text-amber-400 border-amber-500/30", icon: AlertCircle },
-    unreachable: { color: "bg-red-500/20 text-red-400 border-red-500/30", icon: XCircle },
-  }[state] || { color: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30", icon: Circle }
+  const variants = {
+    healthy: { className: "bg-success/15 text-success border-success/20 hover:bg-success/25", icon: CheckCircle2, label: "Conectado" },
+    degraded: { className: "bg-warning/15 text-warning border-warning/20 hover:bg-warning/25", icon: AlertCircle, label: "Degradado" },
+    unreachable: { className: "bg-destructive/15 text-destructive border-destructive/20 hover:bg-destructive/25", icon: XCircle, label: "Desconectado" },
+  }
 
-  const IconComponent = config.icon
+  const config = variants[state as keyof typeof variants] || variants.healthy
+  const Icon = config.icon
 
   return (
-    <Badge variant="outline" className={cn("gap-1", config.color)}>
-      <IconComponent className="h-3 w-3" />
-      {state === "healthy" ? "Conectado" : state === "degraded" ? "Degradado" : "Desconectado"}
+    <Badge variant="outline" className={cn("shadow-sm gap-1", config.className)}>
+      <Icon className="h-3 w-3" />
+      {config.label}
     </Badge>
   )
 }
 
 function RoleBadge({ role, isCurrentNode = false }: { role: string; isCurrentNode?: boolean }) {
-  if (role === "leader") {
-    return (
-      <Badge className="bg-gradient-to-r from-amber-500/20 to-yellow-500/20 text-amber-300 border-amber-500/30 gap-1">
-        <Crown className="h-3 w-3" />
-        Leader
-        {isCurrentNode && <span className="text-[10px] ml-1">(este)</span>}
-      </Badge>
-    )
+  const variants = {
+    leader: { className: "bg-warning/15 text-warning border-warning/20 hover:bg-warning/25", icon: Crown, label: "Leader" },
+    candidate: { className: "bg-accent/15 text-accent border-accent/20 hover:bg-accent/25", icon: Zap, label: "Candidate" },
+    follower: { className: "bg-info/15 text-info border-info/20 hover:bg-info/25", icon: Users, label: "Follower" },
   }
-  if (role === "candidate") {
-    return (
-      <Badge variant="outline" className="bg-purple-500/10 text-purple-400 border-purple-500/30 gap-1">
-        <Zap className="h-3 w-3" />
-        Candidate
-      </Badge>
-    )
-  }
+
+  const config = variants[role as keyof typeof variants] || variants.follower
+  const Icon = config.icon
+
   return (
-    <Badge variant="outline" className="bg-blue-500/10 text-blue-400 border-blue-500/30 gap-1">
-      <Users className="h-3 w-3" />
-      Follower
+    <Badge variant="outline" className={cn("shadow-sm gap-1", config.className)}>
+      <Icon className="h-3 w-3" />
+      {config.label}
       {isCurrentNode && <span className="text-[10px] ml-1">(este)</span>}
     </Badge>
   )
@@ -236,7 +250,7 @@ function RoleBadge({ role, isCurrentNode = false }: { role: string; isCurrentNod
 
 function generateMockNodes(health: HealthResponse): ClusterNode[] {
   if (health.cluster.mode === "off") return []
-  
+
   const nodes: ClusterNode[] = []
   const currentNodeId = health.cluster.node_id || "node-1"
   const leaderId = health.cluster.leader_id || currentNodeId
@@ -262,7 +276,7 @@ function generateMockNodes(health: HealthResponse): ClusterNode[] {
       role: nodeId === leaderId ? "leader" : "follower",
       state: i <= Number(health.cluster.peers_connected || 1) ? "healthy" : "unreachable",
       joined_at: new Date(Date.now() - (i * 2) * 24 * 60 * 60 * 1000).toISOString(),
-      last_seen: i <= Number(health.cluster.peers_connected || 1) 
+      last_seen: i <= Number(health.cluster.peers_connected || 1)
         ? new Date(Date.now() - Math.random() * 5000).toISOString()
         : new Date(Date.now() - 60 * 60 * 1000).toISOString(),
       latency_ms: i <= Number(health.cluster.peers_connected || 1) ? Math.floor(Math.random() * 50) + 1 : undefined,
@@ -274,11 +288,11 @@ function generateMockNodes(health: HealthResponse): ClusterNode[] {
 
 function generateMockRaftLog(): RaftLogEntry[] {
   const types = [
-    "tenant.create", "tenant.update", "client.create", "client.update", 
+    "tenant.create", "tenant.update", "client.create", "client.update",
     "scope.create", "key.rotate", "settings.update"
   ]
   const entries: RaftLogEntry[] = []
-  
+
   for (let i = 0; i < 20; i++) {
     entries.push({
       index: 1000 - i,
@@ -289,7 +303,7 @@ function generateMockRaftLog(): RaftLogEntry[] {
       key: Math.random() > 0.5 ? `key-${Math.floor(Math.random() * 100)}` : undefined,
     })
   }
-  
+
   return entries
 }
 
@@ -316,7 +330,7 @@ function formatTimeAgo(dateString: string): string {
 function ClusterContent() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
-  
+
   // State
   const [currentTab, setCurrentTab] = useState("overview")
   const [addNodeDialog, setAddNodeDialog] = useState(false)
@@ -460,9 +474,6 @@ function ClusterContent() {
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-gradient-to-br from-purple-500/20 to-indigo-500/20 border border-purple-500/20">
-                <Network className="h-6 w-6 text-purple-400" />
-              </div>
               <div>
                 <h1 className="text-2xl font-bold tracking-tight">Cluster Management</h1>
                 <p className="text-muted-foreground text-sm">
@@ -495,44 +506,82 @@ function ClusterContent() {
         </div>
 
         {/* Info Banner */}
-        <Alert className="border-purple-500/20 bg-gradient-to-r from-purple-500/10 to-indigo-500/5">
-          <Info className="h-4 w-4 text-purple-400" />
-          <AlertTitle className="text-purple-300">¿Qué es el Cluster Raft?</AlertTitle>
-          <AlertDescription className="text-muted-foreground">
-            HelloJohn usa el algoritmo de consenso <strong>Raft</strong> para sincronizar la configuración del Control Plane 
-            entre múltiples nodos. Esto garantiza alta disponibilidad y consistencia: si un nodo falla, otro toma el 
+        <Alert variant="info" className="shadow-clay-card">
+          <Info className="h-4 w-4" />
+          <AlertDescription className="text-sm">
+            HelloJohn usa el algoritmo de consenso <strong>Raft</strong> para sincronizar la configuración del Control Plane
+            entre múltiples nodos. Esto garantiza alta disponibilidad y consistencia: si un nodo falla, otro toma el
             liderazgo automáticamente. En modo single-node, el cluster tiene un solo nodo que siempre es el líder.
           </AlertDescription>
         </Alert>
 
         {/* Cluster Disabled Warning */}
         {!isClusterEnabled && (
-          <Alert variant="default" className="border-amber-500/20 bg-amber-500/5">
-            <AlertTriangle className="h-4 w-4 text-amber-400" />
-            <AlertTitle className="text-amber-300">Cluster Deshabilitado</AlertTitle>
-            <AlertDescription className="text-muted-foreground">
+          <Alert variant="warning" className="shadow-clay-card">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription className="text-sm">
               El cluster Raft no está habilitado. HelloJohn está ejecutándose en modo single-node.
-              Para habilitar el cluster, configura las variables de entorno <code className="text-amber-400">CLUSTER_*</code> y reinicia el servicio.
+              Para habilitar el cluster, configura las variables de entorno <code>CLUSTER_*</code> y reinicia el servicio.
             </AlertDescription>
           </Alert>
         )}
 
         {/* Follower Warning */}
         {isClusterEnabled && !isLeader && (
-          <Alert variant="default" className="border-blue-500/20 bg-blue-500/5">
-            <AlertCircle className="h-4 w-4 text-blue-400" />
-            <AlertTitle className="text-blue-300">Nodo Follower</AlertTitle>
-            <AlertDescription className="text-muted-foreground">
-              Este nodo es un <strong>follower</strong>. Las operaciones de escritura (crear tenants, clients, etc.) 
-              deben realizarse en el nodo <strong>leader</strong>: <code className="text-blue-400">{health?.cluster.leader_id}</code>.
+          <Alert variant="info" className="shadow-clay-card">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="text-sm">
+              Este nodo es un <strong>follower</strong>. Las operaciones de escritura (crear tenants, clients, etc.)
+              deben realizarse en el nodo <strong>leader</strong>: <code>{health?.cluster.leader_id}</code>.
               Las lecturas funcionan en cualquier nodo.
             </AlertDescription>
           </Alert>
         )}
 
         {isLoading ? (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <div className="space-y-6">
+            {/* Stats Cards Skeleton */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[1, 2, 3, 4].map((i) => (
+                <Card key={i} className="shadow-clay-card">
+                  <CardContent className="p-5">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-8 w-24" />
+                        <Skeleton className="h-3 w-16" />
+                      </div>
+                      <Skeleton className="h-10 w-10 rounded-xl" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            {/* Tabs Skeleton */}
+            <Skeleton className="h-10 w-full max-w-md" />
+            {/* Content Skeleton */}
+            <div className="grid md:grid-cols-2 gap-6">
+              <Card className="shadow-clay-card">
+                <CardHeader>
+                  <Skeleton className="h-6 w-48" />
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {[1, 2, 3, 4].map((i) => (
+                    <Skeleton key={i} className="h-12 w-full" />
+                  ))}
+                </CardContent>
+              </Card>
+              <Card className="shadow-clay-card">
+                <CardHeader>
+                  <Skeleton className="h-6 w-48" />
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {[1, 2, 3, 4].map((i) => (
+                    <Skeleton key={i} className="h-12 w-full" />
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
           </div>
         ) : health ? (
           <>
@@ -542,10 +591,10 @@ function ClusterContent() {
                 title="Rol del Nodo"
                 value={health.cluster.role === "leader" ? "Leader" : health.cluster.role === "follower" ? "Follower" : "N/A"}
                 icon={health.cluster.role === "leader" ? Crown : Users}
-                color={health.cluster.role === "leader" ? "amber" : "blue"}
-                badge={isClusterEnabled ? { 
-                  text: health.cluster.node_id || "local", 
-                  variant: "outline" 
+                variant={health.cluster.role === "leader" ? "warning" : "info"}
+                badge={isClusterEnabled ? {
+                  text: health.cluster.node_id || "local",
+                  variant: "outline"
                 } : undefined}
               />
               <StatCard
@@ -553,20 +602,20 @@ function ClusterContent() {
                 value={`${healthyNodes} / ${totalNodes}`}
                 icon={Server}
                 description="Conectados / Total"
-                color={healthyNodes === totalNodes ? "green" : "amber"}
+                variant={healthyNodes === totalNodes ? "success" : "warning"}
               />
               <StatCard
                 title="Term"
                 value={health.cluster.raft?.term || "1"}
                 icon={Hash}
                 description="Época del cluster"
-                color="purple"
+                variant="accent"
               />
               <StatCard
                 title="Estado"
                 value={health.status === "ready" ? "Saludable" : health.status === "degraded" ? "Degradado" : "Error"}
                 icon={health.status === "ready" ? CheckCircle2 : AlertCircle}
-                color={health.status === "ready" ? "green" : health.status === "degraded" ? "amber" : "red"}
+                variant={health.status === "ready" ? "success" : health.status === "degraded" ? "warning" : "destructive"}
               />
             </div>
 
@@ -597,29 +646,29 @@ function ClusterContent() {
               <TabsContent value="overview" className="space-y-6 mt-0">
                 <div className="grid md:grid-cols-2 gap-6">
                   {/* Cluster Info */}
-                  <Card className="border-white/[0.08] bg-gradient-to-br from-white/[0.03] to-transparent">
+                  <Card className="shadow-clay-card">
                     <CardHeader>
                       <CardTitle className="text-lg flex items-center gap-2">
-                        <Network className="h-5 w-5 text-purple-400" />
+                        <Network className="h-5 w-5 text-accent" />
                         Información del Cluster
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      <div className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-card border">
                         <span className="text-sm text-muted-foreground">Modo</span>
                         <Badge variant="outline" className="font-mono">
                           {health.cluster.mode}
                         </Badge>
                       </div>
-                      <div className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-card border">
                         <span className="text-sm text-muted-foreground">Node ID</span>
                         <div className="flex items-center gap-2">
                           <code className="text-sm font-mono">{health.cluster.node_id || "local"}</code>
                           {health.cluster.node_id && (
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              className="h-6 w-6 p-0"
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0 hover:scale-110 active:scale-90 transition-transform duration-150"
                               onClick={() => copyToClipboard(health.cluster.node_id!)}
                             >
                               <Copy className="h-3 w-3" />
@@ -627,19 +676,19 @@ function ClusterContent() {
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-card border">
                         <span className="text-sm text-muted-foreground">Rol</span>
                         <RoleBadge role={health.cluster.role || "leader"} />
                       </div>
-                      <div className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+                      <div className="flex items-center justify-between p-3 rounded-lg bg-card border">
                         <span className="text-sm text-muted-foreground">Leader ID</span>
                         <div className="flex items-center gap-2">
                           <code className="text-sm font-mono">{health.cluster.leader_id || "self"}</code>
                           {health.cluster.leader_id && (
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              className="h-6 w-6 p-0"
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0 hover:scale-110 active:scale-90 transition-transform duration-150"
                               onClick={() => copyToClipboard(health.cluster.leader_id!)}
                             >
                               <Copy className="h-3 w-3" />
@@ -648,8 +697,8 @@ function ClusterContent() {
                         </div>
                       </div>
                       {health.cluster.leader_redirects && health.cluster.leader_redirects.length > 0 && (
-                        <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
-                          <p className="text-xs text-amber-400 mb-2">Redirección a Leader:</p>
+                        <div className="p-3 rounded-lg bg-warning/20 border border-warning">
+                          <p className="text-xs text-warning mb-2">Redirección a Leader:</p>
                           {health.cluster.leader_redirects.map((url, i) => (
                             <code key={i} className="text-xs text-amber-300 block">{url}</code>
                           ))}
@@ -659,76 +708,70 @@ function ClusterContent() {
                   </Card>
 
                   {/* Raft State */}
-                  <Card className="border-white/[0.08] bg-gradient-to-br from-white/[0.03] to-transparent">
+                  <Card className="shadow-clay-card">
                     <CardHeader>
                       <div className="flex items-center justify-between">
                         <CardTitle className="text-lg flex items-center gap-2">
-                          <Database className="h-5 w-5 text-blue-400" />
+                          <Database className="h-5 w-5 text-info" />
                           Estado Raft
                         </CardTitle>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setShowRaftDetails(!showRaftDetails)}
-                          className="gap-1 text-xs"
-                        >
-                          {showRaftDetails ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                          {showRaftDetails ? "Menos" : "Más"}
-                        </Button>
+                        <Collapsible open={showRaftDetails} onOpenChange={setShowRaftDetails}>
+                          <CollapsibleTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="gap-1 text-xs hover:scale-105 transition-transform duration-200"
+                            >
+                              {showRaftDetails ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                              {showRaftDetails ? "Menos" : "Más"}
+                            </Button>
+                          </CollapsibleTrigger>
+                        </Collapsible>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      <div className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
-                        <span className="text-sm text-muted-foreground">State</span>
-                        <Badge 
-                          variant="outline" 
-                          className={cn(
-                            health.cluster.raft?.state === "Leader" && "bg-amber-500/10 text-amber-400 border-amber-500/30",
-                            health.cluster.raft?.state === "Follower" && "bg-blue-500/10 text-blue-400 border-blue-500/30",
-                            health.cluster.raft?.state === "Candidate" && "bg-purple-500/10 text-purple-400 border-purple-500/30"
-                          )}
-                        >
-                          {health.cluster.raft?.state || "N/A"}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
-                        <span className="text-sm text-muted-foreground">Term</span>
-                        <code className="text-sm font-mono">{health.cluster.raft?.term || "1"}</code>
-                      </div>
-                      <div className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
-                        <span className="text-sm text-muted-foreground">Commit Index</span>
-                        <code className="text-sm font-mono">{health.cluster.raft?.commit_index || "0"}</code>
-                      </div>
-                      
-                      {showRaftDetails && (
-                        <>
-                          <div className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+                      <Collapsible open={showRaftDetails} onOpenChange={setShowRaftDetails}>
+                        <div className="flex items-center justify-between p-3 rounded-lg bg-card border">
+                          <span className="text-sm text-muted-foreground">State</span>
+                          <RoleBadge role={health.cluster.raft?.state?.toLowerCase() || "follower"} />
+                        </div>
+                        <div className="flex items-center justify-between p-3 rounded-lg bg-card border">
+                          <span className="text-sm text-muted-foreground">Term</span>
+                          <code className="text-sm font-mono">{health.cluster.raft?.term || "1"}</code>
+                        </div>
+                        <div className="flex items-center justify-between p-3 rounded-lg bg-card border">
+                          <span className="text-sm text-muted-foreground">Commit Index</span>
+                          <code className="text-sm font-mono">{health.cluster.raft?.commit_index || "0"}</code>
+                        </div>
+
+                        <CollapsibleContent className="space-y-3">
+                          <div className="flex items-center justify-between p-3 rounded-lg bg-card border">
                             <span className="text-sm text-muted-foreground">Applied Index</span>
                             <code className="text-sm font-mono">{health.cluster.raft?.applied_index || "0"}</code>
                           </div>
-                          <div className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+                          <div className="flex items-center justify-between p-3 rounded-lg bg-card border">
                             <span className="text-sm text-muted-foreground">Last Log Index</span>
                             <code className="text-sm font-mono">{health.cluster.raft?.last_log_index || "0"}</code>
                           </div>
-                          <div className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+                          <div className="flex items-center justify-between p-3 rounded-lg bg-card border">
                             <span className="text-sm text-muted-foreground">Last Snapshot Index</span>
                             <code className="text-sm font-mono">{health.cluster.raft?.last_snapshot_index || "0"}</code>
                           </div>
-                          <div className="flex items-center justify-between p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+                          <div className="flex items-center justify-between p-3 rounded-lg bg-card border">
                             <span className="text-sm text-muted-foreground">Last Contact</span>
                             <code className="text-sm font-mono text-xs">{health.cluster.raft?.last_contact || "never"}</code>
                           </div>
-                        </>
-                      )}
+                        </CollapsibleContent>
+                      </Collapsible>
                     </CardContent>
                   </Card>
                 </div>
 
                 {/* Components Status */}
-                <Card className="border-white/[0.08] bg-gradient-to-br from-white/[0.03] to-transparent">
+                <Card className="shadow-clay-card">
                   <CardHeader>
                     <CardTitle className="text-lg flex items-center gap-2">
-                      <Cpu className="h-5 w-5 text-emerald-400" />
+                      <Cpu className="h-5 w-5 text-success" />
                       Componentes del Sistema
                     </CardTitle>
                     <CardDescription>
@@ -740,24 +783,24 @@ function ClusterContent() {
                       {Object.entries(health.components).map(([key, value]) => {
                         const status = typeof value === "string" ? value : value.status
                         const message = typeof value === "object" ? value.message : undefined
-                        
+
                         return (
-                          <div 
-                            key={key} 
+                          <div
+                            key={key}
                             className={cn(
                               "p-3 rounded-lg border transition-all",
-                              status === "ok" && "bg-emerald-500/5 border-emerald-500/20",
-                              status === "error" && "bg-red-500/5 border-red-500/20",
-                              status === "disabled" && "bg-zinc-500/5 border-zinc-500/20"
+                              status === "ok" && "bg-success/20 border-success",
+                              status === "error" && "bg-destructive/20 border-destructive",
+                              status === "disabled" && "bg-muted/20 border-muted"
                             )}
                           >
                             <div className="flex items-center justify-between mb-1">
                               <span className="text-sm font-medium capitalize">
                                 {key.replace(/_/g, " ")}
                               </span>
-                              {status === "ok" && <CheckCircle2 className="h-4 w-4 text-emerald-400" />}
-                              {status === "error" && <XCircle className="h-4 w-4 text-red-400" />}
-                              {status === "disabled" && <Circle className="h-4 w-4 text-zinc-500" />}
+                              {status === "ok" && <CheckCircle2 className="h-4 w-4 text-success" />}
+                              {status === "error" && <XCircle className="h-4 w-4 text-destructive" />}
+                              {status === "disabled" && <Circle className="h-4 w-4 text-muted-foreground" />}
                             </div>
                             {message && (
                               <p className="text-[10px] text-muted-foreground truncate">{message}</p>
@@ -770,28 +813,28 @@ function ClusterContent() {
                 </Card>
 
                 {/* System Info */}
-                <Card className="border-white/[0.08] bg-gradient-to-br from-white/[0.03] to-transparent">
+                <Card className="shadow-clay-card">
                   <CardHeader>
                     <CardTitle className="text-lg flex items-center gap-2">
-                      <Info className="h-5 w-5 text-zinc-400" />
+                      <Info className="h-5 w-5 text-muted-foreground" />
                       Información del Sistema
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+                      <div className="p-3 rounded-lg bg-card border">
                         <p className="text-xs text-muted-foreground mb-1">Versión</p>
                         <code className="text-sm font-mono">{health.version || "dev"}</code>
                       </div>
-                      <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+                      <div className="p-3 rounded-lg bg-card border">
                         <p className="text-xs text-muted-foreground mb-1">Commit</p>
                         <code className="text-sm font-mono truncate block">{health.commit?.slice(0, 8) || "unknown"}</code>
                       </div>
-                      <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+                      <div className="p-3 rounded-lg bg-card border">
                         <p className="text-xs text-muted-foreground mb-1">Active Key ID</p>
                         <code className="text-sm font-mono truncate block">{health.active_key_id?.slice(0, 12) || "N/A"}...</code>
                       </div>
-                      <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+                      <div className="p-3 rounded-lg bg-card border">
                         <p className="text-xs text-muted-foreground mb-1">Filesystem</p>
                         <Badge variant={health.fs_degraded ? "destructive" : "outline"}>
                           {health.fs_degraded ? "Degradado" : "OK"}
@@ -805,13 +848,12 @@ function ClusterContent() {
               {/* Tab: Nodes */}
               <TabsContent value="nodes" className="space-y-4 mt-0">
                 {/* Backend Note */}
-                <Alert className="border-amber-500/20 bg-amber-500/5">
-                  <AlertTriangle className="h-4 w-4 text-amber-400" />
-                  <AlertTitle className="text-amber-300">Funcionalidad en Desarrollo</AlertTitle>
-                  <AlertDescription className="text-muted-foreground text-sm">
+                <Alert variant="warning">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription className="text-sm">
                     La gestión de nodos requiere endpoints backend que aún no están expuestos via HTTP.
                     Los datos mostrados son simulados. Endpoints necesarios:
-                    <code className="ml-2 text-amber-400">GET/POST/DELETE /v2/admin/cluster/nodes</code>
+                    <code className="ml-2">GET/POST/DELETE /v2/admin/cluster/nodes</code>
                   </AlertDescription>
                 </Alert>
 
@@ -822,7 +864,7 @@ function ClusterContent() {
                       <Server className="h-3 w-3" />
                       {totalNodes} nodos
                     </Badge>
-                    <Badge variant="outline" className="gap-1 text-emerald-400 border-emerald-500/30">
+                    <Badge variant="success" className="gap-1 shadow-sm">
                       <CheckCircle2 className="h-3 w-3" />
                       {healthyNodes} conectados
                     </Badge>
@@ -830,7 +872,7 @@ function ClusterContent() {
                   <Button
                     onClick={() => setAddNodeDialog(true)}
                     disabled={!isLeader || !isClusterEnabled}
-                    className="gap-2 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600"
+                    className="gap-2 shadow-clay-button hover:shadow-clay-float hover:scale-105 active:scale-95 transition-all duration-200"
                   >
                     <Plus className="h-4 w-4" />
                     Agregar Nodo
@@ -838,10 +880,10 @@ function ClusterContent() {
                 </div>
 
                 {/* Nodes Table */}
-                <Card className="border-white/[0.08] bg-gradient-to-br from-white/[0.03] to-transparent overflow-hidden">
+                <Card className="shadow-clay-card overflow-hidden">
                   <Table>
                     <TableHeader>
-                      <TableRow className="border-white/[0.06] hover:bg-transparent">
+                      <TableRow className="hover:bg-transparent">
                         <TableHead className="text-xs">Node ID</TableHead>
                         <TableHead className="text-xs">Dirección</TableHead>
                         <TableHead className="text-xs">Rol</TableHead>
@@ -853,11 +895,11 @@ function ClusterContent() {
                     </TableHeader>
                     <TableBody>
                       {nodes.map((node) => (
-                        <TableRow 
-                          key={node.id} 
+                        <TableRow
+                          key={node.id}
                           className={cn(
-                            "border-white/[0.06]",
-                            node.id === currentNodeId && "bg-purple-500/5"
+                            "hover:bg-accent/50 transition-colors duration-150",
+                            node.id === currentNodeId && "bg-accent/30"
                           )}
                         >
                           <TableCell>
@@ -883,9 +925,9 @@ function ClusterContent() {
                             {node.latency_ms !== undefined ? (
                               <span className={cn(
                                 "text-sm",
-                                node.latency_ms < 10 && "text-emerald-400",
-                                node.latency_ms >= 10 && node.latency_ms < 50 && "text-amber-400",
-                                node.latency_ms >= 50 && "text-red-400"
+                                node.latency_ms < 10 && "text-success",
+                                node.latency_ms >= 10 && node.latency_ms < 50 && "text-warning",
+                                node.latency_ms >= 50 && "text-destructive"
                               )}>
                                 {node.latency_ms}ms
                               </span>
@@ -903,7 +945,7 @@ function ClusterContent() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 w-8 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                                className="h-8 w-8 p-0 text-destructive hover:text-destructive/80 hover:bg-destructive/20"
                                 onClick={() => setRemoveNodeDialog(node)}
                                 disabled={!isLeader}
                               >
@@ -937,20 +979,19 @@ function ClusterContent() {
               {/* Tab: Raft Log */}
               <TabsContent value="raft" className="space-y-4 mt-0">
                 {/* Backend Note */}
-                <Alert className="border-amber-500/20 bg-amber-500/5">
-                  <AlertTriangle className="h-4 w-4 text-amber-400" />
-                  <AlertTitle className="text-amber-300">Datos Simulados</AlertTitle>
-                  <AlertDescription className="text-muted-foreground text-sm">
+                <Alert variant="warning">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription className="text-sm">
                     El log de Raft requiere un endpoint backend para exponer las entradas.
-                    Endpoint necesario: <code className="text-amber-400">GET /v2/admin/cluster/log</code>
+                    Endpoint necesario: <code>GET /v2/admin/cluster/log</code>
                   </AlertDescription>
                 </Alert>
 
                 {/* Log Explanation */}
-                <Card className="border-white/[0.08] bg-gradient-to-br from-white/[0.03] to-transparent">
+                <Card className="shadow-clay-card">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-lg flex items-center gap-2">
-                      <History className="h-5 w-5 text-blue-400" />
+                      <History className="h-5 w-5 text-info" />
                       Raft Log
                       <InfoTooltip content="El log de Raft contiene todas las operaciones replicadas en el cluster. Cada entrada tiene un índice único y un term que indica en qué época del cluster fue escrita." />
                     </CardTitle>
@@ -962,7 +1003,7 @@ function ClusterContent() {
                     <div className="rounded-lg border border-white/[0.06] overflow-hidden">
                       <Table>
                         <TableHeader>
-                          <TableRow className="border-white/[0.06] hover:bg-transparent bg-white/[0.02]">
+                          <TableRow className="hover:bg-transparent bg-card">
                             <TableHead className="text-xs w-20">Index</TableHead>
                             <TableHead className="text-xs w-16">Term</TableHead>
                             <TableHead className="text-xs">Tipo</TableHead>
@@ -973,9 +1014,9 @@ function ClusterContent() {
                         </TableHeader>
                         <TableBody>
                           {raftLog.map((entry) => (
-                            <TableRow key={entry.index} className="border-white/[0.06]">
+                            <TableRow key={entry.index} className="hover:bg-accent/50 transition-colors duration-150">
                               <TableCell>
-                                <code className="font-mono text-xs text-blue-400">{entry.index}</code>
+                                <code className="font-mono text-xs text-info">{entry.index}</code>
                               </TableCell>
                               <TableCell>
                                 <code className="font-mono text-xs">{entry.term}</code>
@@ -1012,21 +1053,19 @@ function ClusterContent() {
               {/* Tab: Operations */}
               <TabsContent value="operations" className="space-y-4 mt-0">
                 {/* Backend Note */}
-                <Alert className="border-amber-500/20 bg-amber-500/5">
-                  <AlertTriangle className="h-4 w-4 text-amber-400" />
-                  <AlertTitle className="text-amber-300">Operaciones Avanzadas</AlertTitle>
-                  <AlertDescription className="text-muted-foreground text-sm">
+                <Alert variant="warning">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription className="text-sm">
                     Estas operaciones requieren endpoints backend adicionales. Endpoints necesarios:
-                    <code className="ml-2 text-amber-400">POST /v2/admin/cluster/snapshot</code>,
-                    <code className="ml-2 text-amber-400">POST /v2/admin/cluster/leader-transfer</code>
+                    <code className="ml-2">POST /v2/admin/cluster/snapshot</code>,
+                    <code className="ml-2">POST /v2/admin/cluster/leader-transfer</code>
                   </AlertDescription>
                 </Alert>
 
                 {!isLeader && isClusterEnabled && (
-                  <Alert variant="default" className="border-blue-500/20 bg-blue-500/5">
-                    <AlertCircle className="h-4 w-4 text-blue-400" />
-                    <AlertTitle className="text-blue-300">Solo el Leader puede ejecutar operaciones</AlertTitle>
-                    <AlertDescription className="text-muted-foreground">
+                  <Alert variant="info" className="shadow-clay-card">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription className="text-sm">
                       Las operaciones de cluster solo pueden ser ejecutadas por el nodo leader.
                       Conecta al leader para administrar el cluster.
                     </AlertDescription>
@@ -1035,10 +1074,10 @@ function ClusterContent() {
 
                 <div className="grid md:grid-cols-2 gap-4">
                   {/* Force Snapshot */}
-                  <Card className="border-white/[0.08] bg-gradient-to-br from-white/[0.03] to-transparent">
+                  <Card className="shadow-clay-card">
                     <CardHeader>
                       <CardTitle className="text-lg flex items-center gap-2">
-                        <Download className="h-5 w-5 text-emerald-400" />
+                        <Download className="h-5 w-5 text-success" />
                         Crear Snapshot
                       </CardTitle>
                       <CardDescription>
@@ -1048,14 +1087,14 @@ function ClusterContent() {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-4">
-                        <div className="p-3 rounded-lg bg-white/[0.02] border border-white/[0.06]">
+                        <div className="p-3 rounded-lg bg-card border">
                           <p className="text-xs text-muted-foreground mb-1">Último snapshot</p>
                           <code className="text-sm">Index: {health.cluster.raft?.last_snapshot_index || "0"}</code>
                         </div>
                         <Button
                           onClick={() => forceSnapshotMutation.mutate()}
                           disabled={!isLeader || forceSnapshotMutation.isPending}
-                          className="w-full gap-2"
+                          className="w-full gap-2 shadow-clay-button hover:shadow-clay-float hover:scale-105 active:scale-95 transition-all duration-200"
                         >
                           {forceSnapshotMutation.isPending ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -1069,10 +1108,10 @@ function ClusterContent() {
                   </Card>
 
                   {/* Transfer Leadership */}
-                  <Card className="border-white/[0.08] bg-gradient-to-br from-white/[0.03] to-transparent">
+                  <Card className="shadow-clay-card">
                     <CardHeader>
                       <CardTitle className="text-lg flex items-center gap-2">
-                        <SkipForward className="h-5 w-5 text-amber-400" />
+                        <SkipForward className="h-5 w-5 text-warning" />
                         Transferir Liderazgo
                       </CardTitle>
                       <CardDescription>
@@ -1082,8 +1121,8 @@ function ClusterContent() {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-4">
-                        <Alert className="border-amber-500/20 bg-amber-500/5">
-                          <AlertTriangle className="h-4 w-4 text-amber-400" />
+                        <Alert variant="warning" className="shadow-sm">
+                          <AlertTriangle className="h-4 w-4" />
                           <AlertDescription className="text-xs">
                             La transferencia de liderazgo puede causar una breve interrupción
                             en las operaciones de escritura mientras se elige el nuevo leader.
@@ -1093,7 +1132,7 @@ function ClusterContent() {
                           onClick={() => transferLeadershipMutation.mutate()}
                           disabled={!isLeader || transferLeadershipMutation.isPending || totalNodes < 2}
                           variant="outline"
-                          className="w-full gap-2 border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+                          className="w-full gap-2 hover:shadow-clay-button transition-shadow duration-200"
                         >
                           {transferLeadershipMutation.isPending ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -1113,10 +1152,10 @@ function ClusterContent() {
                 </div>
 
                 {/* Configuration Reference */}
-                <Card className="border-white/[0.08] bg-gradient-to-br from-white/[0.03] to-transparent">
+                <Card className="shadow-clay-card">
                   <CardHeader>
                     <CardTitle className="text-lg flex items-center gap-2">
-                      <Terminal className="h-5 w-5 text-zinc-400" />
+                      <Terminal className="h-5 w-5 text-muted-foreground" />
                       Configuración del Cluster
                     </CardTitle>
                     <CardDescription>
@@ -1124,25 +1163,25 @@ function ClusterContent() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="rounded-lg bg-zinc-900/50 border border-white/[0.06] p-4 font-mono text-xs overflow-x-auto">
+                    <div className="rounded-lg bg-zinc-900/50 border p-4 font-mono text-xs overflow-x-auto">
                       <div className="space-y-2">
-                        <div><span className="text-emerald-400"># Habilitar cluster</span></div>
-                        <div><span className="text-blue-400">CLUSTER_ENABLE</span>=<span className="text-amber-400">true</span></div>
-                        <div><span className="text-blue-400">CLUSTER_NODE_ID</span>=<span className="text-amber-400">node-1</span></div>
-                        <div><span className="text-blue-400">CLUSTER_RAFT_ADDR</span>=<span className="text-amber-400">0.0.0.0:7000</span></div>
-                        <div className="pt-2"><span className="text-emerald-400"># Peers estáticos (opcional)</span></div>
-                        <div><span className="text-blue-400">CLUSTER_PEERS</span>=<span className="text-amber-400">node-1=10.0.0.1:7000,node-2=10.0.0.2:7000</span></div>
-                        <div className="pt-2"><span className="text-emerald-400"># TLS para comunicación entre nodos</span></div>
-                        <div><span className="text-blue-400">CLUSTER_TLS_ENABLE</span>=<span className="text-amber-400">true</span></div>
-                        <div><span className="text-blue-400">CLUSTER_TLS_CERT_FILE</span>=<span className="text-amber-400">/certs/raft.crt</span></div>
-                        <div><span className="text-blue-400">CLUSTER_TLS_KEY_FILE</span>=<span className="text-amber-400">/certs/raft.key</span></div>
-                        <div><span className="text-blue-400">CLUSTER_TLS_CA_FILE</span>=<span className="text-amber-400">/certs/ca.crt</span></div>
+                        <div><span className="text-success"># Habilitar cluster</span></div>
+                        <div><span className="text-info">CLUSTER_ENABLE</span>=<span className="text-warning">true</span></div>
+                        <div><span className="text-info">CLUSTER_NODE_ID</span>=<span className="text-warning">node-1</span></div>
+                        <div><span className="text-info">CLUSTER_RAFT_ADDR</span>=<span className="text-warning">0.0.0.0:7000</span></div>
+                        <div className="pt-2"><span className="text-success"># Peers estáticos (opcional)</span></div>
+                        <div><span className="text-info">CLUSTER_PEERS</span>=<span className="text-warning">node-1=10.0.0.1:7000,node-2=10.0.0.2:7000</span></div>
+                        <div className="pt-2"><span className="text-success"># TLS para comunicación entre nodos</span></div>
+                        <div><span className="text-info">CLUSTER_TLS_ENABLE</span>=<span className="text-warning">true</span></div>
+                        <div><span className="text-info">CLUSTER_TLS_CERT_FILE</span>=<span className="text-warning">/certs/raft.crt</span></div>
+                        <div><span className="text-info">CLUSTER_TLS_KEY_FILE</span>=<span className="text-warning">/certs/raft.key</span></div>
+                        <div><span className="text-info">CLUSTER_TLS_CA_FILE</span>=<span className="text-warning">/certs/ca.crt</span></div>
                       </div>
                     </div>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="mt-3 gap-2"
+                      className="mt-3 gap-2 hover:scale-110 active:scale-90 transition-transform duration-150"
                       onClick={() => copyToClipboard(`CLUSTER_ENABLE=true
 CLUSTER_NODE_ID=node-1
 CLUSTER_RAFT_ADDR=0.0.0.0:7000
@@ -1157,9 +1196,9 @@ CLUSTER_PEERS=node-1=10.0.0.1:7000,node-2=10.0.0.2:7000`)}
             </Tabs>
           </>
         ) : (
-          <Card className="border-white/[0.08]">
+          <Card className="shadow-clay-card">
             <CardContent className="py-16 text-center">
-              <XCircle className="h-12 w-12 mx-auto text-red-400 mb-4" />
+              <XCircle className="h-12 w-12 mx-auto text-destructive mb-4" />
               <p className="text-muted-foreground mb-4">No se pudo obtener información del cluster</p>
               <Button onClick={() => refetch()} variant="outline" className="gap-2">
                 <RefreshCw className="h-4 w-4" />
@@ -1171,10 +1210,10 @@ CLUSTER_PEERS=node-1=10.0.0.1:7000,node-2=10.0.0.2:7000`)}
 
         {/* ─── Add Node Dialog ─── */}
         <Dialog open={addNodeDialog} onOpenChange={setAddNodeDialog}>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-md shadow-clay-float">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <Plus className="h-5 w-5 text-purple-400" />
+                <Plus className="h-5 w-5 text-accent" />
                 Agregar Nodo al Cluster
               </DialogTitle>
               <DialogDescription>
@@ -1211,23 +1250,23 @@ CLUSTER_PEERS=node-1=10.0.0.1:7000,node-2=10.0.0.2:7000`)}
                 />
               </div>
 
-              <Alert className="border-blue-500/20 bg-blue-500/5">
-                <Info className="h-4 w-4 text-blue-400" />
+              <Alert variant="info" className="shadow-sm">
+                <Info className="h-4 w-4" />
                 <AlertDescription className="text-xs">
-                  El nodo remoto debe estar iniciado con <code className="text-blue-400">CLUSTER_DISABLE_BOOTSTRAP=true</code> para
+                  El nodo remoto debe estar iniciado con <code>CLUSTER_DISABLE_BOOTSTRAP=true</code> para
                   unirse a un cluster existente sin intentar hacer bootstrap propio.
                 </AlertDescription>
               </Alert>
             </div>
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => setAddNodeDialog(false)}>
+              <Button variant="outline" onClick={() => setAddNodeDialog(false)} className="hover:shadow-clay-button transition-shadow duration-200">
                 Cancelar
               </Button>
               <Button
                 onClick={handleAddNode}
                 disabled={addNodeMutation.isPending || !newNodeForm.id.trim() || !newNodeForm.address.trim()}
-                className="gap-2 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600"
+                className="gap-2 shadow-clay-button hover:shadow-clay-float hover:scale-105 active:scale-95 transition-all duration-200"
               >
                 {addNodeMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -1242,9 +1281,9 @@ CLUSTER_PEERS=node-1=10.0.0.1:7000,node-2=10.0.0.2:7000`)}
 
         {/* ─── Remove Node Dialog ─── */}
         <Dialog open={!!removeNodeDialog} onOpenChange={() => setRemoveNodeDialog(null)}>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-md shadow-clay-float">
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-red-400">
+              <DialogTitle className="flex items-center gap-2 text-destructive">
                 <Trash2 className="h-5 w-5" />
                 Remover Nodo del Cluster
               </DialogTitle>
@@ -1255,7 +1294,7 @@ CLUSTER_PEERS=node-1=10.0.0.1:7000,node-2=10.0.0.2:7000`)}
 
             {removeNodeDialog && (
               <div className="py-4">
-                <div className="p-4 rounded-lg bg-white/[0.02] border border-white/[0.06] space-y-2">
+                <div className="p-4 rounded-lg bg-card border space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Node ID</span>
                     <code className="font-mono">{removeNodeDialog.id}</code>
@@ -1266,8 +1305,8 @@ CLUSTER_PEERS=node-1=10.0.0.1:7000,node-2=10.0.0.2:7000`)}
                   </div>
                 </div>
 
-                <Alert className="mt-4 border-red-500/20 bg-red-500/5">
-                  <AlertTriangle className="h-4 w-4 text-red-400" />
+                <Alert variant="destructive" className="mt-4 shadow-clay-card">
+                  <AlertTriangle className="h-4 w-4" />
                   <AlertDescription className="text-xs">
                     Esta acción no se puede deshacer. El nodo será removido del cluster y dejará de
                     recibir actualizaciones de replicación.
@@ -1277,14 +1316,14 @@ CLUSTER_PEERS=node-1=10.0.0.1:7000,node-2=10.0.0.2:7000`)}
             )}
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => setRemoveNodeDialog(null)}>
+              <Button variant="outline" onClick={() => setRemoveNodeDialog(null)} className="hover:shadow-clay-button transition-shadow duration-200">
                 Cancelar
               </Button>
               <Button
                 onClick={() => removeNodeDialog && removeNodeMutation.mutate(removeNodeDialog.id)}
                 disabled={removeNodeMutation.isPending}
-                variant="destructive"
-                className="gap-2"
+                variant="danger"
+                className="gap-2 shadow-clay-button hover:shadow-clay-float"
               >
                 {removeNodeMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />

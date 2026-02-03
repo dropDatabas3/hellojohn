@@ -4,7 +4,7 @@ import { useState, useCallback } from "react"
 import { useDropzone } from "react-dropzone"
 import { Upload, X, Image as ImageIcon, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ds"
 
 interface LogoDropzoneProps {
     value: string | null

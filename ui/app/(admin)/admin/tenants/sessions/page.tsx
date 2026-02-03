@@ -2,12 +2,13 @@
 
 import { useState, useMemo, Suspense } from "react"
 import { useParams, useSearchParams } from "next/navigation"
+import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
     Monitor, Smartphone, Tablet, Globe, Clock, Shield, Users,
     Search, RefreshCw, LogOut, Trash2, Settings2, MoreHorizontal,
     MapPin, Activity, AlertCircle, CheckCircle2, ChevronRight,
-    Laptop, HelpCircle, Ban, Eye, Filter, X, Zap, Timer
+    Laptop, HelpCircle, Ban, Eye, Filter, X, Zap, Timer, ArrowLeft
 } from "lucide-react"
 import { api, sessionsAdminAPI } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
@@ -122,13 +123,15 @@ function StatsCard({
     label,
     value,
     subValue,
-    variant = "default"
+    variant = "default",
+    isLoading = false
 }: Readonly<{
     icon: React.ElementType
     label: string
     value: string | number
     subValue?: string
     variant?: "info" | "success" | "warning" | "accent" | "default"
+    isLoading?: boolean
 }>) {
     const variantStyles = {
         default: "from-muted/30 to-muted/10 border-border/50",
@@ -153,13 +156,27 @@ function StatsCard({
         )}>
             <CardContent className="p-4">
                 <div className="flex items-start justify-between">
-                    <div>
-                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</p>
-                        <p className="mt-1 text-2xl font-semibold text-foreground">{value}</p>
-                        {subValue && <p className="mt-0.5 text-xs text-muted-foreground">{subValue}</p>}
+                    <div className="space-y-1">
+                        {isLoading ? (
+                            <>
+                                <Skeleton className="h-4 w-24" />
+                                <Skeleton className="h-8 w-16 mt-1" />
+                                <Skeleton className="h-3 w-20 mt-0.5" />
+                            </>
+                        ) : (
+                            <>
+                                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</p>
+                                <p className="mt-1 text-2xl font-semibold text-foreground">{value}</p>
+                                {subValue && <p className="mt-0.5 text-xs text-muted-foreground">{subValue}</p>}
+                            </>
+                        )}
                     </div>
-                    <div className={cn("p-2 rounded-lg", iconStyles[variant])}>
-                        <Icon className="h-5 w-5" />
+                    <div className={cn("p-2 rounded-lg", isLoading ? "bg-muted/30" : iconStyles[variant])}>
+                        {isLoading ? (
+                            <Skeleton className="h-5 w-5 rounded-full" />
+                        ) : (
+                            <Icon className="h-5 w-5" />
+                        )}
                     </div>
                 </div>
             </CardContent>
@@ -374,9 +391,9 @@ function ConfirmDialog({
 
 function SessionsSkeleton() {
     return (
-        <PageShell>
+        <div className="space-y-6 animate-in fade-in duration-500">
             {/* Header */}
-            <div className="flex items-center justify-between pb-8">
+            <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                     <Skeleton className="h-10 w-10 rounded-xl" />
                     <div className="space-y-2">
@@ -394,18 +411,18 @@ function SessionsSkeleton() {
             <Skeleton className="h-10 w-72 rounded-xl" />
 
             {/* Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[1, 2, 3, 4].map((i) => (
                     <Skeleton key={`stat-${i}`} className="h-24 rounded-xl" />
                 ))}
             </div>
 
             {/* Filters */}
-            <Skeleton className="h-16 rounded-xl mt-6" />
+            <Skeleton className="h-16 rounded-xl" />
 
             {/* Table */}
-            <Skeleton className="h-96 rounded-xl mt-6" />
-        </PageShell>
+            <Skeleton className="h-96 rounded-xl" />
+        </div>
     )
 }
 
@@ -566,23 +583,23 @@ function SessionsContent() {
 
     const hasActiveFilters = searchQuery !== "" || deviceFilter !== "all" || statusFilter !== "all"
 
-    if (sessionsLoading) {
-        return <SessionsSkeleton />
-    }
-
     return (
-        <PageShell className="animate-in fade-in duration-500">
+        <div className="space-y-6 animate-in fade-in duration-500">
             {/* Header */}
-            <header className="flex items-center justify-between pb-8">
+            <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                    <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-info to-info/70 flex items-center justify-center shadow-clay-button">
-                        <Activity className="h-5 w-5 text-background" />
-                    </div>
-                    <div>
-                        <h1 className="text-xl font-semibold text-foreground">Gestión de Sesiones</h1>
-                        <p className="text-sm text-muted-foreground">
-                            Monitorea y administra las sesiones activas de {tenant?.name || "tu organización"}
-                        </p>
+                    <Button variant="ghost" size="sm" asChild>
+                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+                            <ArrowLeft className="h-4 w-4" />
+                        </Link>
+                    </Button>
+                    <div className="flex items-center gap-3">
+                        <div>
+                            <h1 className="text-2xl font-bold tracking-tight">Gestión de Sesiones</h1>
+                            <p className="text-sm text-muted-foreground">
+                                {tenant?.name} — Monitorea y administra las sesiones activas
+                            </p>
+                        </div>
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -597,7 +614,7 @@ function SessionsContent() {
                     </Button>
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                            <Button variant="danger" size="sm" className="gap-2">
+                            <Button variant="danger" size="sm" className="gap-2 shadow-clay-button hover:shadow-clay-card transition-shadow">
                                 <Ban className="h-4 w-4" />
                                 <span className="hidden sm:inline">Acciones</span>
                             </Button>
@@ -615,7 +632,11 @@ function SessionsContent() {
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
-            </header>
+            </div>
+                                {/* Info Banner */}
+                    <InlineAlert variant="info">
+                        <strong>Acerca de las sesiones:</strong> Las sesiones representan conexiones activas de usuarios autenticados. Revocar una sesión forzará al usuario a iniciar sesión nuevamente. La ubicación es aproximada y se basa en la dirección IP.
+                    </InlineAlert>
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
                 <TabsList>
@@ -634,10 +655,10 @@ function SessionsContent() {
                 <TabsContent value="sessions" className="space-y-6 mt-0">
                     {/* Stats Grid */}
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <StatsCard icon={Users} label="Total Sesiones" value={stats.total} subValue={`${stats.active} activas`} variant="info" />
-                        <StatsCard icon={CheckCircle2} label="Usuarios Únicos" value={stats.uniqueUsers} variant="success" />
-                        <StatsCard icon={Laptop} label="Desktop" value={stats.desktopCount} subValue={stats.total > 0 ? `${Math.round(stats.desktopCount / stats.total * 100)}%` : "0%"} variant="accent" />
-                        <StatsCard icon={Smartphone} label="Mobile" value={stats.mobileCount} subValue={stats.total > 0 ? `${Math.round(stats.mobileCount / stats.total * 100)}%` : "0%"} variant="default" />
+                        <StatsCard icon={Users} label="Total Sesiones" value={stats.total} subValue={`${stats.active} activas`} variant="info" isLoading={sessionsLoading} />
+                        <StatsCard icon={CheckCircle2} label="Usuarios Únicos" value={stats.uniqueUsers} variant="success" isLoading={sessionsLoading} />
+                        <StatsCard icon={Laptop} label="Desktop" value={stats.desktopCount} subValue={stats.total > 0 ? `${Math.round(stats.desktopCount / stats.total * 100)}%` : "0%"} variant="accent" isLoading={sessionsLoading} />
+                        <StatsCard icon={Smartphone} label="Mobile" value={stats.mobileCount} subValue={stats.total > 0 ? `${Math.round(stats.mobileCount / stats.total * 100)}%` : "0%"} variant="default" isLoading={sessionsLoading} />
                     </div>
 
                     {/* Filters */}
@@ -693,7 +714,58 @@ function SessionsContent() {
                     </Card>
 
                     {/* Sessions Table */}
-                    {filteredSessions.length === 0 ? (
+                    {sessionsLoading ? (
+                        <Card>
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Usuario</TableHead>
+                                        <TableHead>Dispositivo</TableHead>
+                                        <TableHead>Ubicación</TableHead>
+                                        <TableHead>Última Actividad</TableHead>
+                                        <TableHead>Estado</TableHead>
+                                        <TableHead className="text-right">Acciones</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {[1, 2, 3, 4, 5].map((i) => (
+                                        <TableRow key={`skeleton-${i}`}>
+                                            <TableCell>
+                                                <div className="flex items-center gap-3">
+                                                    <Skeleton className="h-8 w-8 rounded-full" />
+                                                    <div className="space-y-1">
+                                                        <Skeleton className="h-4 w-32" />
+                                                        <Skeleton className="h-3 w-24" />
+                                                    </div>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell>
+                                                <div className="space-y-1">
+                                                    <Skeleton className="h-4 w-20" />
+                                                    <Skeleton className="h-3 w-16" />
+                                                </div>
+                                            </TableCell>
+                                            <TableCell>
+                                                <div className="space-y-1">
+                                                    <Skeleton className="h-4 w-24" />
+                                                    <Skeleton className="h-3 w-16" />
+                                                </div>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Skeleton className="h-4 w-20" />
+                                            </TableCell>
+                                            <TableCell>
+                                                <Skeleton className="h-6 w-16 rounded-full" />
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                <Skeleton className="h-8 w-8 rounded-md ml-auto" />
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </Card>
+                    ) : filteredSessions.length === 0 ? (
                         <Card>
                             <EmptyState
                                 icon={<Activity className="h-12 w-12" />}
@@ -809,11 +881,6 @@ function SessionsContent() {
                             </TableBody>
                         </Table>
                     )}
-
-                    {/* Info Banner */}
-                    <InlineAlert variant="info">
-                        <strong>Acerca de las sesiones:</strong> Las sesiones representan conexiones activas de usuarios autenticados. Revocar una sesión forzará al usuario a iniciar sesión nuevamente. La ubicación es aproximada y se basa en la dirección IP.
-                    </InlineAlert>
                 </TabsContent>
 
                 {/* Policies Tab */}
@@ -1026,7 +1093,7 @@ function SessionsContent() {
                 }
                 loading={revokeSessionMutation.isPending || revokeUserSessionsMutation.isPending || revokeAllSessionsMutation.isPending}
             />
-        </PageShell>
+        </div>
     )
 }
 

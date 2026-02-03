@@ -11,23 +11,23 @@ import {
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { apiFetch } from "@/lib/routes"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
+import { Button } from "@/components/ds"
+import { Input } from "@/components/ds"
+import { Card } from "@/components/ds"
+import { Label } from "@/components/ds"
 import { useToast } from "@/hooks/use-toast"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ds"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ds"
+import { Badge } from "@/components/ds"
 import {
     Tooltip,
     TooltipContent,
     TooltipProvider,
     TooltipTrigger,
-} from "@/components/ui/tooltip"
+} from "@/components/ds"
 import type { Tenant, Client } from "@/lib/types"
-import { Textarea } from "@/components/ui/textarea"
-import { cn } from "@/lib/utils"
+import { Textarea } from "@/components/ds"
+import { cn } from "@/components/ds/utils/cn"
 
 // ─── Helper Functions ───
 
@@ -108,9 +108,10 @@ function StepIndicator({ step, currentStep, label }: { step: number; currentStep
         <div className="flex items-center gap-3">
             <div className={cn(
                 "h-8 w-8 rounded-full flex items-center justify-center text-sm font-medium transition-all",
-                isComplete && "bg-emerald-500 text-white",
-                isActive && "bg-indigo-500 text-white ring-4 ring-indigo-500/20",
-                !isActive && !isComplete && "bg-zinc-800 text-zinc-500"
+                "shadow-clay-button",
+                isComplete && "bg-success text-success-foreground",
+                isActive && "bg-accent text-accent-foreground ring-4 ring-accent/20 shadow-clay-float",
+                !isActive && !isComplete && "bg-muted text-muted-foreground"
             )}>
                 {isComplete ? <Check className="h-4 w-4" /> : step}
             </div>
@@ -146,14 +147,14 @@ function JwtDecoder({ token, title }: { token: string; title: string }) {
         <div className="space-y-4">
             <div className="flex items-center justify-between">
                 <h4 className="text-sm font-medium flex items-center gap-2">
-                    <Key className="h-4 w-4 text-indigo-500" />
+                    <Key className="h-4 w-4 text-accent" />
                     {title}
                     {isExpired ? (
-                        <Badge variant="outline" className="text-[10px] bg-red-500/10 text-red-500 border-red-500/20">
+                        <Badge variant="outline" className="text-[10px] bg-destructive/10 text-destructive border-destructive/20">
                             EXPIRADO
                         </Badge>
                     ) : payload.exp ? (
-                        <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+                        <Badge variant="outline" className="text-[10px] bg-success/10 text-success border-success/20">
                             {getTimeRemaining(payload.exp)}
                         </Badge>
                     ) : null}
@@ -162,7 +163,7 @@ function JwtDecoder({ token, title }: { token: string; title: string }) {
                     variant="ghost"
                     size="sm"
                     onClick={() => setShowRaw(!showRaw)}
-                    className="text-xs"
+                    className="text-xs hover:scale-110 active:scale-95 transition-transform"
                 >
                     {showRaw ? <Eye className="h-3.5 w-3.5 mr-1" /> : <EyeOff className="h-3.5 w-3.5 mr-1" />}
                     {showRaw ? "Ver Decodificado" : "Ver Raw"}
@@ -176,9 +177,9 @@ function JwtDecoder({ token, title }: { token: string; title: string }) {
             ) : (
                 <div className="space-y-3">
                     {/* Header */}
-                    <div className="rounded-lg border bg-zinc-50/50 dark:bg-zinc-800/50 overflow-hidden">
-                        <div className="px-3 py-2 bg-violet-500/10 border-b border-violet-500/20">
-                            <span className="text-xs font-medium text-violet-600 dark:text-violet-400">HEADER</span>
+                    <div className="rounded-lg border bg-muted/5 overflow-hidden shadow-clay-card">
+                        <div className="px-3 py-2 bg-accent/10 border-b border-accent/20">
+                            <span className="text-xs font-medium text-accent">HEADER</span>
                         </div>
                         <pre className="p-3 text-xs font-mono overflow-x-auto">
                             <code>{JSON.stringify(header, null, 2)}</code>
@@ -186,9 +187,9 @@ function JwtDecoder({ token, title }: { token: string; title: string }) {
                     </div>
 
                     {/* Payload */}
-                    <div className="rounded-lg border bg-zinc-50/50 dark:bg-zinc-800/50 overflow-hidden">
-                        <div className="px-3 py-2 bg-blue-500/10 border-b border-blue-500/20">
-                            <span className="text-xs font-medium text-blue-600 dark:text-blue-400">PAYLOAD (Claims)</span>
+                    <div className="rounded-lg border bg-muted/5 overflow-hidden shadow-clay-card">
+                        <div className="px-3 py-2 bg-info/10 border-b border-info/20">
+                            <span className="text-xs font-medium text-info">PAYLOAD (Claims)</span>
                         </div>
                         <div className="p-3 space-y-2">
                             {/* Standard claims with better formatting */}
@@ -197,7 +198,7 @@ function JwtDecoder({ token, title }: { token: string; title: string }) {
                                     <span className="text-muted-foreground flex items-center gap-1">
                                         <User className="h-3 w-3" /> sub (Subject)
                                     </span>
-                                    <code className="bg-zinc-200 dark:bg-zinc-700 px-2 py-0.5 rounded">{payload.sub}</code>
+                                    <code className="bg-muted px-2 py-0.5 rounded">{payload.sub}</code>
                                 </div>
                             )}
                             {payload.iss && (
@@ -205,7 +206,7 @@ function JwtDecoder({ token, title }: { token: string; title: string }) {
                                     <span className="text-muted-foreground flex items-center gap-1">
                                         <Globe className="h-3 w-3" /> iss (Issuer)
                                     </span>
-                                    <code className="bg-zinc-200 dark:bg-zinc-700 px-2 py-0.5 rounded truncate max-w-[200px]">{payload.iss}</code>
+                                    <code className="bg-muted px-2 py-0.5 rounded truncate max-w-[200px]">{payload.iss}</code>
                                 </div>
                             )}
                             {payload.aud && (
@@ -213,7 +214,7 @@ function JwtDecoder({ token, title }: { token: string; title: string }) {
                                     <span className="text-muted-foreground flex items-center gap-1">
                                         <Shield className="h-3 w-3" /> aud (Audience)
                                     </span>
-                                    <code className="bg-zinc-200 dark:bg-zinc-700 px-2 py-0.5 rounded">{payload.aud}</code>
+                                    <code className="bg-muted px-2 py-0.5 rounded">{payload.aud}</code>
                                 </div>
                             )}
                             {payload.exp && (
@@ -221,7 +222,7 @@ function JwtDecoder({ token, title }: { token: string; title: string }) {
                                     <span className="text-muted-foreground flex items-center gap-1">
                                         <Clock className="h-3 w-3" /> exp (Expiration)
                                     </span>
-                                    <span className={cn("font-mono", isExpired && "text-red-500")}>
+                                    <span className={cn("font-mono", isExpired && "text-destructive")}>
                                         {formatTimestamp(payload.exp)}
                                     </span>
                                 </div>
@@ -241,7 +242,7 @@ function JwtDecoder({ token, title }: { token: string; title: string }) {
                                     <div className="border-t border-dashed pt-2 mt-2">
                                         <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Otros Claims</span>
                                     </div>
-                                    <pre className="text-xs font-mono overflow-x-auto bg-zinc-100 dark:bg-zinc-900 p-2 rounded">
+                                    <pre className="text-xs font-mono overflow-x-auto bg-muted p-2 rounded">
                                         <code>
                                             {JSON.stringify(
                                                 Object.fromEntries(
@@ -257,9 +258,9 @@ function JwtDecoder({ token, title }: { token: string; title: string }) {
                     </div>
 
                     {/* Signature */}
-                    <div className="rounded-lg border bg-zinc-50/50 dark:bg-zinc-800/50 overflow-hidden">
-                        <div className="px-3 py-2 bg-emerald-500/10 border-b border-emerald-500/20">
-                            <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">SIGNATURE</span>
+                    <div className="rounded-lg border bg-muted/5 overflow-hidden shadow-clay-card">
+                        <div className="px-3 py-2 bg-success/10 border-b border-success/20">
+                            <span className="text-xs font-medium text-success">SIGNATURE</span>
                         </div>
                         <div className="p-3">
                             <code className="text-xs font-mono text-muted-foreground break-all">{signature.substring(0, 50)}...</code>
@@ -387,10 +388,10 @@ async function exchangeCode(code) {
                         <Button
                             variant="ghost"
                             size="sm"
-                            className="absolute top-2 right-2 text-zinc-400 hover:text-zinc-100"
+                            className="absolute top-2 right-2 hover:scale-110 active:scale-95 transition-transform"
                             onClick={() => copyCode(`${curlAuth}\n\n${curlToken}`, 'curl')}
                         >
-                            {copiedTab === 'curl' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                            {copiedTab === 'curl' ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
                         </Button>
                     </div>
                 </TabsContent>
@@ -403,10 +404,10 @@ async function exchangeCode(code) {
                         <Button
                             variant="ghost"
                             size="sm"
-                            className="absolute top-2 right-2 text-zinc-400 hover:text-zinc-100"
+                            className="absolute top-2 right-2 hover:scale-110 active:scale-95 transition-transform"
                             onClick={() => copyCode(jsCode, 'js')}
                         >
-                            {copiedTab === 'js' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                            {copiedTab === 'js' ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
                         </Button>
                     </div>
                 </TabsContent>
@@ -761,7 +762,6 @@ export default function PlaygroundPage() {
             {/* Header */}
             <div>
                 <h1 className="text-3xl font-bold flex items-center gap-3">
-                    <Zap className="h-8 w-8 text-indigo-500" />
                     OAuth2 Playground
                 </h1>
                 <p className="text-muted-foreground mt-1">
@@ -770,9 +770,9 @@ export default function PlaygroundPage() {
             </div>
 
             {/* Info Banner */}
-            <div className="flex items-start gap-3 p-4 rounded-xl border bg-gradient-to-r from-indigo-500/5 to-violet-500/5 border-indigo-500/10">
-                <div className="h-10 w-10 rounded-lg bg-indigo-500/10 flex items-center justify-center shrink-0">
-                    <Info className="h-5 w-5 text-indigo-500" />
+            <div className="flex items-start gap-3 p-4 rounded-xl border bg-gradient-to-r from-accent/5 to-accent/5 border-accent/10 shadow-clay-card">
+                <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
+                    <Info className="h-5 w-5 text-accent" />
                 </div>
                 <div>
                     <h3 className="font-medium text-sm">¿Qué es el OAuth2 Playground?</h3>
@@ -785,7 +785,7 @@ export default function PlaygroundPage() {
             </div>
 
             {/* Steps Indicator */}
-            <div className="flex items-center justify-between p-4 rounded-xl border bg-card">
+            <div className="flex items-center justify-between p-4 rounded-xl border bg-card shadow-clay-card">
                 <StepIndicator step={1} currentStep={currentStep} label="Seleccionar App" />
                 <ChevronRight className="h-4 w-4 text-muted-foreground" />
                 <StepIndicator step={2} currentStep={currentStep} label="Configurar" />
@@ -797,11 +797,11 @@ export default function PlaygroundPage() {
 
             {/* Step 1: Select Application */}
             {currentStep === 1 && (
-                <Card className="p-6">
+                <Card className="p-6 shadow-clay-card">
                     <div className="space-y-6">
                         <div>
                             <h2 className="text-xl font-semibold flex items-center gap-2">
-                                <span className="h-7 w-7 rounded-full bg-indigo-500 text-white flex items-center justify-center text-sm">1</span>
+                                <span className="h-7 w-7 rounded-full bg-accent text-accent-foreground flex items-center justify-center text-sm">1</span>
                                 Selecciona la Aplicación
                             </h2>
                             <p className="text-sm text-muted-foreground mt-1">
@@ -823,7 +823,7 @@ export default function PlaygroundPage() {
                                         {tenants?.filter((t) => t.id).map((tenant) => (
                                             <SelectItem key={tenant.id} value={tenant.id}>
                                                 <div className="flex items-center gap-2">
-                                                    <div className="h-6 w-6 rounded bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white text-xs">
+                                                    <div className="h-6 w-6 rounded bg-gradient-to-br from-accent to-accent-foreground flex items-center justify-center text-white text-xs">
                                                         {tenant.name.charAt(0).toUpperCase()}
                                                     </div>
                                                     {tenant.name}
@@ -865,15 +865,15 @@ export default function PlaygroundPage() {
 
                         {/* Client Info Preview */}
                         {selectedClientData && (
-                            <div className="p-4 rounded-lg border bg-zinc-50/50 dark:bg-zinc-800/50 space-y-3">
+                            <div className="p-4 rounded-lg border bg-muted/5 space-y-3 shadow-clay-card">
                                 <h4 className="text-sm font-medium flex items-center gap-2">
-                                    <Shield className="h-4 w-4 text-blue-500" />
+                                    <Shield className="h-4 w-4 text-info" />
                                     Información del Client
                                 </h4>
                                 <div className="grid gap-2 text-sm">
                                     <div className="flex items-center justify-between">
                                         <span className="text-muted-foreground">Client ID</span>
-                                        <code className="bg-zinc-200 dark:bg-zinc-700 px-2 py-0.5 rounded text-xs">
+                                        <code className="bg-muted px-2 py-0.5 rounded text-xs">
                                             {selectedClientData.clientId}
                                         </code>
                                     </div>
@@ -907,7 +907,11 @@ export default function PlaygroundPage() {
                         )}
 
                         <div className="flex justify-end">
-                            <Button onClick={() => setCurrentStep(2)} disabled={!canProceedStep1}>
+                            <Button
+                                onClick={() => setCurrentStep(2)}
+                                disabled={!canProceedStep1}
+                                className="shadow-clay-button hover:shadow-clay-float hover:-translate-y-0.5 active:translate-y-0 transition-all"
+                            >
                                 Continuar
                                 <ArrowRight className="ml-2 h-4 w-4" />
                             </Button>
@@ -918,12 +922,12 @@ export default function PlaygroundPage() {
 
             {/* Step 2: Configure Request */}
             {currentStep === 2 && (
-                <Card className="p-6">
+                <Card className="p-6 shadow-clay-card">
                     <div className="space-y-6">
                         <div className="flex items-center justify-between">
                             <div>
                                 <h2 className="text-xl font-semibold flex items-center gap-2">
-                                    <span className="h-7 w-7 rounded-full bg-indigo-500 text-white flex items-center justify-center text-sm">2</span>
+                                    <span className="h-7 w-7 rounded-full bg-accent text-accent-foreground flex items-center justify-center text-sm">2</span>
                                     Configura el Request
                                 </h2>
                                 <p className="text-sm text-muted-foreground mt-1">
@@ -975,7 +979,7 @@ export default function PlaygroundPage() {
                                     <SelectContent>
                                         <SelectItem value="code">
                                             <div className="flex items-center gap-2">
-                                                <Badge className="text-[10px] bg-emerald-500/10 text-emerald-600">Recomendado</Badge>
+                                                <Badge className="text-[10px] bg-success/10 text-success border-success/20">Recomendado</Badge>
                                                 code
                                             </div>
                                         </SelectItem>
@@ -992,7 +996,7 @@ export default function PlaygroundPage() {
                                     Scopes
                                     <InfoTooltip content="Permisos que solicitas al usuario. 'openid' es obligatorio para OIDC." />
                                 </Label>
-                                <div className="flex flex-wrap gap-2 p-3 rounded-lg border bg-zinc-50/50 dark:bg-zinc-800/50 min-h-[48px]">
+                                <div className="flex flex-wrap gap-2 p-3 rounded-lg border bg-muted/5 min-h-[48px]">
                                     {selectedScopes.map((scope) => (
                                         <Badge
                                             key={scope}
@@ -1036,17 +1040,17 @@ export default function PlaygroundPage() {
 
                             {/* PKCE */}
                             {responseType === "code" && (
-                                <div className="p-4 rounded-lg border bg-emerald-500/5 border-emerald-500/20 space-y-3">
+                                <div className="p-4 rounded-lg border bg-success/5 border-success/20 space-y-3 shadow-clay-card">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2">
-                                            <Lock className="h-4 w-4 text-emerald-500" />
+                                            <Lock className="h-4 w-4 text-success" />
                                             <Label className="cursor-pointer">
                                                 Usar PKCE
                                                 <InfoTooltip content="Proof Key for Code Exchange - Agrega seguridad adicional al flujo de autorización. Recomendado para todas las aplicaciones." />
                                             </Label>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <Badge className="text-[10px] bg-emerald-500/10 text-emerald-600">
+                                            <Badge className="text-[10px] bg-success/10 text-success border-success/20">
                                                 Recomendado
                                             </Badge>
                                             <input
@@ -1069,7 +1073,7 @@ export default function PlaygroundPage() {
                                                 Generar Code Verifier & Challenge
                                             </Button>
                                             {codeChallenge && (
-                                                <div className="text-xs space-y-1 font-mono bg-zinc-100 dark:bg-zinc-900 p-2 rounded">
+                                                <div className="text-xs space-y-1 font-mono bg-muted p-2 rounded">
                                                     <div><span className="text-muted-foreground">verifier:</span> {codeVerifier.substring(0, 20)}...</div>
                                                     <div><span className="text-muted-foreground">challenge:</span> {codeChallenge.substring(0, 20)}...</div>
                                                 </div>
@@ -1120,6 +1124,7 @@ export default function PlaygroundPage() {
                             <Button
                                 onClick={generateAuthUrl}
                                 disabled={!canProceedStep2 || (usePkce && !codeChallenge && responseType === "code")}
+                                className="shadow-clay-button hover:shadow-clay-float hover:-translate-y-0.5 active:translate-y-0 transition-all"
                             >
                                 Generar URL de Autorización
                                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -1131,12 +1136,12 @@ export default function PlaygroundPage() {
 
             {/* Step 3: Authorization */}
             {currentStep === 3 && (
-                <Card className="p-6">
+                <Card className="p-6 shadow-clay-card">
                     <div className="space-y-6">
                         <div className="flex items-center justify-between">
                             <div>
                                 <h2 className="text-xl font-semibold flex items-center gap-2">
-                                    <span className="h-7 w-7 rounded-full bg-indigo-500 text-white flex items-center justify-center text-sm">3</span>
+                                    <span className="h-7 w-7 rounded-full bg-accent text-accent-foreground flex items-center justify-center text-sm">3</span>
                                     Inicia el Flujo de Autorización
                                 </h2>
                                 <p className="text-sm text-muted-foreground mt-1">
@@ -1169,11 +1174,18 @@ export default function PlaygroundPage() {
                                 </div>
                             </div>
                             <div className="flex gap-2">
-                                <Button onClick={() => window.open(authUrl, "_blank")} className="flex-1">
+                                <Button
+                                    onClick={() => window.open(authUrl, "_blank")}
+                                    className="flex-1 shadow-clay-button hover:shadow-clay-float hover:-translate-y-0.5 active:translate-y-0 transition-all"
+                                >
                                     <ExternalLink className="mr-2 h-4 w-4" />
                                     Abrir en Nueva Pestaña
                                 </Button>
-                                <Button variant="outline" onClick={() => copyToClipboard(authUrl)}>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => copyToClipboard(authUrl)}
+                                    className="hover:scale-110 active:scale-95 transition-transform"
+                                >
                                     <Copy className="mr-2 h-4 w-4" />
                                     Copiar URL
                                 </Button>
@@ -1211,6 +1223,7 @@ export default function PlaygroundPage() {
                                 <Button
                                     onClick={exchangeToken}
                                     disabled={!tokenCode || isExchanging}
+                                    className="shadow-clay-button hover:shadow-clay-float hover:-translate-y-0.5 active:translate-y-0 transition-all"
                                 >
                                     {isExchanging ? (
                                         <>
@@ -1242,19 +1255,23 @@ export default function PlaygroundPage() {
 
             {/* Step 4: Tokens */}
             {currentStep === 4 && tokenResponse && (
-                <Card className="p-6">
+                <Card className="p-6 shadow-clay-card">
                     <div className="space-y-6">
                         <div className="flex items-center justify-between">
                             <div>
                                 <h2 className="text-xl font-semibold flex items-center gap-2">
-                                    <CheckCircle2 className="h-6 w-6 text-emerald-500" />
+                                    <CheckCircle2 className="h-6 w-6 text-success" />
                                     ¡Tokens Obtenidos!
                                 </h2>
                                 <p className="text-sm text-muted-foreground mt-1">
                                     El flujo OAuth2 se completó exitosamente
                                 </p>
                             </div>
-                            <Button variant="outline" size="sm" onClick={() => {
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="shadow-clay-button hover:shadow-clay-float hover:scale-105 active:scale-95 transition-all"
+                                onClick={() => {
                                 setCurrentStep(1)
                                 setTokenResponse(null)
                                 setTokenCode("")
@@ -1269,12 +1286,12 @@ export default function PlaygroundPage() {
 
                         {/* Token Response Raw */}
                         {tokenResponse.error ? (
-                            <div className="p-4 rounded-lg border border-red-500/20 bg-red-500/5">
-                                <h4 className="text-sm font-medium text-red-600 dark:text-red-400 flex items-center gap-2">
+                            <div className="p-4 rounded-lg border border-destructive/20 bg-destructive/5 shadow-clay-card">
+                                <h4 className="text-sm font-medium text-destructive flex items-center gap-2">
                                     <AlertCircle className="h-4 w-4" />
                                     Error en la respuesta
                                 </h4>
-                                <pre className="mt-2 text-xs font-mono text-red-500">
+                                <pre className="mt-2 text-xs font-mono text-destructive">
                                     {JSON.stringify(tokenResponse, null, 2)}
                                 </pre>
                             </div>
@@ -1298,13 +1315,13 @@ export default function PlaygroundPage() {
 
                                 {/* Refresh Token */}
                                 {tokenResponse.refresh_token && (
-                                    <div className="p-4 rounded-lg border bg-zinc-50/50 dark:bg-zinc-800/50">
+                                    <div className="p-4 rounded-lg border bg-muted/5 shadow-clay-card">
                                         <div className="flex items-center justify-between mb-2">
                                             <h4 className="text-sm font-medium flex items-center gap-2">
-                                                <RefreshCw className="h-4 w-4 text-blue-500" />
+                                                <RefreshCw className="h-4 w-4 text-info" />
                                                 Refresh Token
                                                 {refreshCount > 0 && (
-                                                    <Badge variant="outline" className="text-[10px] bg-blue-500/10 text-blue-600 border-blue-500/20">
+                                                    <Badge variant="outline" className="text-[10px] bg-info/10 text-info border-info/20">
                                                         Refreshed {refreshCount}x
                                                     </Badge>
                                                 )}
@@ -1314,7 +1331,7 @@ export default function PlaygroundPage() {
                                                 size="sm"
                                                 onClick={refreshTokens}
                                                 disabled={isRefreshing}
-                                                className="text-xs"
+                                                className="text-xs shadow-clay-button hover:scale-110 active:scale-95 transition-transform"
                                             >
                                                 {isRefreshing ? (
                                                     <>
@@ -1337,10 +1354,10 @@ export default function PlaygroundPage() {
 
                                 {/* UserInfo Testing */}
                                 {tokenResponse.access_token && (
-                                    <div className="p-4 rounded-lg border bg-indigo-50/50 dark:bg-indigo-900/10">
+                                    <div className="p-4 rounded-lg border bg-accent/5 shadow-clay-card">
                                         <div className="flex items-center justify-between mb-3">
                                             <h4 className="text-sm font-medium flex items-center gap-2">
-                                                <User className="h-4 w-4 text-indigo-500" />
+                                                <User className="h-4 w-4 text-accent" />
                                                 Probar UserInfo Endpoint
                                             </h4>
                                             <Button
@@ -1348,7 +1365,7 @@ export default function PlaygroundPage() {
                                                 size="sm"
                                                 onClick={fetchUserInfo}
                                                 disabled={isLoadingUserInfo}
-                                                className="text-xs"
+                                                className="text-xs shadow-clay-button hover:scale-110 active:scale-95 transition-transform"
                                             >
                                                 {isLoadingUserInfo ? (
                                                     <>
@@ -1365,18 +1382,18 @@ export default function PlaygroundPage() {
                                         </div>
 
                                         {userInfoResponse && (
-                                            <div className="rounded-lg border bg-white dark:bg-zinc-800 overflow-hidden">
+                                            <div className="rounded-lg border bg-white dark:bg-zinc-800 overflow-hidden shadow-clay-card">
                                                 {userInfoResponse.error ? (
-                                                    <div className="p-3 bg-red-500/5 border-red-500/20">
-                                                        <p className="text-xs text-red-600 dark:text-red-400 font-medium flex items-center gap-1.5">
+                                                    <div className="p-3 bg-destructive/5 border-destructive/20">
+                                                        <p className="text-xs text-destructive font-medium flex items-center gap-1.5">
                                                             <AlertCircle className="h-3.5 w-3.5" />
                                                             {userInfoResponse.error_description || userInfoResponse.message || "Error al obtener claims"}
                                                         </p>
                                                     </div>
                                                 ) : (
                                                     <div className="divide-y">
-                                                        <div className="px-3 py-2 bg-indigo-500/10">
-                                                            <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                                                        <div className="px-3 py-2 bg-accent/10">
+                                                            <span className="text-xs font-medium text-accent">
                                                                 OIDC User Claims
                                                             </span>
                                                         </div>
@@ -1384,7 +1401,7 @@ export default function PlaygroundPage() {
                                                             {Object.entries(userInfoResponse).map(([key, value]) => (
                                                                 <div key={key} className="flex items-start justify-between text-xs gap-3">
                                                                     <span className="text-muted-foreground font-mono">{key}</span>
-                                                                    <code className="bg-zinc-100 dark:bg-zinc-700 px-2 py-0.5 rounded text-right flex-1 break-all">
+                                                                    <code className="bg-muted px-2 py-0.5 rounded text-right flex-1 break-all">
                                                                         {typeof value === 'object' ? JSON.stringify(value) : String(value)}
                                                                     </code>
                                                                 </div>
@@ -1406,19 +1423,19 @@ export default function PlaygroundPage() {
                                 {/* Additional Info */}
                                 <div className="grid grid-cols-3 gap-4">
                                     {tokenResponse.token_type && (
-                                        <div className="p-3 rounded-lg border bg-zinc-50/50 dark:bg-zinc-800/50">
+                                        <div className="p-3 rounded-lg border bg-muted/5 shadow-clay-card">
                                             <p className="text-xs text-muted-foreground">Token Type</p>
                                             <p className="font-medium">{tokenResponse.token_type}</p>
                                         </div>
                                     )}
                                     {tokenResponse.expires_in && (
-                                        <div className="p-3 rounded-lg border bg-zinc-50/50 dark:bg-zinc-800/50">
+                                        <div className="p-3 rounded-lg border bg-muted/5 shadow-clay-card">
                                             <p className="text-xs text-muted-foreground">Expira en</p>
                                             <p className="font-medium">{tokenResponse.expires_in}s</p>
                                         </div>
                                     )}
                                     {tokenResponse.scope && (
-                                        <div className="p-3 rounded-lg border bg-zinc-50/50 dark:bg-zinc-800/50">
+                                        <div className="p-3 rounded-lg border bg-muted/5 shadow-clay-card">
                                             <p className="text-xs text-muted-foreground">Scopes</p>
                                             <p className="font-medium text-sm">{tokenResponse.scope}</p>
                                         </div>

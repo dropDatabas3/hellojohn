@@ -48,6 +48,8 @@ contar_estructura.ps1
 /ui/.env.test.local
 /ui/.env.production.local
 /ui/build.log
+*.tsbuildinfo
+tsconfig.tsbuildinfo
 
 # Context docs
 roadmap.md
@@ -82,11 +84,12 @@ roadmap_v2.md
 
 
 # --------- claude ---------
-#/.claude/
-#CLAUDE.md
-#.clauderc
+/.claude/
+CLAUDE.md
+.clauderc
 
 
 # ───────── Auditoría ─────────
+/docs/
 docs/audit
-#docs/ui-unification
+docs/ui-unification

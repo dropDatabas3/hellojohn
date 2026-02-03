@@ -8,28 +8,37 @@ import { cn } from '../utils/cn'
  * Provides consistent clay interactions with semantic tokens.
  */
 const buttonVariants = cva(
-  // Base styles
-  'inline-flex items-center justify-center gap-2 rounded-button font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50',
+  // Base styles - more rounded, softer feel
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full font-medium transition-all duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
   {
     variants: {
       variant: {
         default:
-          'bg-gradient-to-b from-accent-2-clay to-accent-3-clay text-white shadow-clay-button hover:shadow-clay-card hover:-translate-y-0.5 active:translate-y-0 active:shadow-clay-button transition-all duration-200',
+          'bg-gradient-to-b from-accent to-accent/90 text-white shadow-[0_1px_2px_rgba(0,0,0,0.1),0_2px_4px_rgba(0,0,0,0.08),inset_0_1px_0_rgba(255,255,255,0.15)] hover:shadow-[0_4px_8px_rgba(0,0,0,0.12),0_2px_4px_rgba(0,0,0,0.08),inset_0_1px_0_rgba(255,255,255,0.2)] hover:-translate-y-0.5 hover:brightness-110 hover:[text-shadow:0_0_12px_rgba(255,255,255,0.5)] active:translate-y-0 active:shadow-[0_1px_2px_rgba(0,0,0,0.1),inset_0_1px_2px_rgba(0,0,0,0.1)] active:brightness-95',
         primary:
-          'bg-accent text-accent-foreground shadow-button hover:bg-accent-hover hover:-translate-y-0.5 active:bg-accent-active active:translate-y-0 active:scale-[0.98]',
+          'bg-gradient-to-b from-primary to-primary/90 text-primary-foreground shadow-[0_1px_2px_rgba(0,0,0,0.1),0_2px_4px_rgba(0,0,0,0.08),inset_0_1px_0_rgba(255,255,255,0.1)] hover:shadow-[0_4px_8px_rgba(0,0,0,0.15),0_2px_4px_rgba(0,0,0,0.1)] hover:-translate-y-0.5 hover:brightness-105 hover:[text-shadow:0_0_12px_rgba(255,255,255,0.5)] active:translate-y-0 active:brightness-95',
         secondary:
-          'bg-secondary text-secondary-foreground shadow-card hover:shadow-float hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]',
+          'bg-gradient-to-b from-secondary to-secondary/95 text-secondary-foreground border border-border/50 shadow-[0_1px_2px_rgba(0,0,0,0.04),inset_0_1px_0_rgba(255,255,255,0.5)] hover:shadow-[0_4px_8px_rgba(0,0,0,0.08),0_2px_4px_rgba(0,0,0,0.04)] hover:-translate-y-0.5 hover:border-border hover:[text-shadow:0_0_8px_rgba(0,0,0,0.1)] dark:hover:[text-shadow:0_0_8px_rgba(255,255,255,0.2)] active:translate-y-0 active:shadow-[inset_0_1px_2px_rgba(0,0,0,0.05)]',
         ghost:
-          'bg-transparent hover:bg-accent/10 transition-colors duration-150',
+          'bg-transparent text-foreground hover:bg-accent/10 hover:[text-shadow:0_0_8px_rgba(0,0,0,0.1)] dark:hover:[text-shadow:0_0_8px_rgba(255,255,255,0.2)] active:bg-accent/15',
         outline:
-          'border-2 border-border bg-background/80 backdrop-blur-sm hover:bg-accent/5 hover:border-accent hover:shadow-clay-button transition-all duration-200',
+          'border-2 border-border/60 bg-background/50 backdrop-blur-sm text-foreground hover:bg-accent/5 hover:border-accent/50 hover:shadow-[0_2px_8px_rgba(var(--accent-h),var(--accent-s),var(--accent-l),0.15)] hover:[text-shadow:0_0_8px_rgba(0,0,0,0.1)] dark:hover:[text-shadow:0_0_8px_rgba(255,255,255,0.2)] active:bg-accent/10',
         danger:
-          'bg-danger text-white shadow-button hover:opacity-90 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98]',
+          'bg-gradient-to-b from-danger to-danger/90 text-white shadow-[0_1px_2px_rgba(0,0,0,0.1),0_2px_4px_rgba(220,38,38,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] hover:shadow-[0_4px_8px_rgba(220,38,38,0.3),0_2px_4px_rgba(0,0,0,0.1)] hover:-translate-y-0.5 hover:brightness-110 hover:[text-shadow:0_0_12px_rgba(255,255,255,0.5)] active:translate-y-0 active:brightness-95',
+        success:
+          'bg-gradient-to-b from-success to-success/90 text-white shadow-[0_1px_2px_rgba(0,0,0,0.1),0_2px_4px_rgba(34,197,94,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] hover:shadow-[0_4px_8px_rgba(34,197,94,0.3),0_2px_4px_rgba(0,0,0,0.1)] hover:-translate-y-0.5 hover:brightness-110 hover:[text-shadow:0_0_12px_rgba(255,255,255,0.5)] active:translate-y-0 active:brightness-95',
+        link:
+          'text-accent underline-offset-4 hover:underline hover:brightness-110',
       },
       size: {
-        sm: 'h-9 px-3 text-sm',
-        md: 'h-11 px-4 text-base',
-        lg: 'h-14 px-6 text-lg',
+        xs: 'h-7 px-2.5 text-xs',
+        sm: 'h-9 px-3.5 text-sm',
+        md: 'h-10 px-5 text-sm',
+        lg: 'h-12 px-6 text-base',
+        xl: 'h-14 px-8 text-lg',
+        icon: 'h-10 w-10',
+        'icon-sm': 'h-8 w-8',
+        'icon-lg': 'h-12 w-12',
       },
     },
     defaultVariants: {

@@ -18,6 +18,7 @@ import {
     Copy,
     Check,
     ChevronLeft,
+    ArrowLeft,
     Shield,
     ShieldCheck,
     Lock,
@@ -89,15 +90,13 @@ import {
     BackgroundBlobs,
     PageShell,
     PageHeader,
-    cn,
-} from "@/components/ds"
-
-// UI Components (not yet in DS)
-import {
     Collapsible,
     CollapsibleContent,
     CollapsibleTrigger,
-} from "@/components/ui/collapsible"
+    Alert,
+    AlertDescription,
+    cn,
+} from "@/components/ds"
 
 // ============================================================================
 // TYPES
@@ -243,36 +242,51 @@ function InfoTooltip({ content }: { content: string }) {
 }
 
 function StatCard({
-  icon: Icon,
-  label,
-  value,
-  variant = "default",
+    icon: Icon,
+    label,
+    value,
+    variant = "default",
+    isLoading = false,
 }: {
-  icon: any
-  label: string
-  value: string | number
-  variant?: "default" | "success" | "warning" | "danger"
+    icon: any
+    label: string
+    value: string | number
+    variant?: "default" | "success" | "warning" | "danger"
+    isLoading?: boolean
 }) {
-  const colorClasses = {
-    default: "bg-accent/10 text-accent",
-    success: "bg-accent/10 text-accent",
-    warning: "bg-accent/10 text-accent",
-    danger: "bg-destructive/10 text-destructive",
-  }
+    const colorClasses = {
+        default: "bg-accent/10 text-accent",
+        success: "bg-accent/10 text-accent",
+        warning: "bg-accent/10 text-accent",
+        danger: "bg-destructive/10 text-destructive",
+    }
 
-  return (
-    <Card interactive className="group p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground">{label}</p>
-          <h3 className="text-3xl font-display font-bold text-foreground mt-1">{value}</h3>
-        </div>
-        <div className={cn("rounded-full p-3", colorClasses[variant])}>
-          <Icon className="h-6 w-6" />
-        </div>
-      </div>
-    </Card>
-  )
+    return (
+        <Card interactive className="group p-6">
+            <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                    {isLoading ? (
+                        <>
+                            <Skeleton className="h-4 w-24" />
+                            <Skeleton className="h-9 w-16 mt-1" />
+                        </>
+                    ) : (
+                        <>
+                            <p className="text-sm text-muted-foreground">{label}</p>
+                            <h3 className="text-3xl font-display font-bold text-foreground mt-1">{value}</h3>
+                        </>
+                    )}
+                </div>
+                <div className={cn("rounded-full p-3", isLoading ? "bg-muted/30" : colorClasses[variant])}>
+                    {isLoading ? (
+                        <Skeleton className="h-6 w-6 rounded-full" />
+                    ) : (
+                        <Icon className="h-6 w-6" />
+                    )}
+                </div>
+            </div>
+        </Card>
+    )
 }
 
 function ScopeCard({
@@ -293,11 +307,11 @@ function ScopeCard({
 
     return (
         <Card
-          interactive
-          className={cn(
-            "group hover:-translate-y-1 hover:shadow-clay-float transition-all duration-200",
-            isStandard && "border-accent/30 bg-accent/5"
-          )}
+            interactive
+            className={cn(
+                "group hover:-translate-y-1 hover:shadow-clay-float transition-all duration-200",
+                isStandard && "border-accent/30 bg-accent/5"
+            )}
         >
             <CardHeader className="pb-2">
                 <div className="flex items-start justify-between">
@@ -326,7 +340,7 @@ function ScopeCard({
                     {!isStandard && (
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <Button variant="ghost" size="sm" className="h-8 w-8">
                                     <MoreHorizontal className="h-4 w-4" />
                                 </Button>
                             </DropdownMenuTrigger>
@@ -635,41 +649,32 @@ export default function ScopesClientPage() {
     // ========================================================================
 
     return (
-        <PageShell>
-            <BackgroundBlobs />
-
-            {/* Back Navigation */}
-            <div className="mb-6">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  asChild
-                  className="hover:-translate-y-0.5 hover:shadow-clay-card transition-all duration-200"
-                >
-                    <Link href={`/admin/tenants/detail?id=${tenantId}`}>
-                        <ChevronLeft className="h-4 w-4 mr-2" />
-                        Volver a Tenant
-                    </Link>
-                </Button>
-            </div>
-
-            <PageHeader
-                title="Scopes OAuth2"
-                description={`${tenant?.name ? tenant.name + " — " : ""}Define qué información y permisos pueden solicitar las aplicaciones`}
-            >
-                <Button
-                  variant="default"
-                  onClick={() => { resetForm(); setCreateDialogOpen(true) }}
-                  className="hover:-translate-y-0.5 hover:shadow-clay-card active:translate-y-0 transition-all duration-200"
-                >
+        <div className="animate-in fade-in duration-500">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-4">
+                    <Button variant="ghost" size="sm" asChild>
+                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+                            <ArrowLeft className="h-4 w-4" />
+                        </Link>
+                    </Button>
+                    <div className="flex items-center gap-3">
+                        <div>
+                            <h1 className="text-2xl font-bold tracking-tight">Scopes OAuth2</h1>
+                            <p className="text-sm text-muted-foreground">
+                                {tenant?.name} — Define qué información y permisos pueden solicitar las aplicaciones
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <Button onClick={() => { resetForm(); setCreateDialogOpen(true) }} className="shadow-clay-button hover:shadow-clay-card transition-shadow">
                     <Plus className="mr-2 h-4 w-4" />
                     Nuevo Scope
                 </Button>
-            </PageHeader>
+            </div>
 
             {/* Info Banner */}
             <InlineAlert variant="info" className="mb-6">
-                <Shield className="h-4 w-4" />
                 <div>
                     <h4 className="font-semibold mb-1">¿Qué son los Scopes?</h4>
                     <p className="text-sm">
@@ -684,9 +689,9 @@ export default function ScopesClientPage() {
 
             {/* Stats */}
             <div className="grid grid-cols-3 gap-4 mb-8">
-                <StatCard icon={Layers} label="Total Scopes" value={stats.total} variant="default" />
-                <StatCard icon={ShieldCheck} label="OIDC Standard" value={stats.standard} variant="success" />
-                <StatCard icon={Tag} label="Personalizados" value={stats.custom} variant="warning" />
+                <StatCard icon={Layers} label="Total Scopes" value={stats.total} variant="default" isLoading={isLoading} />
+                <StatCard icon={ShieldCheck} label="OIDC Standard" value={stats.standard} variant="success" isLoading={isLoading} />
+                <StatCard icon={Tag} label="Personalizados" value={stats.custom} variant="warning" isLoading={isLoading} />
             </div>
 
             {/* Tabs */}
@@ -778,9 +783,9 @@ export default function ScopesClientPage() {
                                         </p>
                                     </div>
                                     <Button
-                                      variant="default"
-                                      onClick={() => { resetForm(); setCreateDialogOpen(true) }}
-                                      className="hover:-translate-y-0.5 hover:shadow-clay-card transition-all duration-200"
+                                        variant="default"
+                                        onClick={() => { resetForm(); setCreateDialogOpen(true) }}
+                                        className="hover:-translate-y-0.5 hover:shadow-clay-card transition-all duration-200"
                                     >
                                         <Plus className="mr-2 h-4 w-4" />
                                         Crear primer scope
@@ -933,9 +938,9 @@ export default function ScopesClientPage() {
                                     </div>
                                     {!search && (
                                         <Button
-                                          variant="default"
-                                          onClick={() => { resetForm(); setCreateDialogOpen(true) }}
-                                          className="hover:-translate-y-0.5 hover:shadow-clay-card transition-all duration-200"
+                                            variant="default"
+                                            onClick={() => { resetForm(); setCreateDialogOpen(true) }}
+                                            className="hover:-translate-y-0.5 hover:shadow-clay-card transition-all duration-200"
                                         >
                                             <Plus className="mr-2 h-4 w-4" />
                                             Crear primer scope
@@ -994,7 +999,7 @@ export default function ScopesClientPage() {
                                                 <TableCell className="text-right">
                                                     <DropdownMenu>
                                                         <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                            <Button variant="ghost" size="sm" className="h-8 w-8">
                                                                 <MoreHorizontal className="h-4 w-4" />
                                                             </Button>
                                                         </DropdownMenuTrigger>
@@ -1343,7 +1348,7 @@ export default function ScopesClientPage() {
 
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>Cancelar</Button>
-                        <Button variant="destructive" onClick={handleDelete} disabled={deleteMutation.isPending}>
+                        <Button variant="danger" onClick={handleDelete} disabled={deleteMutation.isPending}>
                             {deleteMutation.isPending ? (
                                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Eliminando...</>
                             ) : (
@@ -1353,6 +1358,6 @@ export default function ScopesClientPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </PageShell>
+        </div>
     )
 }
