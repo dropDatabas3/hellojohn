@@ -1,20 +1,97 @@
 "use client"
 
 import { useState } from "react"
-
 import { useQuery } from "@tanstack/react-query"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { useApi } from "@/lib/hooks/use-api"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Badge,
+  Button,
+  InlineAlert,
+  EmptyState,
+  Skeleton,
+  QuickLinkCard,
+  cn,
+} from "@/components/ds"
+import { useApi } from "@/hooks/use-api"
 import { useUIStore } from "@/lib/ui-store"
 import { getTranslations } from "@/lib/i18n"
 import { API_ROUTES } from "@/lib/routes"
 import type { ReadyzResponse, Tenant } from "@/lib/types"
-import { Activity, AlertCircle, CheckCircle, Server, Key, Building2 } from "lucide-react"
+import {
+  Activity,
+  AlertCircle,
+  CheckCircle,
+  Server,
+  Key,
+  Building2,
+  RefreshCw,
+  Gauge,
+  Zap,
+  ChevronRight,
+} from "lucide-react"
 import Link from "next/link"
 import { CreateTenantWizard } from "@/components/tenant/CreateTenantWizard"
+
+// Stats Card Component — Consistent with other pages
+function StatsCard({
+  icon: Icon,
+  label,
+  value,
+  subValue,
+  variant = "default",
+}: {
+  icon: React.ElementType
+  label: string
+  value: string | number
+  subValue?: string
+  variant?: "default" | "info" | "success" | "warning" | "danger" | "accent"
+}) {
+  const variantStyles = {
+    default: "bg-muted/50 text-muted-foreground",
+    info: "bg-info/10 text-info",
+    success: "bg-success/10 text-success",
+    warning: "bg-warning/10 text-warning",
+    danger: "bg-danger/10 text-danger",
+    accent: "bg-accent/10 text-accent",
+  }
+
+  return (
+    <Card interactive className="group p-5">
+      <div className="flex items-start justify-between">
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</p>
+          <p className="text-2xl font-bold text-foreground">{value}</p>
+          {subValue && <p className="text-xs text-muted-foreground">{subValue}</p>}
+        </div>
+        <div className={cn("p-2.5 rounded-xl", variantStyles[variant])}>
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+// Component Status Badge
+function ComponentStatusBadge({ status }: { status: string }) {
+  const isHealthy = ["ok", "ready", "healthy"].includes(status)
+  const isDegraded = status === "degraded"
+
+  return (
+    <Badge
+      variant={isHealthy ? "success" : isDegraded ? "warning" : "destructive"}
+      className="text-xs"
+    >
+      {isHealthy && <CheckCircle className="h-3 w-3 mr-1 ml-0.5" />}
+      {isDegraded && <AlertCircle className="h-3 w-3 mr-1 ml-0.5" />}
+      {!isHealthy && !isDegraded && <AlertCircle className="h-3 w-3 mr-1 ml-0.5" />}
+      {status}
+    </Badge>
+  )
+}
 
 export default function DashboardPage() {
   const api = useApi()
@@ -23,318 +100,372 @@ export default function DashboardPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
 
   // Fetch system health
-  const { data: health, isLoading: healthLoading } = useQuery({
+  const {
+    data: health,
+    isLoading: healthLoading,
+    isError: healthError,
+    refetch: refetchHealth,
+  } = useQuery({
     queryKey: ["readyz"],
     queryFn: () => api.get<ReadyzResponse>(API_ROUTES.READYZ),
-    refetchInterval: 10000, // Refresh every 10 seconds
+    refetchInterval: 10000,
   })
 
   // Fetch tenants
-  const { data: tenants, isLoading: tenantsLoading } = useQuery({
+  const {
+    data: tenants,
+    isLoading: tenantsLoading,
+    isError: tenantsError,
+    refetch: refetchTenants,
+  } = useQuery({
     queryKey: ["tenants"],
     queryFn: () => api.get<Tenant[]>(API_ROUTES.ADMIN_TENANTS),
   })
 
-  const getStatusColor = (status: string) => {
+  const getStatusVariant = (status: string): "success" | "warning" | "danger" | "default" => {
     switch (status) {
       case "ready":
-        return "bg-green-500"
+        return "success"
       case "degraded":
-        return "bg-yellow-500"
+        return "warning"
       case "unavailable":
-        return "bg-red-500"
+        return "danger"
       default:
-        return "bg-gray-500"
-    }
-  }
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "ready":
-        return <CheckCircle className="h-5 w-5 text-green-500" />
-      case "degraded":
-        return <AlertCircle className="h-5 w-5 text-yellow-500" />
-      case "unavailable":
-        return <AlertCircle className="h-5 w-5 text-red-500" />
-      default:
-        return <Activity className="h-5 w-5 text-gray-500" />
+        return "default"
     }
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">{t.dashboard.title}</h1>
-        <p className="mt-2 text-muted-foreground">Panel de control de HelloJohn Admin</p>
+    <div className="space-y-6 animate-in fade-in duration-500">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">{t.dashboard.title}</h1>
+            <p className="text-sm text-muted-foreground">
+              Panel de control y monitoreo del sistema HelloJohn
+            </p>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => {
+            refetchHealth()
+            refetchTenants()
+          }}
+          className="gap-2"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Actualizar
+        </Button>
       </div>
 
       {/* Status Alert */}
       {health && health.status !== "ready" && (
-        <Alert variant={health.status === "degraded" ? "default" : "destructive"}>
+        <InlineAlert
+          variant={health.status === "degraded" ? "warning" : "danger"}
+        >
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            {health.status === "degraded"
-              ? "El sistema está degradado. Algunos componentes pueden no estar funcionando correctamente."
-              : "El sistema no está disponible. Por favor, contacte al administrador."}
-          </AlertDescription>
-        </Alert>
+          <div>
+            <p className="font-semibold">
+              {health.status === "degraded" ? "Sistema Degradado" : "Sistema No Disponible"}
+            </p>
+            <p className="text-sm">
+              {health.status === "degraded"
+                ? "Algunos componentes pueden no estar funcionando correctamente."
+                : "El sistema no está disponible. Por favor, contacte al administrador."}
+            </p>
+          </div>
+        </InlineAlert>
       )}
 
-      {/* System Status Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">{t.dashboard.status}</CardTitle>
-            {health && getStatusIcon(health.status)}
-          </CardHeader>
-          <CardContent>
-            {healthLoading ? (
-              <div className="text-2xl font-bold text-muted-foreground">{t.common.loading}</div>
-            ) : (
-              <>
-                <div className="text-2xl font-bold capitalize">{health?.status || "Unknown"}</div>
-                <p className="text-xs text-muted-foreground">
-                  {health?.fs_degraded ? "Filesystem degradado" : "Sistema operativo"}
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
+      {healthError && (
+        <InlineAlert variant="danger">
+          <AlertCircle className="h-4 w-4" />
+          <div className="flex-1">
+            <p className="font-semibold">Error al cargar estado del sistema</p>
+            <p className="text-sm">No se pudo conectar con el servicio de salud.</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => refetchHealth()}>
+            Reintentar
+          </Button>
+        </InlineAlert>
+      )}
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">{t.dashboard.version}</CardTitle>
-            <Activity className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {healthLoading ? (
-              <div className="text-2xl font-bold text-muted-foreground">{t.common.loading}</div>
-            ) : (
-              <>
-                <div className="text-2xl font-bold">{health?.version || "N/A"}</div>
-                <p className="text-xs text-muted-foreground">Commit: {health?.commit?.slice(0, 7) || "N/A"}</p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">{t.cluster.role}</CardTitle>
-            <Server className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {healthLoading ? (
-              <div className="text-2xl font-bold text-muted-foreground">{t.common.loading}</div>
-            ) : (
-              <>
-                <div className="text-2xl font-bold capitalize">{health?.cluster.role || "N/A"}</div>
-                <p className="text-xs text-muted-foreground">
-                  {health?.cluster.role === "leader" ? t.cluster.leader : t.cluster.follower}
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Key</CardTitle>
-            <Key className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {healthLoading ? (
-              <div className="text-2xl font-bold text-muted-foreground">{t.common.loading}</div>
-            ) : (
-              <>
-                <div className="text-xl font-mono font-bold">{health?.active_key_id?.slice(0, 8) || "N/A"}</div>
-                <p className="text-xs text-muted-foreground">Key ID</p>
-              </>
-            )}
-          </CardContent>
-        </Card>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {healthLoading ? (
+          <>
+            {[1, 2, 3, 4].map((i) => (
+              <Card key={i} className="p-5">
+                <div className="space-y-3">
+                  <Skeleton className="h-4 w-20" />
+                  <Skeleton className="h-8 w-24" />
+                  <Skeleton className="h-3 w-16" />
+                </div>
+              </Card>
+            ))}
+          </>
+        ) : (
+          <>
+            <StatsCard
+              icon={Activity}
+              label={t.dashboard.status}
+              value={health?.status || "N/A"}
+              subValue={health?.fs_degraded ? "Filesystem degradado" : "Sistema operativo"}
+              variant={getStatusVariant(health?.status || "")}
+            />
+            <StatsCard
+              icon={Zap}
+              label={t.dashboard.version}
+              value={health?.version || "N/A"}
+              subValue={`Commit: ${health?.commit?.slice(0, 7) || "N/A"}`}
+              variant="info"
+            />
+            <StatsCard
+              icon={Server}
+              label={t.cluster.role}
+              value={health?.cluster?.role || "N/A"}
+              subValue={health?.cluster?.role === "leader" ? t.cluster.leader : t.cluster.follower}
+              variant={health?.cluster?.role === "leader" ? "accent" : "default"}
+            />
+            <StatsCard
+              icon={Key}
+              label="Active Key"
+              value={health?.active_key_id?.slice(0, 8) || "N/A"}
+              subValue="Key ID"
+              variant="warning"
+            />
+          </>
+        )}
       </div>
 
-      {/* Cluster Details */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t.cluster.title}</CardTitle>
-          <CardDescription>Estado del clúster Raft</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {healthLoading ? (
-            <div className="text-muted-foreground">{t.common.loading}</div>
-          ) : health ? (
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Modo:</span>
-                  <Badge variant="outline">{health.cluster.mode}</Badge>
+      {/* Main Content Grid */}
+      <div className="grid lg:grid-cols-3 gap-6">
+        {/* Left Column - Cluster & Components */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Cluster Status */}
+          <Card>
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-accent/10">
+                  <Server className="h-4 w-4 text-accent" />
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Rol:</span>
-                  <Badge variant={health.cluster.role === "leader" ? "default" : "secondary"}>
-                    {health.cluster.role}
-                  </Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Leader ID:</span>
-                  <span className="font-mono text-sm">{health.cluster.leader_id}</span>
+                <div>
+                  <CardTitle className="text-base">{t.cluster.title}</CardTitle>
+                  <CardDescription>Estado del clúster Raft</CardDescription>
                 </div>
               </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Peers configurados:</span>
-                  <span className="font-mono text-sm">{health.cluster.peers_configured}</span>
+            </CardHeader>
+            <CardContent>
+              {healthLoading ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {[1, 2, 3, 4, 5, 6].map((i) => (
+                    <Skeleton key={i} className="h-10" />
+                  ))}
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Peers conectados:</span>
-                  <span className="font-mono text-sm">{health.cluster.peers_connected}</span>
-                </div>
-                {health.cluster.raft && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Raft State:</span>
-                    <Badge variant="outline">{health.cluster.raft.state}</Badge>
+              ) : health ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border">
+                    <span className="text-sm text-muted-foreground">Modo</span>
+                    <Badge variant="outline">{health.cluster.mode}</Badge>
                   </div>
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border">
+                    <span className="text-sm text-muted-foreground">Rol</span>
+                    <Badge variant={health.cluster.role === "leader" ? "default" : "outline"}>
+                      {health.cluster.role}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border">
+                    <span className="text-sm text-muted-foreground">Leader ID</span>
+                    <span className="font-mono text-sm">{health.cluster.leader_id}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border">
+                    <span className="text-sm text-muted-foreground">Peers</span>
+                    <span className="font-mono text-sm">
+                      {health.cluster.peers_connected}/{health.cluster.peers_configured}
+                    </span>
+                  </div>
+                  {health.cluster.raft && (
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border md:col-span-2">
+                      <span className="text-sm text-muted-foreground">Raft State</span>
+                      <Badge variant="outline">{health.cluster.raft.state}</Badge>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <EmptyState
+                  icon={<Server className="w-10 h-10" />}
+                  title="No hay datos disponibles"
+                  description="No se pudo cargar la información del clúster."
+                />
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Components Status */}
+          <Card>
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-success/10">
+                  <Activity className="h-4 w-4 text-success" />
+                </div>
+                <div>
+                  <CardTitle className="text-base">Componentes del Sistema</CardTitle>
+                  <CardDescription>Estado de los componentes principales</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {healthLoading ? (
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  {[1, 2, 3, 4, 5, 6].map((i) => (
+                    <Skeleton key={i} className="h-12" />
+                  ))}
+                </div>
+              ) : health ? (
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  {Object.entries(health.components).map(([key, value]) => {
+                    const status = typeof value === "string" ? value : (value as any)?.status ?? "unknown"
+                    return (
+                      <div
+                        key={key}
+                        className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border hover:bg-muted/50 transition-colors"
+                      >
+                        <span className="text-sm font-medium capitalize">{key.replace(/_/g, " ")}</span>
+                        <ComponentStatusBadge status={status} />
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <EmptyState
+                  icon={<Activity className="w-10 h-10" />}
+                  title="No hay datos disponibles"
+                  description="No se pudo cargar el estado de los componentes."
+                />
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right Column - Tenants */}
+        <div className="space-y-6">
+          {/* Tenants Card */}
+          <Card className="h-fit">
+            <CardHeader className="pb-4">
+              <div className="flex items-left justify-between">
+                <div className="flex items-center">
+                  <div className="p-2 rounded-lg bg-warning/10">
+                    <Building2 className="h-4 w-4 text-warning" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base">{t.tenants.title}</CardTitle>
+                  </div>
+                </div>
+                {tenants && tenants.length > 0 && (
+                  <Button asChild size="sm" variant="ghost">
+                    <Link href="/admin/tenants">
+                      Ver todos
+                      <ChevronRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
                 )}
               </div>
-            </div>
-          ) : (
-            <div className="text-muted-foreground">No hay datos disponibles</div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Components Status */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Componentes del Sistema</CardTitle>
-          <CardDescription>Estado de los componentes principales</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {healthLoading ? (
-            <div className="text-muted-foreground">{t.common.loading}</div>
-          ) : health ? (
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {Object.entries(health.components).map(([key, value]) => {
-                const status = typeof value === "string" ? value : (value as any)?.status ?? "unknown"
-                const variant = ["ok", "ready", "healthy"].includes(status)
-                  ? "default"
-                  : status === "degraded"
-                    ? "secondary"
-                    : "destructive"
-                return (
-                  <div key={key} className="flex items-center justify-between rounded-lg border p-3">
-                    <span className="text-sm font-medium capitalize">{key.replace(/_/g, " ")}</span>
-                    <Badge variant={variant}>{status}</Badge>
+            </CardHeader>
+            <CardContent>
+              {tenantsError ? (
+                <InlineAlert variant="danger" className="mb-0">
+                  <AlertCircle className="h-4 w-4" />
+                  <div className="flex-1">
+                    <p className="text-sm">Error al cargar tenants</p>
                   </div>
-                )
-              })}
-            </div>
-          ) : (
-            <div className="text-muted-foreground">No hay datos disponibles</div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Tenants Overview */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>{t.tenants.title}</CardTitle>
-            <CardDescription>Tenants configurados en el sistema</CardDescription>
-          </div>
-          {tenants && tenants.length > 0 ? (
-            <Button asChild>
-              <Link href="/admin/tenants">Ver todos</Link>
-            </Button>
-          ) : (
-            <Button onClick={() => setCreateDialogOpen(true)}>
-              Crear Organización
-            </Button>
-          )}
-        </CardHeader>
-        <CardContent>
-          {tenantsLoading ? (
-            <div className="text-muted-foreground">{t.common.loading}</div>
-          ) : tenants && tenants.length > 0 ? (
-            <div className="space-y-2">
-              {tenants.slice(0, 5).map((tenant) => (
-                <Link
-                  key={tenant.id}
-                  href={`/admin/tenants/detail?id=${tenant.id}`}
-                  className="flex items-center justify-between rounded-lg border p-3 transition-colors hover:bg-accent"
-                >
-                  <div className="flex items-center gap-3">
-                    <Building2 className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p className="font-medium">{tenant.name}</p>
-                      <p className="text-sm text-muted-foreground">{tenant.slug}</p>
-                    </div>
+                  <Button size="sm" variant="outline" onClick={() => refetchTenants()}>
+                    Reintentar
+                  </Button>
+                </InlineAlert>
+              ) : tenantsLoading ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-16" />
+                  ))}
+                </div>
+              ) : tenants && tenants.length > 0 ? (
+                <div className="space-y-2">
+                  {tenants.slice(0, 5).map((tenant) => (
+                    <Link
+                      key={tenant.id}
+                      href={`/admin/tenants/detail?id=${tenant.id}`}
+                      className="flex items-center justify-between p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200 group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="h-9 w-9 rounded-lg bg-accent/20 flex items-center justify-center text-accent font-semibold text-sm">
+                          {tenant.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-medium text-sm group-hover:text-accent transition-colors">{tenant.name}</p>
+                          <p className="text-xs text-muted-foreground font-mono">{tenant.slug}</p>
+                        </div>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-accent transition-colors" />
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <div className="h-12 w-12 rounded-full bg-muted/50 flex items-center justify-center mx-auto mb-3">
+                    <Building2 className="h-6 w-6 text-muted-foreground" />
                   </div>
-                  <Badge variant="outline">{tenant.settings.issuerMode || "global"}</Badge>
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center text-muted-foreground">No hay tenants configurados</div>
-          )}
-        </CardContent>
-      </Card>
+                  <p className="text-sm font-medium mb-1">No hay tenants</p>
+                  <p className="text-xs text-muted-foreground mb-4">Crea tu primera organización</p>
+                  <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+                    Crear Organización
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
 
       {/* Quick Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t.dashboard.quickActions}</CardTitle>
-          <CardDescription>Acciones rápidas de administración</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-            <Button asChild variant="outline" className="h-auto flex-col items-start gap-2 p-4 bg-transparent">
-              <Link href="/admin/tenants">
-                <Building2 className="h-5 w-5" />
-                <div className="text-left">
-                  <div className="font-medium">Gestionar Tenants</div>
-                  <div className="text-xs text-muted-foreground">Crear y configurar tenants</div>
-                </div>
-              </Link>
-            </Button>
-            <Button asChild variant="outline" className="h-auto flex-col items-start gap-2 p-4 bg-transparent">
-              <Link href="/admin/cluster">
-                <Server className="h-5 w-5" />
-                <div className="text-left">
-                  <div className="font-medium">Ver Clúster</div>
-                  <div className="text-xs text-muted-foreground">Estado y configuración</div>
-                </div>
-              </Link>
-            </Button>
-            <Button asChild variant="outline" className="h-auto flex-col items-start gap-2 p-4 bg-transparent">
-              <Link href="/admin/metrics">
-                <Activity className="h-5 w-5" />
-                <div className="text-left">
-                  <div className="font-medium">Métricas</div>
-                  <div className="text-xs text-muted-foreground">Monitoreo del sistema</div>
-                </div>
-              </Link>
-            </Button>
-            <Button asChild variant="outline" className="h-auto flex-col items-start gap-2 p-4 bg-transparent">
-              <Link href="/admin/tools/oauth">
-                <Key className="h-5 w-5" />
-                <div className="text-left">
-                  <div className="font-medium">OAuth Tools</div>
-                  <div className="text-xs text-muted-foreground">Probar flujos OAuth</div>
-                </div>
-              </Link>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold">{t.dashboard.quickActions}</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <QuickLinkCard
+            href="/admin/tenants"
+            icon={Building2}
+            title="Gestionar Tenants"
+            description="Crear y configurar organizaciones"
+            variant="warning"
+          />
+          <QuickLinkCard
+            href="/admin/cluster"
+            icon={Server}
+            title="Ver Clúster"
+            description="Estado y configuración del clúster"
+            variant="info"
+          />
+          <QuickLinkCard
+            href="/admin/metrics"
+            icon={Activity}
+            title="Métricas"
+            description="Monitoreo y estadísticas"
+            variant="success"
+          />
+          <QuickLinkCard
+            href="/admin/playground"
+            icon={Key}
+            title="OAuth Tools"
+            description="Probar flujos de autenticación"
+            variant="accent"
+          />
+        </div>
+      </div>
 
       {/* Create Tenant Wizard */}
-      <CreateTenantWizard
-        open={createDialogOpen}
-        onOpenChange={setCreateDialogOpen}
-      />
+      <CreateTenantWizard open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
     </div>
   )
 }

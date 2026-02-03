@@ -54,6 +54,17 @@ func SubdomainTenantResolver() TenantResolver {
 	}
 }
 
+// PathValueTenantResolver resuelve usando un path parameter del router.
+// Ej: /v2/admin/tenants/{id}/sessions -> extrae "id" del path
+func PathValueTenantResolver(paramName string) TenantResolver {
+	if paramName == "" {
+		paramName = "id"
+	}
+	return func(r *http.Request) string {
+		return strings.TrimSpace(r.PathValue(paramName))
+	}
+}
+
 // ChainResolvers combina múltiples resolvers, retornando el primer resultado no vacío.
 func ChainResolvers(resolvers ...TenantResolver) TenantResolver {
 	return func(r *http.Request) string {
@@ -85,11 +96,12 @@ type TenantMiddlewareConfig struct {
 }
 
 // NewTenantMiddleware crea un nuevo middleware de tenant.
-// Si resolver es nil, usa la cadena: Header -> Query -> Subdomain
+// Si resolver es nil, usa la cadena: PathValue -> Header -> Query -> Subdomain
 func NewTenantMiddleware(cfg TenantMiddlewareConfig) *TenantMiddleware {
 	resolver := cfg.Resolver
 	if resolver == nil {
 		resolver = ChainResolvers(
+			PathValueTenantResolver("id"), // Para rutas como /v2/admin/tenants/{id}/...
 			HeaderTenantResolver("X-Tenant-ID"),
 			HeaderTenantResolver("X-Tenant-Slug"),
 			QueryTenantResolver("tenant"),

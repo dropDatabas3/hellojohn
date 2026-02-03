@@ -5,57 +5,31 @@ import { useParams, useSearchParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
     Key, Tag, Code2, Settings2, Eye, Plus, Trash2, Edit2,
-    ToggleLeft, CheckCircle2, ArrowLeft, AlertCircle, Info,
+    ToggleLeft, CheckCircle2, ChevronLeft, AlertCircle, Info,
     HelpCircle, Copy, Check, Sparkles, Shield, Database,
-    Braces, Webhook, FileJson, RefreshCw, Lock
+    Braces, Webhook, FileJson, RefreshCw, Lock, FileCode,
+    Pencil, User, ArrowLeft
 } from "lucide-react"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
 import { useToast } from "@/hooks/use-toast"
-import { cn } from "@/lib/utils"
 import Link from "next/link"
 import type {
     Tenant, ClaimDefinition, ClaimSource, StandardClaim,
     ClaimMapping, ClaimsConfig, ClaimsSettings
 } from "@/lib/types"
 
-// UI Components
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
-import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Textarea } from "@/components/ui/textarea"
+// Design System Components
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog"
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table"
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select"
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipProvider,
-    TooltipTrigger,
-} from "@/components/ui/tooltip"
+    Button, Card, Input, Label, Badge, Skeleton, Switch,
+    Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+    Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription,
+    Tabs, TabsList, TabsTrigger, TabsContent,
+    Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
+    Textarea,
+    Tooltip, TooltipTrigger, TooltipContent, TooltipProvider,
+    InlineAlert, BackgroundBlobs, PageShell, PageHeader, cn,
+} from "@/components/ds"
 
 // ─── Mock Data (Replace with real API when backend is ready) ───
 
@@ -159,16 +133,6 @@ const getSourceLabel = (source: ClaimSource) => {
     }
 }
 
-const getSourceColor = (source: ClaimSource) => {
-    switch (source) {
-        case "user_field": return "bg-blue-500/10 text-blue-600 border-blue-500/20"
-        case "static": return "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
-        case "expression": return "bg-violet-500/10 text-violet-600 border-violet-500/20"
-        case "external": return "bg-amber-500/10 text-amber-600 border-amber-500/20"
-        default: return "bg-zinc-500/10 text-zinc-600 border-zinc-500/20"
-    }
-}
-
 // ─── Info Tooltip Component ───
 
 function InfoTooltip({ content }: { content: string }) {
@@ -188,54 +152,52 @@ function InfoTooltip({ content }: { content: string }) {
     )
 }
 
-// ─── Stats Card Component ───
+// ─── Stats Card Component (Clay Migration) ───
 
 function StatCard({
     icon: Icon,
     label,
     value,
     subValue,
-    color = "zinc"
+    isLoading = false,
 }: {
     icon: React.ElementType
     label: string
     value: string | number
     subValue?: string
-    color?: "zinc" | "emerald" | "blue" | "violet"
+    isLoading?: boolean
 }) {
-    const colorClasses = {
-        zinc: "from-zinc-500/10 to-zinc-500/5 border-zinc-500/10",
-        emerald: "from-emerald-500/10 to-emerald-500/5 border-emerald-500/10",
-        blue: "from-blue-500/10 to-blue-500/5 border-blue-500/10",
-        violet: "from-violet-500/10 to-violet-500/5 border-violet-500/10",
-    }
-    const iconColors = {
-        zinc: "text-zinc-500",
-        emerald: "text-emerald-500",
-        blue: "text-blue-500",
-        violet: "text-violet-500",
-    }
-
     return (
-        <div className={cn(
-            "rounded-xl border bg-gradient-to-br p-4 transition-all hover:shadow-md",
-            colorClasses[color]
-        )}>
+        <Card interactive className="group p-4">
             <div className="flex items-start justify-between">
-                <div>
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</p>
-                    <p className="mt-1 text-2xl font-semibold">{value}</p>
-                    {subValue && <p className="mt-0.5 text-xs text-muted-foreground">{subValue}</p>}
+                <div className="space-y-1">
+                    {isLoading ? (
+                        <>
+                            <Skeleton className="h-4 w-24" />
+                            <Skeleton className="h-8 w-16 mt-1" />
+                            <Skeleton className="h-3 w-28 mt-0.5" />
+                        </>
+                    ) : (
+                        <>
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{label}</p>
+                            <p className="mt-1 text-2xl font-semibold text-foreground">{value}</p>
+                            {subValue && <p className="mt-0.5 text-xs text-muted-foreground">{subValue}</p>}
+                        </>
+                    )}
                 </div>
-                <div className={cn("p-2 rounded-lg bg-background/50", iconColors[color])}>
-                    <Icon className="h-5 w-5" />
+                <div className={cn("p-2 rounded-lg", isLoading ? "bg-muted/30" : "bg-accent/10 text-accent")}>
+                    {isLoading ? (
+                        <Skeleton className="h-5 w-5 rounded-full" />
+                    ) : (
+                        <Icon className="h-5 w-5" />
+                    )}
                 </div>
             </div>
-        </div>
+        </Card>
     )
 }
 
-// ─── Empty State Component ───
+// ─── Empty State Component (Clay Migration) ───
 
 function EmptyState({ title, description, icon: Icon, action }: {
     title: string
@@ -245,13 +207,17 @@ function EmptyState({ title, description, icon: Icon, action }: {
 }) {
     return (
         <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-            <div className="h-16 w-16 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center mb-4">
-                <Icon className="h-8 w-8 text-zinc-400" />
+            <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                <Icon className="h-8 w-8 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-medium text-zinc-900 dark:text-zinc-100">{title}</h3>
+            <h3 className="text-lg font-medium text-foreground">{title}</h3>
             <p className="mt-1 text-sm text-muted-foreground max-w-sm">{description}</p>
             {action && (
-                <Button onClick={action.onClick} className="mt-4" variant="outline">
+                <Button
+                    onClick={action.onClick}
+                    className="mt-4 hover:-translate-y-0.5 hover:shadow-clay-card transition-all duration-200"
+                    variant="outline"
+                >
                     <Plus className="h-4 w-4 mr-2" />
                     {action.label}
                 </Button>
@@ -260,7 +226,7 @@ function EmptyState({ title, description, icon: Icon, action }: {
     )
 }
 
-// ─── Token Preview Component ───
+// ─── Token Preview Component (Clay Migration) ───
 
 function TokenPreview({
     standardClaims,
@@ -340,37 +306,42 @@ function TokenPreview({
                         Ejemplo del payload JWT con la configuración actual
                     </p>
                 </div>
-                <Button variant="outline" size="sm" onClick={handleCopy}>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCopy}
+                    className="hover:-translate-y-0.5 transition-all duration-200"
+                >
                     {copied ? <Check className="h-3.5 w-3.5 mr-1.5" /> : <Copy className="h-3.5 w-3.5 mr-1.5" />}
                     {copied ? "Copiado" : "Copiar"}
                 </Button>
             </div>
 
             <div className="relative">
-                <pre className="p-4 rounded-lg bg-zinc-950 text-zinc-100 text-xs overflow-x-auto font-mono">
+                <pre className="p-4 rounded-lg bg-card border border-border text-foreground text-xs overflow-x-auto font-mono">
                     <code>{JSON.stringify(exampleToken, null, 2)}</code>
                 </pre>
                 <div className="absolute top-2 right-2">
-                    <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                    <Badge variant="outline" className="text-[10px] bg-accent/10 text-accent border-accent/30">
                         JWT Payload
                     </Badge>
                 </div>
             </div>
 
-            <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-500/5 border border-blue-500/10">
-                <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
-                <div className="text-xs text-blue-700 dark:text-blue-300">
-                    <p className="font-medium">Nota sobre valores dinámicos</p>
-                    <p className="mt-0.5 text-blue-600 dark:text-blue-400">
+            <InlineAlert variant="info">
+                <Info className="h-4 w-4" />
+                <div>
+                    <p className="font-medium text-sm">Nota sobre valores dinámicos</p>
+                    <p className="text-xs mt-0.5">
                         Los valores entre corchetes angulares (&lt;...&gt;) se resuelven en tiempo de emisión del token según la fuente configurada.
                     </p>
                 </div>
-            </div>
+            </InlineAlert>
         </div>
     )
 }
 
-// ─── Claim Editor Dialog ───
+// ─── Claim Editor Dialog (Clay Migration) ───
 
 function ClaimEditorDialog({
     claim,
@@ -436,8 +407,8 @@ function ClaimEditorDialog({
             <DialogContent className="sm:max-w-lg">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
-                            {isEditing ? <Edit2 className="h-5 w-5 text-white" /> : <Plus className="h-5 w-5 text-white" />}
+                        <div className="h-10 w-10 rounded-xl bg-accent/10 flex items-center justify-center text-accent">
+                            {isEditing ? <Edit2 className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
                         </div>
                         {isEditing ? "Editar Claim" : "Nuevo Claim Personalizado"}
                     </DialogTitle>
@@ -543,7 +514,7 @@ function ClaimEditorDialog({
                     </div>
 
                     {/* Always Include */}
-                    <div className="flex items-center justify-between p-3 rounded-lg border bg-zinc-50/50 dark:bg-zinc-800/50">
+                    <div className="flex items-center justify-between p-3 rounded-lg border bg-muted">
                         <div className="space-y-0.5">
                             <Label className="flex items-center">
                                 Incluir Siempre
@@ -560,7 +531,7 @@ function ClaimEditorDialog({
                     </div>
 
                     {/* Enabled */}
-                    <div className="flex items-center justify-between p-3 rounded-lg border bg-zinc-50/50 dark:bg-zinc-800/50">
+                    <div className="flex items-center justify-between p-3 rounded-lg border bg-muted">
                         <div className="space-y-0.5">
                             <Label>Habilitado</Label>
                             <p className="text-xs text-muted-foreground">
@@ -576,7 +547,11 @@ function ClaimEditorDialog({
 
                 <DialogFooter>
                     <Button variant="outline" onClick={onClose}>Cancelar</Button>
-                    <Button onClick={handleSubmit} disabled={!formData.name || !formData.value}>
+                    <Button
+                        onClick={handleSubmit}
+                        disabled={!formData.name || !formData.value}
+                        className="hover:-translate-y-0.5 hover:shadow-clay-card active:translate-y-0 transition-all duration-200"
+                    >
                         {isEditing ? "Guardar Cambios" : "Crear Claim"}
                     </Button>
                 </DialogFooter>
@@ -813,77 +788,77 @@ export default function ClaimsClientPage() {
     }
 
     return (
-        <div className="space-y-6">
+        <div className="animate-in fade-in duration-500">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-4">
                     <Button variant="ghost" size="sm" asChild>
                         <Link href={`/admin/tenants/detail?id=${tenantId}`}>
                             <ArrowLeft className="h-4 w-4" />
                         </Link>
                     </Button>
-                    <div>
-                        <h1 className="text-3xl font-bold flex items-center gap-3">
-                            <Key className="h-8 w-8 text-violet-500" />
-                            {t("claims.title")}
-                        </h1>
-                        <p className="text-muted-foreground">
-                            {tenant?.name} — Configura los claims incluidos en los tokens JWT
-                        </p>
+                    <div className="flex items-center gap-3">
+                        <div>
+                            <h1 className="text-2xl font-bold tracking-tight">Claims & Tokens</h1>
+                            <p className="text-sm text-muted-foreground">
+                                {tenant?.name} — Configura qué información incluir en tokens JWT
+                            </p>
+                        </div>
                     </div>
                 </div>
+                <Button onClick={() => { setEditingClaim(null); setEditorOpen(true) }} className="shadow-clay-button hover:shadow-clay-card transition-shadow">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Nuevo Claim
+                </Button>
             </div>
 
-            {/* Info Banner */}
-            <div className="flex items-start gap-3 p-4 rounded-xl border bg-gradient-to-r from-violet-500/5 to-purple-500/5 border-violet-500/10">
-                <div className="h-10 w-10 rounded-lg bg-violet-500/10 flex items-center justify-center shrink-0">
-                    <Sparkles className="h-5 w-5 text-violet-500" />
-                </div>
+            {/* Info Alert */}
+            <InlineAlert variant="info" className="mb-6">
                 <div>
-                    <h3 className="font-medium text-sm">¿Qué son los Claims?</h3>
-                    <p className="text-xs text-muted-foreground mt-1 max-w-2xl">
+                    <h4 className="font-semibold mb-1">¿Qué son los Claims?</h4>
+                    <p className="text-sm">
                         Los claims son piezas de información incluidas en los tokens JWT que describen al usuario autenticado.
                         Puedes usar claims estándar de OIDC o definir claims personalizados para agregar información específica
                         de tu aplicación como roles, departamentos o atributos de negocio.
                     </p>
                 </div>
-            </div>
+            </InlineAlert>
 
             {/* Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 <StatCard
                     icon={Shield}
                     label="Claims Estándar"
                     value={`${stats.standardEnabled}/${stats.standardTotal}`}
                     subValue="Claims OIDC habilitados"
-                    color="blue"
+                    isLoading={isLoadingClaims}
                 />
                 <StatCard
                     icon={Sparkles}
                     label="Claims Personalizados"
                     value={stats.customEnabled}
                     subValue={`${stats.customTotal} definidos`}
-                    color="violet"
+                    isLoading={isLoadingClaims}
                 />
                 <StatCard
                     icon={Tag}
                     label="Scopes Mapeados"
                     value={stats.scopeCount}
                     subValue="Grupos de claims"
-                    color="emerald"
+                    isLoading={isLoadingClaims}
                 />
                 <StatCard
                     icon={FileJson}
                     label="Tokens Emitidos"
                     value="—"
                     subValue="Últimas 24h"
-                    color="zinc"
+                    isLoading={isLoadingClaims}
                 />
             </div>
 
             {/* Tabs */}
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-                <TabsList className="bg-zinc-100 dark:bg-zinc-800/50 p-1">
+                <TabsList>
                     <TabsTrigger value="standard" className="gap-2">
                         <Shield className="h-4 w-4" />
                         Claims Estándar
@@ -908,10 +883,10 @@ export default function ClaimsClientPage() {
 
                 {/* Standard Claims Tab */}
                 <TabsContent value="standard" className="space-y-4">
-                    <div className="rounded-xl border bg-card">
+                    <Card className="overflow-hidden">
                         <div className="p-4 border-b">
                             <h3 className="font-medium flex items-center gap-2">
-                                <Shield className="h-4 w-4 text-blue-500" />
+                                <Shield className="h-4 w-4 text-accent" />
                                 Claims OIDC Estándar
                                 <InfoTooltip content="Claims definidos por el estándar OpenID Connect. Se incluyen automáticamente según los scopes solicitados por la aplicación." />
                             </h3>
@@ -930,9 +905,12 @@ export default function ClaimsClientPage() {
                             </TableHeader>
                             <TableBody>
                                 {standardClaims.map((claim) => (
-                                    <TableRow key={claim.name}>
+                                    <TableRow
+                                        key={claim.name}
+                                        className="hover:bg-accent/5 transition-colors"
+                                    >
                                         <TableCell>
-                                            <code className="text-sm font-mono bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded">
+                                            <code className="text-sm font-mono bg-muted px-2 py-1 rounded">
                                                 {claim.name}
                                             </code>
                                         </TableCell>
@@ -954,7 +932,7 @@ export default function ClaimsClientPage() {
                                 ))}
                             </TableBody>
                         </Table>
-                    </div>
+                    </Card>
                 </TabsContent>
 
                 {/* Custom Claims Tab */}
@@ -966,7 +944,10 @@ export default function ClaimsClientPage() {
                                 Define claims adicionales para incluir información específica de tu aplicación
                             </p>
                         </div>
-                        <Button onClick={() => { setEditingClaim(null); setEditorOpen(true) }}>
+                        <Button
+                            onClick={() => { setEditingClaim(null); setEditorOpen(true) }}
+                            className="hover:-translate-y-0.5 hover:shadow-clay-card active:translate-y-0 transition-all duration-200"
+                        >
                             <Plus className="h-4 w-4 mr-2" />
                             Nuevo Claim
                         </Button>
@@ -983,7 +964,7 @@ export default function ClaimsClientPage() {
                             }}
                         />
                     ) : (
-                        <div className="rounded-xl border bg-card">
+                        <Card className="overflow-hidden">
                             <Table>
                                 <TableHeader>
                                     <TableRow>
@@ -999,10 +980,16 @@ export default function ClaimsClientPage() {
                                     {customClaims.map((claim) => {
                                         const SourceIcon = getSourceIcon(claim.source)
                                         return (
-                                            <TableRow key={claim.id} className={!claim.enabled ? "opacity-50" : ""}>
+                                            <TableRow
+                                                key={claim.id}
+                                                className={cn(
+                                                    "hover:bg-accent/5 transition-colors",
+                                                    !claim.enabled && "opacity-50"
+                                                )}
+                                            >
                                                 <TableCell>
                                                     <div className="space-y-1">
-                                                        <code className="text-sm font-mono bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded">
+                                                        <code className="text-sm font-mono bg-muted px-2 py-1 rounded">
                                                             {claim.name}
                                                         </code>
                                                         {claim.description && (
@@ -1013,19 +1000,19 @@ export default function ClaimsClientPage() {
                                                     </div>
                                                 </TableCell>
                                                 <TableCell>
-                                                    <Badge variant="outline" className={cn("text-xs", getSourceColor(claim.source))}>
+                                                    <Badge variant="outline" className="text-xs bg-accent/10 text-accent border-accent/30">
                                                         <SourceIcon className="h-3 w-3 mr-1" />
                                                         {getSourceLabel(claim.source)}
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell>
-                                                    <code className="text-xs font-mono text-muted-foreground bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded truncate max-w-[200px] block">
+                                                    <code className="text-xs font-mono text-muted-foreground bg-muted px-2 py-1 rounded truncate max-w-[200px] block">
                                                         {claim.value}
                                                     </code>
                                                 </TableCell>
                                                 <TableCell>
                                                     {claim.always_include ? (
-                                                        <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+                                                        <Badge variant="outline" className="text-xs bg-accent/10 text-accent border-accent/30">
                                                             Siempre
                                                         </Badge>
                                                     ) : (
@@ -1044,16 +1031,16 @@ export default function ClaimsClientPage() {
                                                     <div className="flex items-center justify-end gap-1">
                                                         <Button
                                                             variant="ghost"
-                                                            size="icon"
-                                                            className="h-8 w-8"
+                                                            size="sm"
+                                                            className="h-8 w-8 hover:-translate-y-0.5 transition-all duration-200"
                                                             onClick={() => { setEditingClaim(claim); setEditorOpen(true) }}
                                                         >
                                                             <Edit2 className="h-4 w-4" />
                                                         </Button>
                                                         <Button
                                                             variant="ghost"
-                                                            size="icon"
-                                                            className="h-8 w-8 text-destructive hover:text-destructive"
+                                                            size="sm"
+                                                            className="h-8 w-8 text-destructive hover:text-destructive hover:-translate-y-0.5 transition-all duration-200"
                                                             onClick={() => { setSelectedClaim(claim); setDeleteDialogOpen(true) }}
                                                             disabled={claim.system}
                                                         >
@@ -1066,24 +1053,24 @@ export default function ClaimsClientPage() {
                                     })}
                                 </TableBody>
                             </Table>
-                        </div>
+                        </Card>
                     )}
                 </TabsContent>
 
                 {/* Scope Mappings Tab */}
                 <TabsContent value="mappings" className="space-y-4">
-                    <div className="p-4 rounded-xl border bg-card">
+                    <Card className="p-4">
                         <h3 className="font-medium flex items-center gap-2 mb-4">
-                            <Tag className="h-4 w-4 text-emerald-500" />
+                            <Tag className="h-4 w-4 text-accent" />
                             Mapeo de Scopes a Claims
                             <InfoTooltip content="Define qué claims se incluyen cuando una aplicación solicita un scope específico" />
                         </h3>
 
                         <div className="space-y-4">
                             {scopeMappings.map((mapping) => (
-                                <div key={mapping.scope} className="p-4 rounded-lg border bg-zinc-50/50 dark:bg-zinc-800/50">
+                                <div key={mapping.scope} className="p-4 rounded-lg border bg-muted">
                                     <div className="flex items-center justify-between mb-3">
-                                        <Badge className="text-sm bg-indigo-500/10 text-indigo-600 border-indigo-500/20">
+                                        <Badge className="text-sm bg-accent/10 text-accent border-accent/30">
                                             {mapping.scope}
                                         </Badge>
                                         <span className="text-xs text-muted-foreground">
@@ -1092,7 +1079,7 @@ export default function ClaimsClientPage() {
                                     </div>
                                     <div className="flex flex-wrap gap-2">
                                         {mapping.claims.map((claim) => (
-                                            <code key={claim} className="text-xs font-mono bg-zinc-200 dark:bg-zinc-700 px-2 py-1 rounded">
+                                            <code key={claim} className="text-xs font-mono bg-card px-2 py-1 rounded">
                                                 {claim}
                                             </code>
                                         ))}
@@ -1101,33 +1088,33 @@ export default function ClaimsClientPage() {
                             ))}
                         </div>
 
-                        <div className="mt-4 flex items-start gap-2 p-3 rounded-lg bg-amber-500/5 border border-amber-500/10">
-                            <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-                            <div className="text-xs text-amber-700 dark:text-amber-300">
-                                <p className="font-medium">Mapeos automáticos</p>
-                                <p className="mt-0.5 text-amber-600 dark:text-amber-400">
+                        <InlineAlert variant="warning" className="mt-4">
+                            <AlertCircle className="h-4 w-4" />
+                            <div>
+                                <p className="font-medium text-sm">Mapeos automáticos</p>
+                                <p className="text-xs mt-0.5">
                                     Los claims estándar OIDC se mapean automáticamente a sus scopes correspondientes.
                                     Los claims personalizados marcados como "Incluir Siempre" se agregan a todos los tokens.
                                 </p>
                             </div>
-                        </div>
-                    </div>
+                        </InlineAlert>
+                    </Card>
                 </TabsContent>
 
                 {/* Token Preview Tab */}
                 <TabsContent value="preview" className="space-y-4">
-                    <div className="p-4 rounded-xl border bg-card">
+                    <Card className="p-4">
                         <TokenPreview
                             standardClaims={standardClaims}
                             customClaims={customClaims}
                             settings={settings}
                         />
-                    </div>
+                    </Card>
                 </TabsContent>
 
                 {/* Settings Tab */}
                 <TabsContent value="settings" className="space-y-4">
-                    <div className="p-4 rounded-xl border bg-card space-y-6">
+                    <Card className="p-4 space-y-6">
                         <div>
                             <h3 className="font-medium flex items-center gap-2">
                                 <Settings2 className="h-4 w-4" />
@@ -1140,7 +1127,7 @@ export default function ClaimsClientPage() {
 
                         <div className="space-y-4">
                             {/* Include in Access Token */}
-                            <div className="flex items-center justify-between p-4 rounded-lg border bg-zinc-50/50 dark:bg-zinc-800/50">
+                            <div className="flex items-center justify-between p-4 rounded-lg border bg-muted">
                                 <div className="space-y-1">
                                     <Label className="flex items-center">
                                         Incluir en Access Token
@@ -1157,7 +1144,7 @@ export default function ClaimsClientPage() {
                             </div>
 
                             {/* Use Namespaced Claims */}
-                            <div className="flex items-center justify-between p-4 rounded-lg border bg-zinc-50/50 dark:bg-zinc-800/50">
+                            <div className="flex items-center justify-between p-4 rounded-lg border bg-muted">
                                 <div className="space-y-1">
                                     <Label className="flex items-center">
                                         Usar Claims con Namespace
@@ -1175,7 +1162,7 @@ export default function ClaimsClientPage() {
 
                             {/* Namespace Prefix */}
                             {settings.use_namespaced_claims && (
-                                <div className="p-4 rounded-lg border bg-zinc-50/50 dark:bg-zinc-800/50 space-y-3">
+                                <div className="p-4 rounded-lg border bg-muted space-y-3">
                                     <Label className="flex items-center">
                                         Prefijo de Namespace
                                         <InfoTooltip content="URL base que se usará como prefijo para los claims personalizados" />
@@ -1193,19 +1180,19 @@ export default function ClaimsClientPage() {
                         </div>
 
                         {/* Security Notice */}
-                        <div className="flex items-start gap-3 p-4 rounded-lg bg-blue-500/5 border border-blue-500/10">
-                            <Lock className="h-5 w-5 text-blue-500 mt-0.5 shrink-0" />
-                            <div className="text-xs">
-                                <p className="font-medium text-blue-700 dark:text-blue-300">Consideraciones de Seguridad</p>
-                                <ul className="mt-2 space-y-1 text-blue-600 dark:text-blue-400">
+                        <InlineAlert variant="info">
+                            <Lock className="h-5 w-5" />
+                            <div>
+                                <p className="font-medium text-sm">Consideraciones de Seguridad</p>
+                                <ul className="mt-2 space-y-1 text-xs">
                                     <li>• No incluyas información sensible directamente en los tokens</li>
                                     <li>• Los tokens pueden ser decodificados por cualquiera que los tenga</li>
                                     <li>• Usa tiempos de expiración cortos para tokens con información sensible</li>
                                     <li>• Considera usar opaque tokens si necesitas máxima privacidad</li>
                                 </ul>
                             </div>
-                        </div>
-                    </div>
+                        </InlineAlert>
+                    </Card>
                 </TabsContent>
             </Tabs>
 
@@ -1236,7 +1223,11 @@ export default function ClaimsClientPage() {
                         <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
                             Cancelar
                         </Button>
-                        <Button variant="destructive" onClick={handleDeleteClaim}>
+                        <Button
+                            variant="danger"
+                            onClick={handleDeleteClaim}
+                            className="hover:-translate-y-0.5 hover:shadow-clay-card active:translate-y-0 transition-all duration-200"
+                        >
                             Eliminar
                         </Button>
                     </DialogFooter>

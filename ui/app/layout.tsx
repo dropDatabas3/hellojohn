@@ -5,14 +5,28 @@ import type { Metadata } from "next"
 
 import { QueryProvider } from "@/components/providers/query-provider"
 import { ThemeProvider } from "@/components/providers/theme-provider"
-import { Toaster } from "@/components/ui/toaster"
+import { Toaster } from "@/components/ds/feedback/toaster"
 import "./globals.css"
 
-import { Inter, Geist_Mono } from 'next/font/google'
+import { Inter, Geist_Mono, DM_Sans, Nunito } from 'next/font/google'
 
 // Initialize fonts
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono" })
+
+// Clay Design System fonts
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  variable: '--font-body',
+  display: 'swap',
+})
+
+const nunito = Nunito({
+  subsets: ['latin'],
+  variable: '--font-heading',
+  display: 'swap',
+  weight: ['400', '600', '700', '800'],
+})
 
 export const metadata: Metadata = {
   title: "HelloJohn Admin",
@@ -26,7 +40,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es" suppressHydrationWarning>
-      <body suppressHydrationWarning className={`${inter.variable} ${geistMono.variable} font-sans antialiased`}>
+      <body suppressHydrationWarning className={`${inter.variable} ${geistMono.variable} ${dmSans.variable} ${nunito.variable} font-sans antialiased`}>
         <ThemeProvider>
           <QueryProvider>
             {children}

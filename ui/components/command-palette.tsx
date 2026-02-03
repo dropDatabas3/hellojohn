@@ -38,11 +38,12 @@ import {
     CommandList,
     CommandSeparator,
     CommandShortcut,
-} from "@/components/ui/command"
+} from "@/components/ds"
 import { useAuthStore } from "@/lib/auth-store"
 import { useUIStore } from "@/lib/ui-store"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import type { Tenant } from "@/lib/types"
 
 export function CommandPalette() {
@@ -108,13 +109,49 @@ export function CommandPalette() {
         <>
             <button
                 onClick={() => setOpen(true)}
-                className="inline-flex items-center rounded-lg font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-input bg-background/50 backdrop-blur-sm shadow-sm hover:bg-accent hover:text-accent-foreground hover:shadow-md h-9 px-4 py-2 relative w-full justify-start text-sm text-muted-foreground sm:pr-12 md:w-40 lg:w-80"
+                className={cn(
+                    "group relative w-full h-10 rounded-xl px-4",
+                    "inline-flex items-center justify-start gap-3",
+                    "font-medium text-sm transition-all duration-300 ease-out",
+                    // Solid background with subtle gradient
+                    "bg-gradient-to-b from-slate-50 to-slate-100/80",
+                    "dark:from-slate-800 dark:to-slate-900/90",
+                    "hover:from-slate-100 hover:to-slate-150/80",
+                    "dark:hover:from-slate-700 dark:hover:to-slate-800/90",
+                    // Clean border
+                    "border border-slate-200/80 dark:border-slate-700/50",
+                    "hover:border-slate-300 dark:hover:border-slate-600",
+                    // Premium 3D shadow stack
+                    "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_2px_4px_rgba(0,0,0,0.03),inset_0_1px_0_rgba(255,255,255,0.8)]",
+                    "dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),0_2px_4px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.05)]",
+                    "hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),0_4px_8px_rgba(0,0,0,0.03),inset_0_1px_0_rgba(255,255,255,0.9)]",
+                    "dark:hover:shadow-[0_2px_4px_rgba(0,0,0,0.25),0_4px_8px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.08)]",
+                    // Micro interaction
+                    "hover:-translate-y-0.5 active:translate-y-0",
+                    // Focus states
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-1",
+                    "disabled:pointer-events-none disabled:opacity-50",
+                    // Text color
+                    "text-slate-500 dark:text-slate-400",
+                    "hover:text-slate-700 dark:hover:text-slate-200"
+                )}
             >
-                <Search className="mr-2 h-4 w-4 shrink-0" />
-                <span className="hidden lg:inline-flex">Buscar comandos...</span>
+                <Search className="h-[18px] w-[18px] shrink-0 text-slate-500 dark:text-slate-300 group-hover:text-slate-600 dark:group-hover:text-white transition-colors" />
+                <span className="hidden lg:inline-flex truncate">Buscar comandos...</span>
                 <span className="inline-flex lg:hidden">Buscar...</span>
-                <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100 sm:flex">
-                    <span className="text-xs">⌘</span>K
+                <kbd className={cn(
+                    "pointer-events-none absolute right-3 top-1/2 -translate-y-1/2",
+                    "hidden sm:inline-flex items-center gap-1",
+                    "h-6 px-2 rounded-md",
+                    "bg-slate-800 dark:bg-slate-700",
+                    "border border-slate-600/50 dark:border-slate-500/50",
+                    "font-mono font-semibold",
+                    "text-white dark:text-white",
+                    "shadow-[0_1px_3px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)]",
+                    "dark:shadow-[0_1px_3px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.08)]"
+                )}>
+                    <span className="text-[10px] opacity-80">⌘</span>
+                    <span className="text-xs">K</span>
                 </kbd>
             </button>
             <CommandDialog open={open} onOpenChange={setOpen}>
@@ -181,7 +218,7 @@ export function CommandPalette() {
                         </CommandItem>
                         {currentTenantId && (
                             <CommandItem
-                                onSelect={() => runCommand(() => router.push(`/admin/users?id=${currentTenantId}`))}
+                                onSelect={() => runCommand(() => router.push(`/admin/tenants/users?id=${currentTenantId}`))}
                                 className="cursor-pointer"
                             >
                                 <Users className="mr-2 h-4 w-4" />
@@ -275,7 +312,7 @@ export function CommandPalette() {
                                     <span>Sessions</span>
                                 </CommandItem>
                                 <CommandItem
-                                    onSelect={() => runCommand(() => router.push(`/admin/rbac?id=${currentTenantId}`))}
+                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/rbac?id=${currentTenantId}`))}
                                     className="cursor-pointer"
                                 >
                                     <Shield className="mr-2 h-4 w-4" />

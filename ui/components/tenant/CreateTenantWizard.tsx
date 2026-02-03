@@ -16,15 +16,8 @@ import {
 } from "lucide-react"
 import { api } from "@/lib/api"
 import { useI18n } from "@/lib/i18n"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import {
-    Dialog,
-    DialogContent,
-    DialogTitle,
-} from "@/components/ui/dialog"
+import { Button, Input, Dialog, DialogContent, DialogTitle, Switch } from "@/components/ds"
 import { useToast } from "@/hooks/use-toast"
-import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import { LogoDropzone } from "@/components/tenant/LogoDropzone"
 import type { Tenant } from "@/lib/types"

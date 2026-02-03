@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react"
 import { useParams, useSearchParams } from "next/navigation"
+import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
     Card,
@@ -10,19 +11,17 @@ import {
     CardHeader,
     CardTitle,
     CardFooter,
-} from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
+    Button,
+    Input,
+    Label,
     Select,
     SelectContent,
     SelectItem,
     SelectTrigger,
     SelectValue,
-} from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
-import { Checkbox } from "@/components/ui/checkbox"
+    Switch,
+    Checkbox,
+} from "@/components/ds"
 import { useToast } from "@/hooks/use-toast"
 import { api, tokensAdminAPI } from "@/lib/api"
 import { API_ROUTES } from "@/lib/routes"
@@ -71,6 +70,7 @@ import {
     ExternalLink,
     ArrowRight,
     AlertTriangle,
+    ArrowLeft,
 } from "lucide-react"
 import {
     Dialog,
@@ -80,39 +80,31 @@ import {
     DialogHeader,
     DialogTitle,
     DialogTrigger,
-} from "@/components/ui/dialog"
-import {
     Table,
     TableBody,
     TableCell,
     TableHead,
     TableHeader,
     TableRow,
-} from "@/components/ui/table"
-import { Textarea } from "@/components/ui/textarea"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
-import {
+    Textarea,
+    InlineAlert,
+    Badge,
     Tabs,
     TabsContent,
     TabsList,
     TabsTrigger,
-} from "@/components/ui/tabs"
-import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
     Tooltip,
     TooltipContent,
     TooltipProvider,
     TooltipTrigger,
-} from "@/components/ui/tooltip"
-import { cn } from "@/lib/utils"
+    cn,
+} from "@/components/ds"
 import { Tenant } from "@/lib/types"
 
 // ----- Types -----
@@ -365,10 +357,10 @@ function StatCard({ icon: Icon, label, value, subvalue, variant = "default" }: {
     variant?: "default" | "success" | "warning" | "danger"
 }) {
     const colorClasses = {
-        default: "bg-blue-500/10 text-blue-600",
-        success: "bg-green-500/10 text-green-600",
-        warning: "bg-amber-500/10 text-amber-600",
-        danger: "bg-red-500/10 text-red-600",
+        default: "bg-info/10 text-info",
+        success: "bg-success/10 text-success",
+        warning: "bg-warning/10 text-warning",
+        danger: "bg-danger/10 text-danger",
     }
     return (
         <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 border">
@@ -444,61 +436,52 @@ export default function TokensClientPage() {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                    <div className="relative">
-                        <div className="absolute inset-0 bg-gradient-to-br from-purple-400/20 to-indigo-400/20 rounded-xl blur-xl" />
-                        <div className="relative p-3 bg-gradient-to-br from-purple-500/10 to-indigo-500/10 rounded-xl border border-purple-500/20">
-                            <KeyRound className="h-6 w-6 text-purple-600 dark:text-purple-400" />
+                    <Button variant="ghost" size="sm" asChild>
+                        <Link href={`/admin/tenants/detail?id=${selectedTenantId}`}>
+                            <ArrowLeft className="h-4 w-4" />
+                        </Link>
+                    </Button>
+                    <div className="flex items-center gap-3">
+                        <div>
+                            <h1 className="text-2xl font-bold tracking-tight">Tokens</h1>
+                            <p className="text-sm text-muted-foreground">
+                                Inspecciona, revoca y monitorea tokens OAuth2.
+                            </p>
                         </div>
                     </div>
-                    <div>
-                        <h2 className="text-2xl font-bold tracking-tight">Tokens</h2>
-                        <p className="text-sm text-muted-foreground">
-                            Inspecciona, revoca y monitorea tokens OAuth2.
-                        </p>
-                    </div>
-                </div>
-                {/* Tenant Selector */}
-                <div className="flex items-center gap-2">
-                    <Label className="text-sm text-muted-foreground">Tenant:</Label>
-                    <Select value={selectedTenantId} onValueChange={setSelectedTenantId}>
-                        <SelectTrigger className="w-[200px]">
-                            <SelectValue placeholder="Seleccionar tenant..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {tenants?.map((t) => (
-                                <SelectItem key={t.id} value={t.id}>
-                                    {t.name || t.slug}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
                 </div>
             </div>
 
             {/* Info Banner */}
-            <Alert className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/20 dark:to-indigo-950/20 border-purple-200 dark:border-purple-800">
-                <Key className="h-4 w-4 text-purple-600" />
-                <AlertTitle className="text-purple-900 dark:text-purple-100">Gestión de Tokens OAuth2</AlertTitle>
-                <AlertDescription className="text-purple-800 dark:text-purple-200">
-                    Los <strong>Access Tokens</strong> permiten a las aplicaciones acceder a recursos protegidos.
-                    Los <strong>Refresh Tokens</strong> permiten obtener nuevos access tokens sin re-autenticación.
-                    Aquí puedes inspeccionar, revocar y monitorear todos los tokens activos.
-                </AlertDescription>
-            </Alert>
-
-            {!selectedTenantId ? (
-                <div className="flex flex-col items-center justify-center py-20 px-6">
-                    <div className="relative mb-8">
-                        <div className="absolute inset-0 bg-gradient-to-br from-amber-400/20 to-orange-400/20 rounded-full blur-2xl scale-150" />
-                        <div className="relative rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/50 dark:to-orange-950/50 p-5">
-                            <Database className="h-8 w-8 text-amber-600 dark:text-amber-400" />
-                        </div>
-                    </div>
-                    <h3 className="text-xl font-semibold text-center mb-2">Selecciona un Tenant</h3>
-                    <p className="text-muted-foreground text-center max-w-sm text-sm">
-                        Para gestionar tokens, primero selecciona un tenant del menú superior.
+            <InlineAlert variant="info">
+                <Key className="h-4 w-4" />
+                <div>
+                    <p className="font-semibold">Gestión de Tokens OAuth2</p>
+                    <p className="text-sm opacity-90">
+                        Los <strong>Access Tokens</strong> permiten a las aplicaciones acceder a recursos protegidos.
+                        Los <strong>Refresh Tokens</strong> permiten obtener nuevos access tokens sin re-autenticación.
+                        Aquí puedes inspeccionar, revocar y monitorear todos los tokens activos.
                     </p>
                 </div>
+            </InlineAlert>
+
+            {!selectedTenantId ? (
+                <Card className="p-12 shadow-clay-card">
+                    <div className="flex flex-col items-center text-center space-y-4">
+                        <div className="relative">
+                            <div className="absolute inset-0 bg-gradient-to-br from-warning/20 to-danger/10 rounded-full blur-2xl" />
+                            <div className="relative rounded-2xl bg-gradient-to-br from-warning/10 to-danger/5 p-5">
+                                <Database className="h-8 w-8 text-warning" />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <h3 className="text-xl font-semibold text-foreground">Selecciona un Tenant</h3>
+                            <p className="text-muted-foreground max-w-sm text-sm">
+                                Para gestionar tokens, primero selecciona un tenant del menú superior.
+                            </p>
+                        </div>
+                    </div>
+                </Card>
             ) : (
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
                     <TabsList className="grid w-full max-w-2xl grid-cols-4">
@@ -623,8 +606,8 @@ function InspectorTab({ tenantId }: { tenantId: string }) {
             <Card>
                 <CardHeader>
                     <div className="flex items-center gap-2">
-                        <div className="p-2 bg-blue-500/10 rounded-lg">
-                            <Search className="h-5 w-5 text-blue-600" />
+                        <div className="p-2 bg-info/10 rounded-lg">
+                            <Search className="h-5 w-5 text-info" />
                         </div>
                         <div>
                             <CardTitle className="text-lg">Token Inspector</CardTitle>
@@ -658,8 +641,8 @@ function InspectorTab({ tenantId }: { tenantId: string }) {
                                 <Button
                                     type="button"
                                     variant="ghost"
-                                    size="icon"
-                                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                                    size="sm"
+                                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
                                     onClick={() => setShowSecret(!showSecret)}
                                 >
                                     {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -711,7 +694,7 @@ function InspectorTab({ tenantId }: { tenantId: string }) {
                             Introspect
                         </Button>
                         <Button
-                            variant="destructive"
+                            variant="danger"
                             onClick={revoke}
                             disabled={!clientId || !clientSecret || !tokenInput || loading}
                         >
@@ -730,10 +713,10 @@ function InspectorTab({ tenantId }: { tenantId: string }) {
                     </div>
 
                     {error && (
-                        <Alert variant="destructive">
+                        <InlineAlert variant="danger">
                             <AlertCircle className="h-4 w-4" />
-                            <AlertDescription>{error}</AlertDescription>
-                        </Alert>
+                            {error}
+                        </InlineAlert>
                     )}
                 </CardContent>
             </Card>
@@ -743,8 +726,8 @@ function InspectorTab({ tenantId }: { tenantId: string }) {
                 <CardHeader>
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                            <div className="p-2 bg-purple-500/10 rounded-lg">
-                                <FileJson className="h-5 w-5 text-purple-600" />
+                            <div className="p-2 bg-accent/10 rounded-lg">
+                                <FileJson className="h-5 w-5 text-accent" />
                             </div>
                             <div>
                                 <CardTitle className="text-lg">Resultado</CardTitle>
@@ -844,25 +827,25 @@ function InspectorTab({ tenantId }: { tenantId: string }) {
                                     {(result.roles || result.permissions) && (
                                         <div className="space-y-2">
                                             {result.roles && result.roles.length > 0 && (
-                                                <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
+                                                <div className="p-3 rounded-lg bg-success/5 border border-success/20">
                                                     <p className="text-xs text-muted-foreground flex items-center gap-1">
                                                         <Shield className="h-3 w-3" /> Roles
                                                     </p>
                                                     <div className="flex flex-wrap gap-1 mt-1">
                                                         {result.roles.map((r) => (
-                                                            <Badge key={r} variant="outline" className="text-[10px] bg-emerald-500/10">{r}</Badge>
+                                                            <Badge key={r} variant="outline" className="text-[10px] bg-success/10">{r}</Badge>
                                                         ))}
                                                     </div>
                                                 </div>
                                             )}
                                             {result.permissions && result.permissions.length > 0 && (
-                                                <div className="p-3 rounded-lg bg-blue-500/5 border border-blue-500/20">
+                                                <div className="p-3 rounded-lg bg-info/5 border border-info/20">
                                                     <p className="text-xs text-muted-foreground flex items-center gap-1">
                                                         <Key className="h-3 w-3" /> Permissions
                                                     </p>
                                                     <div className="flex flex-wrap gap-1 mt-1 max-h-[80px] overflow-y-auto">
                                                         {result.permissions.map((p) => (
-                                                            <Badge key={p} variant="outline" className="text-[10px] font-mono bg-blue-500/10">{p}</Badge>
+                                                            <Badge key={p} variant="outline" className="text-[10px] font-mono bg-info/10">{p}</Badge>
                                                         ))}
                                                     </div>
                                                 </div>
@@ -888,8 +871,8 @@ function InspectorTab({ tenantId }: { tenantId: string }) {
                                                 </pre>
                                                 <Button
                                                     variant="ghost"
-                                                    size="icon"
-                                                    className="absolute top-2 right-2 h-7 w-7"
+                                                    size="sm"
+                                                    className="absolute top-2 right-2 h-7 w-7 p-0"
                                                     onClick={() => copyToClipboard(JSON.stringify(result, null, 2), "JSON")}
                                                 >
                                                     <Copy className="h-3.5 w-3.5" />
@@ -903,55 +886,55 @@ function InspectorTab({ tenantId }: { tenantId: string }) {
                             {activeView === "decoded" && decodedJWT && (
                                 <div className="space-y-3">
                                     {/* Header */}
-                                    <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                                    <div className="p-3 rounded-lg bg-warning/5 border border-warning/20">
                                         <div className="flex items-center justify-between mb-2">
-                                            <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">HEADER</p>
+                                            <p className="text-xs font-semibold text-warning">HEADER</p>
                                             <Button
                                                 variant="ghost"
-                                                size="icon"
-                                                className="h-6 w-6"
+                                                size="sm"
+                                                className="h-6 w-6 p-0"
                                                 onClick={() => copyToClipboard(JSON.stringify(decodedJWT.header, null, 2), "Header")}
                                             >
                                                 <Copy className="h-3 w-3" />
                                             </Button>
                                         </div>
-                                        <pre className="text-xs font-mono text-amber-900 dark:text-amber-100 overflow-auto">
+                                        <pre className="text-xs font-mono text-warning overflow-auto">
                                             {JSON.stringify(decodedJWT.header, null, 2)}
                                         </pre>
                                     </div>
 
                                     {/* Payload */}
-                                    <div className="p-3 rounded-lg bg-purple-500/5 border border-purple-500/20">
+                                    <div className="p-3 rounded-lg bg-accent/5 border border-accent/20">
                                         <div className="flex items-center justify-between mb-2">
-                                            <p className="text-xs font-semibold text-purple-700 dark:text-purple-300">PAYLOAD</p>
+                                            <p className="text-xs font-semibold text-accent">PAYLOAD</p>
                                             <Button
                                                 variant="ghost"
-                                                size="icon"
-                                                className="h-6 w-6"
+                                                size="sm"
+                                                className="h-6 w-6 p-0"
                                                 onClick={() => copyToClipboard(JSON.stringify(decodedJWT.payload, null, 2), "Payload")}
                                             >
                                                 <Copy className="h-3 w-3" />
                                             </Button>
                                         </div>
-                                        <pre className="text-xs font-mono text-purple-900 dark:text-purple-100 overflow-auto max-h-[200px]">
+                                        <pre className="text-xs font-mono text-accent overflow-auto max-h-[200px]">
                                             {JSON.stringify(decodedJWT.payload, null, 2)}
                                         </pre>
                                     </div>
 
                                     {/* Signature */}
-                                    <div className="p-3 rounded-lg bg-cyan-500/5 border border-cyan-500/20">
+                                    <div className="p-3 rounded-lg bg-info/5 border border-info/20">
                                         <div className="flex items-center justify-between mb-2">
-                                            <p className="text-xs font-semibold text-cyan-700 dark:text-cyan-300">SIGNATURE</p>
+                                            <p className="text-xs font-semibold text-info">SIGNATURE</p>
                                             <Button
                                                 variant="ghost"
-                                                size="icon"
-                                                className="h-6 w-6"
+                                                size="sm"
+                                                className="h-6 w-6 p-0"
                                                 onClick={() => copyToClipboard(decodedJWT.signature, "Signature")}
                                             >
                                                 <Copy className="h-3 w-3" />
                                             </Button>
                                         </div>
-                                        <p className="text-xs font-mono text-cyan-900 dark:text-cyan-100 break-all">
+                                        <p className="text-xs font-mono text-info break-all">
                                             {decodedJWT.signature}
                                         </p>
                                     </div>
@@ -1118,7 +1101,7 @@ function ActiveTokensTab({ tenantId }: { tenantId: string }) {
                         <Button variant="ghost" size="sm" onClick={() => setSelectedTokens(new Set())}>
                             Cancelar
                         </Button>
-                        <Button variant="destructive" size="sm" onClick={revokeSelected} disabled={revokeMutation.isPending}>
+                        <Button variant="danger" size="sm" onClick={revokeSelected} disabled={revokeMutation.isPending}>
                             {revokeMutation.isPending ? (
                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                             ) : (
@@ -1207,7 +1190,7 @@ function ActiveTokensTab({ tenantId }: { tenantId: string }) {
                                         <TableCell>
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
                                                         <MoreHorizontal className="h-4 w-4" />
                                                     </Button>
                                                 </DropdownMenuTrigger>
@@ -1227,7 +1210,7 @@ function ActiveTokensTab({ tenantId }: { tenantId: string }) {
                                                     </DropdownMenuItem>
                                                     <DropdownMenuItem
                                                         onClick={() => revokeToken(token.id)}
-                                                        className="text-red-600"
+                                                        className="text-danger"
                                                         disabled={token.status !== "active"}
                                                     >
                                                         <Ban className="mr-2 h-4 w-4" /> Revocar
@@ -1314,7 +1297,7 @@ function StatsTab({ tenantId }: { tenantId: string }) {
         },
     })
 
-    const clientColors = ["bg-blue-500", "bg-purple-500", "bg-emerald-500", "bg-amber-500", "bg-red-500", "bg-cyan-500"]
+    const clientColors = ["bg-info", "bg-accent", "bg-success", "bg-warning", "bg-danger", "bg-muted-foreground"]
 
     const [showRevokeAllConfirm, setShowRevokeAllConfirm] = useState(false)
     const [selectedClientForRevoke, setSelectedClientForRevoke] = useState<string | null>(null)
@@ -1376,7 +1359,7 @@ function StatsTab({ tenantId }: { tenantId: string }) {
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-base flex items-center gap-2">
-                            <Activity className="h-4 w-4 text-blue-600" />
+                            <Activity className="h-4 w-4 text-info" />
                             Distribución por Client
                         </CardTitle>
                         <CardDescription>
@@ -1405,7 +1388,7 @@ function StatsTab({ tenantId }: { tenantId: string }) {
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-base flex items-center gap-2">
-                            <RefreshCw className="h-4 w-4 text-purple-600" />
+                            <RefreshCw className="h-4 w-4 text-accent" />
                             Actualizar Estadísticas
                         </CardTitle>
                         <CardDescription>
@@ -1425,7 +1408,7 @@ function StatsTab({ tenantId }: { tenantId: string }) {
             <Card>
                 <CardHeader>
                     <CardTitle className="text-base flex items-center gap-2">
-                        <ShieldAlert className="h-4 w-4 text-red-600" />
+                        <ShieldAlert className="h-4 w-4 text-danger" />
                         Acciones Rápidas
                     </CardTitle>
                     <CardDescription>
@@ -1453,7 +1436,7 @@ function StatsTab({ tenantId }: { tenantId: string }) {
                             </Button>
                         ))}
                         <Button
-                            variant="destructive"
+                            variant="danger"
                             className="justify-start h-auto py-3"
                             onClick={() => setShowRevokeAllConfirm(true)}
                         >
@@ -1489,7 +1472,7 @@ function StatsTab({ tenantId }: { tenantId: string }) {
                             Cancelar
                         </Button>
                         <Button
-                            variant="destructive"
+                            variant="danger"
                             onClick={() => {
                                 revokeAllMutation.mutate()
                                 setShowRevokeAllConfirm(false)
@@ -1512,7 +1495,7 @@ function StatsTab({ tenantId }: { tenantId: string }) {
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
-                            <Globe className="h-5 w-5 text-amber-600" />
+                            <Globe className="h-5 w-5 text-warning" />
                             Revocar Tokens del Client
                         </DialogTitle>
                         <DialogDescription>
@@ -1524,7 +1507,7 @@ function StatsTab({ tenantId }: { tenantId: string }) {
                             Cancelar
                         </Button>
                         <Button
-                            variant="destructive"
+                            variant="danger"
                             onClick={() => {
                                 if (selectedClientForRevoke) {
                                     revokeByClientMutation.mutate(selectedClientForRevoke)
@@ -1562,9 +1545,9 @@ function HistoryTab({ tenantId }: { tenantId: string }) {
     const getActionBadge = (action: TokenHistoryEntry["action"]) => {
         switch (action) {
             case "issued":
-                return <Badge variant="default" className="bg-green-500/10 text-green-600 border-green-500/30">Emitido</Badge>
+                return <Badge variant="default" className="bg-success/10 text-success border-success/30">Emitido</Badge>
             case "refreshed":
-                return <Badge variant="default" className="bg-blue-500/10 text-blue-600 border-blue-500/30">Renovado</Badge>
+                return <Badge variant="default" className="bg-info/10 text-info border-info/30">Renovado</Badge>
             case "revoked":
                 return <Badge variant="destructive">Revocado</Badge>
             case "expired":
@@ -1575,11 +1558,11 @@ function HistoryTab({ tenantId }: { tenantId: string }) {
     const getActionIcon = (action: TokenHistoryEntry["action"]) => {
         switch (action) {
             case "issued":
-                return <CheckCircle2 className="h-4 w-4 text-green-600" />
+                return <CheckCircle2 className="h-4 w-4 text-success" />
             case "refreshed":
-                return <RefreshCw className="h-4 w-4 text-blue-600" />
+                return <RefreshCw className="h-4 w-4 text-info" />
             case "revoked":
-                return <Ban className="h-4 w-4 text-red-600" />
+                return <Ban className="h-4 w-4 text-danger" />
             case "expired":
                 return <Clock className="h-4 w-4 text-muted-foreground" />
         }
@@ -1588,13 +1571,11 @@ function HistoryTab({ tenantId }: { tenantId: string }) {
     return (
         <div className="space-y-4">
             {/* Info */}
-            <Alert>
+            <InlineAlert variant="warning">
                 <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
-                    <strong>Nota:</strong> Este historial muestra datos de ejemplo. El backend necesita implementar
-                    un endpoint de auditoría para tokens.
-                </AlertDescription>
-            </Alert>
+                <span><strong>Nota:</strong> Este historial muestra datos de ejemplo. El backend necesita implementar
+                un endpoint de auditoría para tokens.</span>
+            </InlineAlert>
 
             {/* Filters */}
             <div className="flex items-center gap-3">
@@ -1648,7 +1629,7 @@ function HistoryTab({ tenantId }: { tenantId: string }) {
                                             </span>
                                         )}
                                         {entry.reason && (
-                                            <span className="flex items-center gap-1 text-amber-600">
+                                            <span className="flex items-center gap-1 text-warning">
                                                 <Info className="h-3 w-3" /> {entry.reason}
                                             </span>
                                         )}

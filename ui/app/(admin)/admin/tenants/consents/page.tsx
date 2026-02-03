@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback, Suspense, useEffect } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
+import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   Shield, Users, Clock, Search, RefreshCw, Trash2, Settings2,
@@ -9,74 +10,39 @@ import {
   ChevronLeft, HelpCircle, Ban, Eye, Filter, X, FileText, UserCheck,
   KeyRound, Lock, Unlock, Calendar, Globe, Layers, CheckSquare,
   Square, MinusSquare, ExternalLink, AlertTriangle, Loader2, Copy,
-  RotateCcw, Timer, ShieldCheck, ShieldOff, Hash, FileCode
+  RotateCcw, Timer, ShieldCheck, ShieldOff, Hash, FileCode, ArrowLeft
 } from "lucide-react"
 import { api } from "@/lib/api"
 import { API_ROUTES } from "@/lib/routes"
 import { useI18n } from "@/lib/i18n"
 import { useToast } from "@/hooks/use-toast"
-import { cn } from "@/lib/utils"
+import { cn } from "@/components/ds"
 import type { Tenant } from "@/lib/types"
 
 // UI Components
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
-import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert"
-import {
+  Button,
+  Input,
+  Label,
+  Switch,
+  Badge,
+  Tabs, TabsContent, TabsList, TabsTrigger,
+  Card, CardContent, CardDescription, CardHeader, CardTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+  InlineAlert,
+  Checkbox,
+  Textarea,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@/components/ui/collapsible"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Textarea } from "@/components/ui/textarea"
-import { Slider } from "@/components/ui/slider"
-import { Separator } from "@/components/ui/separator"
+  Slider,
+  Separator,
+  Skeleton,
+} from "@/components/ds"
 
 // ─── Types ───
 
@@ -180,6 +146,7 @@ function StatCard({
   description,
   trend,
   color = "default",
+  isLoading = false,
 }: {
   title: string
   value: string | number
@@ -187,14 +154,15 @@ function StatCard({
   description?: string
   trend?: { value: number; label: string }
   color?: "default" | "green" | "amber" | "red" | "blue" | "purple"
+  isLoading?: boolean
 }) {
   const colorClasses = {
-    default: "from-zinc-500/20 to-zinc-600/5 text-zinc-400",
-    green: "from-emerald-500/20 to-emerald-600/5 text-emerald-400",
-    amber: "from-amber-500/20 to-amber-600/5 text-amber-400",
-    red: "from-red-500/20 to-red-600/5 text-red-400",
-    blue: "from-blue-500/20 to-blue-600/5 text-blue-400",
-    purple: "from-purple-500/20 to-purple-600/5 text-purple-400",
+    default: "from-muted-foreground/20 to-muted-foreground/5 text-muted-foreground",
+    green: "from-success/20 to-success/5 text-success",
+    amber: "from-warning/20 to-warning/5 text-warning",
+    red: "from-danger/20 to-danger/5 text-danger",
+    blue: "from-info/20 to-info/5 text-info",
+    purple: "from-accent/20 to-accent/5 text-accent",
   }
 
   return (
@@ -202,15 +170,29 @@ function StatCard({
       <div className={cn("absolute top-0 right-0 w-32 h-32 bg-gradient-to-br opacity-50 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2", colorClasses[color])} />
       <CardContent className="p-5">
         <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</p>
-            <p className="text-2xl font-bold mt-1">{value}</p>
-            {description && (
-              <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+          <div className="space-y-1">
+            {isLoading ? (
+              <>
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-8 w-16 mt-1" />
+                <Skeleton className="h-3 w-28 mt-0.5" />
+              </>
+            ) : (
+              <>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</p>
+                <p className="text-2xl font-bold mt-1">{value}</p>
+                {description && (
+                  <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+                )}
+              </>
             )}
           </div>
-          <div className={cn("p-2.5 rounded-xl bg-gradient-to-br", colorClasses[color])}>
-            <Icon className="h-5 w-5" />
+          <div className={cn("p-2.5 rounded-xl bg-gradient-to-br", isLoading ? "bg-muted/30" : colorClasses[color])}>
+            {isLoading ? (
+              <Skeleton className="h-5 w-5 rounded-full" />
+            ) : (
+              <Icon className="h-5 w-5" />
+            )}
           </div>
         </div>
       </CardContent>
@@ -230,8 +212,8 @@ function ScopeBadge({ scope, size = "default" }: { scope: string; size?: "sm" | 
         "gap-1 font-mono",
         size === "sm" ? "text-[10px] px-1.5 py-0" : "text-xs",
         isStandard
-          ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-300"
-          : "border-purple-500/30 bg-purple-500/10 text-purple-300"
+          ? "border-info/30 bg-info/10 text-info"
+          : "border-accent/30 bg-accent/10 text-accent"
       )}
     >
       <Icon className={cn(size === "sm" ? "h-2.5 w-2.5" : "h-3 w-3")} />
@@ -291,20 +273,6 @@ function ConsentsContent() {
   // Policy state
   const [policy, setPolicy] = useState<ConsentPolicy>(DEFAULT_POLICY)
 
-  // ISS-09-02: Load consent policy from tenant settings instead of DEFAULT_POLICY
-  useEffect(() => {
-    if (tenant?.consentPolicy) {
-      setPolicy({
-        consent_mode: tenant.consentPolicy.consent_mode || DEFAULT_POLICY.consent_mode,
-        expiration_days: tenant.consentPolicy.expiration_days ?? DEFAULT_POLICY.expiration_days,
-        reprompt_days: tenant.consentPolicy.reprompt_days ?? DEFAULT_POLICY.reprompt_days,
-        remember_scope_decisions: tenant.consentPolicy.remember_scope_decisions ?? DEFAULT_POLICY.remember_scope_decisions,
-        show_consent_screen: tenant.consentPolicy.show_consent_screen ?? DEFAULT_POLICY.show_consent_screen,
-        allow_skip_consent_for_first_party: tenant.consentPolicy.allow_skip_consent_for_first_party ?? DEFAULT_POLICY.allow_skip_consent_for_first_party,
-      })
-    }
-  }, [tenant?.consentPolicy])
-
   // ─── Queries ───
 
   const { data: tenant } = useQuery({
@@ -314,6 +282,20 @@ function ConsentsContent() {
       return api.get<Tenant>(`${API_ROUTES.ADMIN_TENANTS}/${tenantId}`)
     },
   })
+
+  // ISS-09-02: Load consent policy from tenant settings instead of DEFAULT_POLICY
+  useEffect(() => {
+    if (tenant?.settings?.consentPolicy) {
+      setPolicy({
+        consent_mode: tenant.settings.consentPolicy.consent_mode || DEFAULT_POLICY.consent_mode,
+        expiration_days: tenant.settings.consentPolicy.expiration_days ?? DEFAULT_POLICY.expiration_days,
+        reprompt_days: tenant.settings.consentPolicy.reprompt_days ?? DEFAULT_POLICY.reprompt_days,
+        remember_scope_decisions: tenant.settings.consentPolicy.remember_scope_decisions ?? DEFAULT_POLICY.remember_scope_decisions,
+        show_consent_screen: tenant.settings.consentPolicy.show_consent_screen ?? DEFAULT_POLICY.show_consent_screen,
+        allow_skip_consent_for_first_party: tenant.settings.consentPolicy.allow_skip_consent_for_first_party ?? DEFAULT_POLICY.allow_skip_consent_for_first_party,
+      })
+    }
+  }, [tenant?.settings?.consentPolicy])
 
   // Fetch consents (we need a user_id, so we'll list all users first or use a placeholder)
   // Note: Backend requires user_id for listing. For demo, we'll mock the data.
@@ -546,42 +528,32 @@ function ConsentsContent() {
     <TooltipProvider>
       <div className="space-y-6 animate-in fade-in duration-500">
         {/* Header */}
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => router.push(`/admin/tenants/detail?id=${tenantId}`)}
-            className="gap-2"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            Volver
-          </Button>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/20">
-              <ShieldCheck className="h-6 w-6 text-indigo-400" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Consentimientos</h1>
-              <p className="text-muted-foreground text-sm">
-                {tenant?.name || "Tenant"} • Gestiona los permisos otorgados por los usuarios
-              </p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="sm" asChild>
+              <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+            <div className="flex items-center gap-3">
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight">Consentimientos</h1>
+                <p className="text-sm text-muted-foreground">
+                  {tenant?.name} — Gestiona los permisos otorgados por los usuarios
+                </p>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Info Banner */}
-        <Alert className="border-indigo-500/20 bg-gradient-to-r from-indigo-500/10 to-purple-500/5">
-          <Info className="h-4 w-4 text-indigo-400" />
-          <AlertTitle className="text-indigo-300">¿Qué son los Consentimientos?</AlertTitle>
-          <AlertDescription className="text-muted-foreground">
+        <InlineAlert variant="info" title="¿Qué son los Consentimientos?">
+          <p className="text-sm">
             Cuando un usuario autoriza una aplicación a acceder a sus datos (ej: nombre, email),
             se crea un consentimiento. Este registro documenta exactamente qué permisos (scopes)
             el usuario ha otorgado a cada aplicación. Puedes revocar consentimientos aquí si es necesario.
-          </AlertDescription>
-        </Alert>
+          </p>
+        </InlineAlert>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -590,24 +562,28 @@ function ConsentsContent() {
             value={stats.total}
             icon={FileText}
             color="blue"
+            isLoading={isLoading}
           />
           <StatCard
             title="Activos"
             value={stats.active}
             icon={CheckCircle2}
             color="green"
+            isLoading={isLoading}
           />
           <StatCard
             title="Revocados"
             value={stats.revoked}
             icon={ShieldOff}
             color="red"
+            isLoading={isLoading}
           />
           <StatCard
             title="Usuarios Únicos"
             value={stats.uniqueUsers}
             icon={Users}
             color="purple"
+            isLoading={isLoading}
           />
         </div>
 
@@ -663,7 +639,7 @@ function ConsentsContent() {
                         onClick={() => setShowFilters(!showFilters)}
                         className={cn(
                           "gap-2",
-                          hasActiveFilters && "border-indigo-500/50 text-indigo-400"
+                          hasActiveFilters && "border-info/50 text-info"
                         )}
                       >
                         <Filter className="h-4 w-4" />
@@ -751,9 +727,9 @@ function ConsentsContent() {
 
                   {/* Bulk Actions Bar */}
                   {selectedConsents.size > 0 && (
-                    <div className="flex items-center justify-between p-3 rounded-lg bg-indigo-500/10 border border-indigo-500/20 animate-in slide-in-from-top-2 duration-200">
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-info/10 border border-info/20 animate-in slide-in-from-top-2 duration-200">
                       <div className="flex items-center gap-3">
-                        <CheckSquare className="h-4 w-4 text-indigo-400" />
+                        <CheckSquare className="h-4 w-4 text-info" />
                         <span className="text-sm font-medium">
                           {selectedConsents.size} seleccionado{selectedConsents.size > 1 ? "s" : ""}
                         </span>
@@ -768,7 +744,7 @@ function ConsentsContent() {
                           Cancelar
                         </Button>
                         <Button
-                          variant="destructive"
+                          variant="danger"
                           size="sm"
                           onClick={() => setBulkRevokeDialog(true)}
                           className="gap-2"
@@ -846,7 +822,7 @@ function ConsentsContent() {
                           key={key}
                           className={cn(
                             "border-white/[0.06] cursor-pointer transition-colors",
-                            isSelected && "bg-indigo-500/10",
+                            isSelected && "bg-info/10",
                             isRevoked && "opacity-60"
                           )}
                           onClick={() => setDetailDialog(consent)}
@@ -902,12 +878,12 @@ function ConsentsContent() {
                           </TableCell>
                           <TableCell>
                             {isRevoked ? (
-                              <Badge variant="outline" className="border-red-500/30 bg-red-500/10 text-red-400 gap-1">
+                              <Badge variant="outline" className="border-danger/30 bg-danger/10 text-danger gap-1">
                                 <ShieldOff className="h-3 w-3" />
                                 Revocado
                               </Badge>
                             ) : (
-                              <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400 gap-1">
+                              <Badge variant="outline" className="border-success/30 bg-success/10 text-success gap-1">
                                 <ShieldCheck className="h-3 w-3" />
                                 Activo
                               </Badge>
@@ -935,7 +911,7 @@ function ConsentsContent() {
                                 {!isRevoked && (
                                   <DropdownMenuItem
                                     onClick={() => setRevokeDialog(consent)}
-                                    className="text-red-400 focus:text-red-400"
+                                    className="text-danger hover:text-danger hover:bg-danger/10"
                                   >
                                     <Ban className="mr-2 h-4 w-4" />
                                     Revocar
@@ -964,21 +940,19 @@ function ConsentsContent() {
 
           {/* Tab: Policies */}
           <TabsContent value="policies" className="space-y-6 mt-0">
-            <Alert className="border-amber-500/20 bg-gradient-to-r from-amber-500/10 to-orange-500/5">
-              <AlertTriangle className="h-4 w-4 text-amber-400" />
-              <AlertTitle className="text-amber-300">Configuración de Políticas</AlertTitle>
-              <AlertDescription className="text-muted-foreground">
+            <InlineAlert variant="warning" title="Configuración de Políticas">
+              <p className="text-sm">
                 Estas políticas determinan cómo se solicitan y gestionan los consentimientos de los usuarios.
                 Los cambios afectarán a todos los flujos de autorización futuros.
-              </AlertDescription>
-            </Alert>
+              </p>
+            </InlineAlert>
 
             <div className="grid gap-6">
               {/* Consent Mode */}
               <Card className="border-white/[0.08] bg-gradient-to-br from-white/[0.03] to-transparent">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
-                    <Layers className="h-5 w-5 text-indigo-400" />
+                    <Layers className="h-5 w-5 text-info" />
                     Modo de Consentimiento
                     <InfoTooltip content="Determina cómo se agrupan los permisos cuando se solicita consentimiento al usuario" />
                   </CardTitle>
@@ -992,7 +966,7 @@ function ConsentsContent() {
                       className={cn(
                         "flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-all",
                         policy.consent_mode === "per_scope"
-                          ? "border-indigo-500/50 bg-indigo-500/10"
+                          ? "border-info/50 bg-info/10"
                           : "border-white/10 hover:border-white/20"
                       )}
                     >
@@ -1009,7 +983,7 @@ function ConsentsContent() {
                         <div className="text-sm text-muted-foreground">
                           El usuario ve y aprueba cada permiso por separado. Más transparente y granular.
                         </div>
-                        <Badge variant="outline" className="mt-2 text-xs border-emerald-500/30 text-emerald-400">
+                        <Badge variant="outline" className="mt-2 text-xs border-success/30 text-success">
                           Recomendado
                         </Badge>
                       </div>
@@ -1018,7 +992,7 @@ function ConsentsContent() {
                       className={cn(
                         "flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-all",
                         policy.consent_mode === "single"
-                          ? "border-indigo-500/50 bg-indigo-500/10"
+                          ? "border-info/50 bg-info/10"
                           : "border-white/10 hover:border-white/20"
                       )}
                     >
@@ -1045,7 +1019,7 @@ function ConsentsContent() {
               <Card className="border-white/[0.08] bg-gradient-to-br from-white/[0.03] to-transparent">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
-                    <Timer className="h-5 w-5 text-indigo-400" />
+                    <Timer className="h-5 w-5 text-info" />
                     Expiración de Consentimientos
                     <InfoTooltip content="Configura cuánto tiempo son válidos los consentimientos antes de requerir re-autorización" />
                   </CardTitle>
@@ -1068,7 +1042,7 @@ function ConsentsContent() {
                       />
                     </div>
                     {policy.expiration_days !== null && (
-                      <div className="space-y-2 pl-4 border-l-2 border-indigo-500/30">
+                      <div className="space-y-2 pl-4 border-l-2 border-info/30">
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-muted-foreground">
                             Expira después de: <strong className="text-foreground">{policy.expiration_days} días</strong>
@@ -1076,7 +1050,7 @@ function ConsentsContent() {
                         </div>
                         <Slider
                           value={[policy.expiration_days]}
-                          onValueChange={([value]) =>
+                          onValueChange={([value]: number[]) =>
                             setPolicy({ ...policy, expiration_days: value })
                           }
                           min={30}
@@ -1114,7 +1088,7 @@ function ConsentsContent() {
                       />
                     </div>
                     {policy.reprompt_days !== null && (
-                      <div className="space-y-2 pl-4 border-l-2 border-indigo-500/30">
+                      <div className="space-y-2 pl-4 border-l-2 border-info/30">
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-muted-foreground">
                             Re-solicitar cada: <strong className="text-foreground">{policy.reprompt_days} días</strong>
@@ -1122,7 +1096,7 @@ function ConsentsContent() {
                         </div>
                         <Slider
                           value={[policy.reprompt_days]}
-                          onValueChange={([value]) =>
+                          onValueChange={([value]: number[]) =>
                             setPolicy({ ...policy, reprompt_days: value })
                           }
                           min={7}
@@ -1145,7 +1119,7 @@ function ConsentsContent() {
               <Card className="border-white/[0.08] bg-gradient-to-br from-white/[0.03] to-transparent">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
-                    <Settings2 className="h-5 w-5 text-indigo-400" />
+                    <Settings2 className="h-5 w-5 text-info" />
                     Configuración Adicional
                   </CardTitle>
                 </CardHeader>
@@ -1206,7 +1180,7 @@ function ConsentsContent() {
                   Restaurar Defaults
                 </Button>
                 <Button
-                  className="bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 gap-2"
+                  className="bg-gradient-to-r from-info to-accent hover:from-info/90 hover:to-accent/90 gap-2"
                   onClick={() => savePolicyMutation.mutate(policy)}
                   disabled={savePolicyMutation.isPending}
                 >
@@ -1230,13 +1204,13 @@ function ConsentsContent() {
                 <div className={cn(
                   "p-2 rounded-lg",
                   detailDialog?.revoked_at
-                    ? "bg-red-500/10 border border-red-500/20"
-                    : "bg-emerald-500/10 border border-emerald-500/20"
+                    ? "bg-danger/10 border border-danger/20"
+                    : "bg-success/10 border border-success/20"
                 )}>
                   {detailDialog?.revoked_at ? (
-                    <ShieldOff className="h-5 w-5 text-red-400" />
+                    <ShieldOff className="h-5 w-5 text-danger" />
                   ) : (
-                    <ShieldCheck className="h-5 w-5 text-emerald-400" />
+                    <ShieldCheck className="h-5 w-5 text-success" />
                   )}
                 </div>
                 <div>
@@ -1320,9 +1294,9 @@ function ConsentsContent() {
                     </p>
                   </div>
                   {detailDialog.revoked_at && (
-                    <div className="p-3 rounded-lg bg-red-500/5 border border-red-500/20">
-                      <Label className="text-xs text-red-400">Revocado</Label>
-                      <p className="font-medium mt-1 text-sm text-red-400">
+                    <div className="p-3 rounded-lg bg-danger/5 border border-danger/20">
+                      <Label className="text-xs text-danger">Revocado</Label>
+                      <p className="font-medium mt-1 text-sm text-danger">
                         {formatDate(detailDialog.revoked_at)}
                       </p>
                     </div>
@@ -1333,7 +1307,7 @@ function ConsentsContent() {
                 {!detailDialog.revoked_at && (
                   <div className="pt-4 border-t border-white/[0.06]">
                     <Button
-                      variant="destructive"
+                      variant="danger"
                       className="w-full gap-2"
                       onClick={() => {
                         setDetailDialog(null)
@@ -1354,7 +1328,7 @@ function ConsentsContent() {
         <Dialog open={!!revokeDialog} onOpenChange={() => setRevokeDialog(null)}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-red-400">
+              <DialogTitle className="flex items-center gap-2 text-danger">
                 <AlertTriangle className="h-5 w-5" />
                 Revocar Consentimiento
               </DialogTitle>
@@ -1366,13 +1340,12 @@ function ConsentsContent() {
 
             {revokeDialog && (
               <div className="py-4">
-                <Alert className="border-red-500/20 bg-red-500/5">
-                  <AlertTriangle className="h-4 w-4 text-red-400" />
-                  <AlertDescription className="text-sm">
+                <InlineAlert variant="destructive">
+                  <p className="text-sm">
                     Vas a revocar el acceso de <strong>{revokeDialog.client_id}</strong> a
                     los datos de <strong>{(revokeDialog as any).user_email || revokeDialog.user_id}</strong>.
-                  </AlertDescription>
-                </Alert>
+                  </p>
+                </InlineAlert>
               </div>
             )}
 
@@ -1381,7 +1354,7 @@ function ConsentsContent() {
                 Cancelar
               </Button>
               <Button
-                variant="destructive"
+                variant="danger"
                 onClick={() => revokeDialog && revokeMutation.mutate(revokeDialog)}
                 disabled={revokeMutation.isPending}
                 className="gap-2"
@@ -1401,7 +1374,7 @@ function ConsentsContent() {
         <Dialog open={bulkRevokeDialog} onOpenChange={setBulkRevokeDialog}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-red-400">
+              <DialogTitle className="flex items-center gap-2 text-danger">
                 <AlertTriangle className="h-5 w-5" />
                 Revocar Múltiples Consentimientos
               </DialogTitle>
@@ -1412,13 +1385,12 @@ function ConsentsContent() {
             </DialogHeader>
 
             <div className="py-4">
-              <Alert className="border-red-500/20 bg-red-500/5">
-                <AlertTriangle className="h-4 w-4 text-red-400" />
-                <AlertDescription className="text-sm">
+              <InlineAlert variant="destructive">
+                <p className="text-sm">
                   Los usuarios afectados deberán volver a autorizar las aplicaciones
                   si desean continuar usándolas.
-                </AlertDescription>
-              </Alert>
+                </p>
+              </InlineAlert>
             </div>
 
             <DialogFooter>
@@ -1426,7 +1398,7 @@ function ConsentsContent() {
                 Cancelar
               </Button>
               <Button
-                variant="destructive"
+                variant="danger"
                 onClick={() => bulkRevokeMutation.mutate(Array.from(selectedConsents))}
                 disabled={bulkRevokeMutation.isPending}
                 className="gap-2"

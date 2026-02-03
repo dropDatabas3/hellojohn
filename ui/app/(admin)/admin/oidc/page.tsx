@@ -10,26 +10,26 @@ import {
 import { api } from "@/lib/api"
 import { API_ROUTES } from "@/lib/routes"
 import { useI18n } from "@/lib/i18n"
-import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Button } from "@/components/ds"
+import { Card } from "@/components/ds"
 import { useToast } from "@/hooks/use-toast"
-import { Badge } from "@/components/ui/badge"
+import { Badge } from "@/components/ds"
 import { cn } from "@/lib/utils"
 import type { OIDCDiscovery, Tenant } from "@/lib/types"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ds"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
+} from "@/components/ds"
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip"
+} from "@/components/ds"
 
 // ─── Helper Components ───
 
@@ -62,21 +62,23 @@ function StatCard({
   color?: "zinc" | "emerald" | "blue" | "indigo"
 }) {
   const colorClasses = {
-    zinc: "from-zinc-500/10 to-zinc-500/5 border-zinc-500/10",
-    emerald: "from-emerald-500/10 to-emerald-500/5 border-emerald-500/10",
-    blue: "from-blue-500/10 to-blue-500/5 border-blue-500/10",
-    indigo: "from-indigo-500/10 to-indigo-500/5 border-indigo-500/10",
+    zinc: "from-muted/10 to-muted/5 border-muted/10",
+    emerald: "from-success/10 to-success/5 border-success/10",
+    blue: "from-info/10 to-info/5 border-info/10",
+    indigo: "from-accent/10 to-accent/5 border-accent/10",
   }
   const iconColors = {
-    zinc: "text-zinc-500",
-    emerald: "text-emerald-500",
-    blue: "text-blue-500",
-    indigo: "text-indigo-500",
+    zinc: "text-muted-foreground",
+    emerald: "text-success",
+    blue: "text-info",
+    indigo: "text-accent",
   }
 
   return (
     <div className={cn(
       "rounded-xl border bg-gradient-to-br p-4",
+      "shadow-clay-float transition-all duration-300",
+      "hover:-translate-y-1 hover:shadow-clay-float hover:scale-[1.02]",
       colorClasses[color]
     )}>
       <div className="flex items-center gap-3">
@@ -273,6 +275,7 @@ curl -X POST "${discovery.introspection_endpoint}" \\
         </div>
         <Button
           variant="outline"
+          className="shadow-clay-button hover:shadow-clay-float transition-all"
           onClick={() => {
             const endpoint = selectedTenant === "global"
               ? `${window.location.origin}${API_ROUTES.OIDC_DISCOVERY}`
@@ -286,15 +289,15 @@ curl -X POST "${discovery.introspection_endpoint}" \\
       </div>
 
       {/* Info Banner */}
-      <div className="rounded-xl border border-indigo-500/20 bg-gradient-to-r from-indigo-500/10 via-indigo-500/5 to-transparent p-4">
+      <div className="rounded-xl border border-accent/20 bg-gradient-to-r from-accent/10 via-accent/5 to-transparent p-4 shadow-clay-card">
         <div className="flex gap-4">
           <div className="flex-shrink-0">
-            <div className="h-10 w-10 rounded-lg bg-indigo-500/10 flex items-center justify-center">
-              <Info className="h-5 w-5 text-indigo-500" />
+            <div className="h-10 w-10 rounded-lg bg-accent/10 flex items-center justify-center">
+              <Info className="h-5 w-5 text-accent" />
             </div>
           </div>
           <div className="space-y-2">
-            <h3 className="font-semibold text-indigo-700 dark:text-indigo-400 flex items-center gap-2">
+            <h3 className="font-semibold text-accent flex items-center gap-2">
               ¿Qué es OIDC Discovery?
               <InfoTooltip content="OpenID Connect Discovery es una especificación que permite a los clientes obtener automáticamente la configuración del servidor" />
             </h3>
@@ -305,15 +308,15 @@ curl -X POST "${discovery.introspection_endpoint}" \\
             </p>
             <div className="flex flex-wrap gap-3 pt-2">
               <Badge variant="outline" className="gap-1">
-                <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                <CheckCircle2 className="h-3 w-3 text-success" />
                 Estándar RFC 8414
               </Badge>
               <Badge variant="outline" className="gap-1">
-                <Globe className="h-3 w-3 text-blue-500" />
+                <Globe className="h-3 w-3 text-info" />
                 Endpoint público
               </Badge>
               <Badge variant="outline" className="gap-1">
-                <Shield className="h-3 w-3 text-indigo-500" />
+                <Shield className="h-3 w-3 text-accent" />
                 Sin autenticación
               </Badge>
             </div>
@@ -322,7 +325,7 @@ curl -X POST "${discovery.introspection_endpoint}" \\
       </div>
 
       {/* Tenant Selector */}
-      <div className="flex items-center gap-3 p-4 rounded-xl border bg-zinc-50/50 dark:bg-zinc-900/50">
+      <div className="flex items-center gap-3 p-4 rounded-xl border bg-muted/5 shadow-clay-card">
         <Globe className="h-5 w-5 text-muted-foreground" />
         <div className="flex-1">
           <label className="text-sm font-medium">Seleccionar Tenant</label>
@@ -351,8 +354,8 @@ curl -X POST "${discovery.introspection_endpoint}" \\
             ))}
           </SelectContent>
         </Select>
-        <Button variant="ghost" size="icon" onClick={() => refetch()}>
-          <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+        <Button variant="ghost" size="sm" className="hover:scale-110 active:scale-95 transition-transform" onClick={() => refetch()}>
+          <RefreshCw className={cn("h-4 w-4 transition-transform", isLoading && "animate-spin")} />
         </Button>
       </div>
 
@@ -556,9 +559,9 @@ curl -X POST "${discovery.introspection_endpoint}" \\
             </p>
 
             {/* Scopes */}
-            <Card className="p-4">
+            <Card className="p-4 shadow-clay-card">
               <h3 className="font-medium mb-4 flex items-center gap-2">
-                <Key className="h-4 w-4 text-emerald-500" />
+                <Key className="h-4 w-4 text-success" />
                 Scopes Disponibles
               </h3>
               <div className="space-y-3">
@@ -567,7 +570,7 @@ curl -X POST "${discovery.introspection_endpoint}" \\
                   return (
                     <div
                       key={scope}
-                      className="flex items-start gap-3 p-3 rounded-lg border bg-zinc-50/50 dark:bg-zinc-900/50"
+                      className="flex items-start gap-3 p-3 rounded-lg border bg-muted/10"
                     >
                       <Badge variant="outline" className="font-mono mt-0.5">
                         {scope}
@@ -596,9 +599,9 @@ curl -X POST "${discovery.introspection_endpoint}" \\
             </Card>
 
             {/* Claims */}
-            <Card className="p-4">
+            <Card className="p-4 shadow-clay-card">
               <h3 className="font-medium mb-4 flex items-center gap-2">
-                <Mail className="h-4 w-4 text-indigo-500" />
+                <Mail className="h-4 w-4 text-accent" />
                 Claims Soportados
                 <InfoTooltip content="Claims son piezas de información sobre el usuario que se incluyen en los tokens" />
               </h3>
@@ -663,7 +666,7 @@ curl -X POST "${discovery.introspection_endpoint}" \\
 
           {/* Raw JSON Tab */}
           <TabsContent value="raw" className="mt-4">
-            <Card className="p-4">
+            <Card className="p-4 shadow-clay-card">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-medium flex items-center gap-2">
                   <FileCode className="h-4 w-4" />
@@ -672,10 +675,11 @@ curl -X POST "${discovery.introspection_endpoint}" \\
                 <Button
                   variant="outline"
                   size="sm"
+                  className="hover:scale-110 active:scale-95 transition-transform"
                   onClick={() => copyToClipboard(JSON.stringify(discovery, null, 2), "raw-json")}
                 >
                   {copiedField === "raw-json" ? (
-                    <Check className="h-4 w-4 mr-1" />
+                    <Check className="h-4 w-4 mr-1 text-success" />
                   ) : (
                     <Copy className="h-4 w-4 mr-1" />
                   )}
@@ -730,10 +734,10 @@ function EndpointCard({
   const fieldKey = name.toLowerCase().replace(/\s+/g, "-")
 
   return (
-    <div className="rounded-xl border p-4 hover:border-zinc-300 dark:hover:border-zinc-700 transition-colors">
+    <div className="rounded-xl border p-4 shadow-clay-card hover:-translate-y-1 hover:shadow-clay-float hover:border-muted transition-all duration-300">
       <div className="flex items-start gap-4">
-        <div className="h-10 w-10 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center flex-shrink-0">
-          <Icon className="h-5 w-5 text-zinc-600 dark:text-zinc-400" />
+        <div className="h-10 w-10 rounded-lg bg-muted/20 flex items-center justify-center flex-shrink-0">
+          <Icon className="h-5 w-5 text-muted-foreground" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
@@ -750,11 +754,11 @@ function EndpointCard({
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 w-7 p-0 flex-shrink-0"
+              className="h-7 w-7 p-0 flex-shrink-0 hover:scale-110 active:scale-95 transition-transform"
               onClick={() => onCopy(value, fieldKey)}
             >
               {copiedField === fieldKey ? (
-                <Check className="h-3.5 w-3.5 text-emerald-500" />
+                <Check className="h-3.5 w-3.5 text-success" />
               ) : (
                 <Copy className="h-3.5 w-3.5" />
               )}
@@ -763,7 +767,7 @@ function EndpointCard({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 w-7 p-0 flex-shrink-0"
+                className="h-7 w-7 p-0 flex-shrink-0 hover:scale-110 active:scale-95 transition-transform"
                 onClick={() => onOpen(value)}
               >
                 <ExternalLink className="h-3.5 w-3.5" />
@@ -790,7 +794,7 @@ function CapabilityCard({
   highlights?: string[]
 }) {
   return (
-    <Card className="p-4">
+    <Card className="p-4 shadow-clay-card">
       <div className="flex items-start gap-3 mb-3">
         <Icon className="h-5 w-5 text-muted-foreground mt-0.5" />
         <div>
@@ -805,7 +809,7 @@ function CapabilityCard({
             variant={highlights.includes(item) ? "default" : "secondary"}
             className={cn(
               "font-mono",
-              highlights.includes(item) && "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+              highlights.includes(item) && "bg-success/10 text-success border-success/20"
             )}
           >
             {item}
@@ -833,7 +837,7 @@ function CodeBlock({
   fieldKey: string
 }) {
   return (
-    <Card className="p-4">
+    <Card className="p-4 shadow-clay-card">
       <div className="flex items-center justify-between mb-3">
         <h4 className="text-sm font-medium flex items-center gap-2">
           <Terminal className="h-4 w-4" />
@@ -842,10 +846,11 @@ function CodeBlock({
         <Button
           variant="ghost"
           size="sm"
+          className="hover:scale-110 active:scale-95 transition-transform"
           onClick={() => onCopy(code)}
         >
           {copiedField === fieldKey ? (
-            <Check className="h-4 w-4 mr-1 text-emerald-500" />
+            <Check className="h-4 w-4 mr-1 text-success" />
           ) : (
             <Copy className="h-4 w-4 mr-1" />
           )}
