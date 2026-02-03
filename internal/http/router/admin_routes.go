@@ -115,6 +115,9 @@ func adminBaseChain(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter mw.R
 		chain = append(chain,
 			mw.RequireAuth(issuer),
 			mw.RequireAdmin(mw.AdminConfigFromEnv()),
+			// FASE 3: Multi-tenant admin access control
+			// Previene tenant elevation attacks (admin de Tenant A accediendo a Tenant B)
+			mw.RequireAdminTenantAccess(),
 		)
 	}
 
