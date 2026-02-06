@@ -69,6 +69,17 @@ func (s *refreshService) Refresh(ctx context.Context, in dto.RefreshRequest, ten
 	if in.RefreshToken == "" || in.ClientID == "" {
 		return nil, ErrMissingRefreshFields
 	}
+	// Check if it's a JWT refresh token (stateless admin flow)
+	// This takes precedence over tenant context checks for global admins
+	if strings.Count(in.RefreshToken, ".") == 2 {
+		result, err := s.refreshAdminJWT(ctx, in.RefreshToken, log)
+		if err == nil {
+			return result, nil
+		}
+		// If JWT validation failed, we only log it and continue if we have a tenant context
+		// to try DB refresh. Otherwise, failure here + no tenant = failure.
+		log.Debug("JWT refresh validation failed", logger.Err(err))
+	}
 
 	// Use provided tenant or fallback from context
 	if tenantSlug == "" {
@@ -76,16 +87,6 @@ func (s *refreshService) Refresh(ctx context.Context, in dto.RefreshRequest, ten
 	}
 	if tenantSlug == "" {
 		return nil, ErrMissingRefreshFields
-	}
-
-	// Check if it's a JWT refresh token (stateless admin flow)
-	if strings.Count(in.RefreshToken, ".") == 2 {
-		result, err := s.refreshAdminJWT(ctx, in.RefreshToken, log)
-		if err == nil {
-			return result, nil
-		}
-		// If JWT validation failed, fall through to DB-based refresh
-		log.Debug("JWT refresh validation failed, trying DB", logger.Err(err))
 	}
 
 	// DB-based refresh flow
@@ -134,13 +135,13 @@ func (s *refreshService) refreshAdminJWT(ctx context.Context, tokenStr string, l
 	// Using "admin" as expected audience for FS-admin tokens per user request context
 	foundAud := false
 	for _, a := range aud {
-		if a == "admin" {
+		if a == "admin" || a == "hellojohn:admin" {
 			foundAud = true
 			break
 		}
 	}
 	if !foundAud {
-		return nil, fmt.Errorf("aud mismatch")
+		return nil, fmt.Errorf("aud mismatch: %v", aud)
 	}
 
 	userID, _ := claims.GetSubject()

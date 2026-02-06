@@ -1,0 +1,79 @@
+ui/app/(admin)/admin/admin-shell.tsx:251:        router.push(`/admin/tenants/detail?id=${t.id}`)
+ui/app/(admin)/admin/admin-shell.tsx:373:          router.push(`/admin/tenants/detail?id=${tenant.id}`)
+ui/app/(admin)/admin/admin-shell.tsx:577:                      <NavItem href={`/admin/tenants/detail?id=${currentTenantId}`} icon={LayoutDashboard} label="Details" />
+ui/app/(admin)/admin/admin-shell.tsx:578:                      <NavItem href={`/admin/tenants/settings?id=${currentTenantId}`} icon={Settings} label="Settings" />
+ui/app/(admin)/admin/admin-shell.tsx:592:                      <NavItem href={`/admin/tenants/users?id=${currentTenantId}`} icon={Users} label="Users" />
+ui/app/(admin)/admin/admin-shell.tsx:593:                      <NavItem href={`/admin/tenants/sessions?id=${currentTenantId}`} icon={Shapes} label="Sessions" />
+ui/app/(admin)/admin/admin-shell.tsx:594:                      <NavItem href={`/admin/tenants/rbac?id=${currentTenantId}`} icon={Shield} label="Roles & RBAC" />
+ui/app/(admin)/admin/admin-shell.tsx:595:                      <NavItem href={`/admin/tenants/scopes?id=${currentTenantId}`} icon={Lock} label="Scopes" />
+ui/app/(admin)/admin/admin-shell.tsx:596:                      <NavItem href={`/admin/tenants/claims?id=${currentTenantId}`} icon={Fingerprint} label="Claims" />
+ui/app/(admin)/admin/admin-shell.tsx:610:                      <NavItem href={`/admin/tenants/clients?id=${currentTenantId}`} icon={Boxes} label="Clients" />
+ui/app/(admin)/admin/admin-shell.tsx:611:                      <NavItem href={`/admin/tenants/tokens?id=${currentTenantId}`} icon={ListChecks} label="Tokens" />
+ui/app/(admin)/admin/admin-shell.tsx:612:                      <NavItem href={`/admin/tenants/consents?id=${currentTenantId}`} icon={FileText} label="Consents" />
+ui/app/(admin)/admin/admin-shell.tsx:626:                      <NavItem href={`/admin/tenants/providers?id=${currentTenantId}`} icon={Globe2} label="Social Providers" />
+ui/app/(admin)/admin/admin-shell.tsx:627:                      <NavItem href={`/admin/tenants/mailing?id=${currentTenantId}`} icon={Mail} label="Mailing" />
+ui/app/(admin)/admin/page.tsx:399:                      href={`/admin/tenants/detail?id=${tenant.id}`}
+ui/app/(admin)/admin/tenants/detail/page.tsx:203:              href={`/admin/tenants/users?id=${tenantId}`}
+ui/app/(admin)/admin/tenants/detail/page.tsx:210:              href={`/admin/tenants/sessions?id=${tenantId}`}
+ui/app/(admin)/admin/tenants/detail/page.tsx:217:              href={`/admin/tenants/consents?id=${tenantId}`}
+ui/app/(admin)/admin/tenants/detail/page.tsx:233:              href={`/admin/tenants/rbac?id=${tenantId}`}
+ui/app/(admin)/admin/tenants/detail/page.tsx:240:              href={`/admin/tenants/scopes?id=${tenantId}`}
+ui/app/(admin)/admin/tenants/detail/page.tsx:247:              href={`/admin/tenants/claims?id=${tenantId}`}
+ui/app/(admin)/admin/tenants/detail/page.tsx:263:              href={`/admin/tenants/clients?id=${tenantId}`}
+ui/app/(admin)/admin/tenants/detail/page.tsx:270:              href={`/admin/tenants/tokens?id=${tenantId}`}
+ui/app/(admin)/admin/tenants/detail/page.tsx:277:              href={`/admin/tenants/providers?id=${tenantId}`}
+ui/app/(admin)/admin/tenants/detail/page.tsx:293:              href={`/admin/tenants/settings?id=${tenantId}`}
+ui/app/(admin)/admin/tenants/detail/page.tsx:300:              href={`/admin/tenants/mailing?id=${tenantId}`}
+ui/app/(admin)/admin/tenants/page.tsx:157:                  onClick={() => router.push(`/admin/tenants/detail?id=${tenant.id}`)}
+ui/app/(admin)/admin/tenants/page.tsx:163:                      router.push(`/admin/tenants/detail?id=${tenant.id}`)
+ui/app/(admin)/admin/tenants/page.tsx:210:                          href={`/admin/tenants/settings?id=${tenant.id}`}
+ui/app/(admin)/admin/tenants/[tenant_id]/claims/page.tsx:795:                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants/[tenant_id]/clients/page.tsx:617:                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants/[tenant_id]/consents/page.tsx:534:              <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants/[tenant_id]/mailing/page.tsx:304:                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants/[tenant_id]/providers/page.tsx:563:              <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants/[tenant_id]/rbac/page.tsx:346:            <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants/[tenant_id]/scopes/page.tsx:656:                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants/[tenant_id]/sessions/page.tsx:591:                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants/[tenant_id]/settings/page.tsx:1264:              <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants/[tenant_id]/settings/page.tsx:1749:                        href={`/admin/tenants/providers?id=${tenantId}`}
+ui/app/(admin)/admin/tenants/[tenant_id]/tokens/page.tsx:439:                        <Link href={`/admin/tenants/detail?id=${selectedTenantId}`}>
+ui/app/(admin)/admin/tenants/[tenant_id]/users/page.tsx:264:                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants.backup/claims/page.tsx:796:                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants.backup/clients/page.tsx:618:                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants.backup/consents/page.tsx:534:              <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants.backup/detail/page.tsx:203:              href={`/admin/tenants/users?id=${tenantId}`}
+ui/app/(admin)/admin/tenants.backup/detail/page.tsx:210:              href={`/admin/tenants/sessions?id=${tenantId}`}
+ui/app/(admin)/admin/tenants.backup/detail/page.tsx:217:              href={`/admin/tenants/consents?id=${tenantId}`}
+ui/app/(admin)/admin/tenants.backup/detail/page.tsx:233:              href={`/admin/tenants/rbac?id=${tenantId}`}
+ui/app/(admin)/admin/tenants.backup/detail/page.tsx:240:              href={`/admin/tenants/scopes?id=${tenantId}`}
+ui/app/(admin)/admin/tenants.backup/detail/page.tsx:247:              href={`/admin/tenants/claims?id=${tenantId}`}
+ui/app/(admin)/admin/tenants.backup/detail/page.tsx:263:              href={`/admin/tenants/clients?id=${tenantId}`}
+ui/app/(admin)/admin/tenants.backup/detail/page.tsx:270:              href={`/admin/tenants/tokens?id=${tenantId}`}
+ui/app/(admin)/admin/tenants.backup/detail/page.tsx:277:              href={`/admin/tenants/providers?id=${tenantId}`}
+ui/app/(admin)/admin/tenants.backup/detail/page.tsx:293:              href={`/admin/tenants/settings?id=${tenantId}`}
+ui/app/(admin)/admin/tenants.backup/detail/page.tsx:300:              href={`/admin/tenants/mailing?id=${tenantId}`}
+ui/app/(admin)/admin/tenants.backup/mailing/page.tsx:304:                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants.backup/page.tsx:157:                  onClick={() => router.push(`/admin/tenants/detail?id=${tenant.id}`)}
+ui/app/(admin)/admin/tenants.backup/page.tsx:163:                      router.push(`/admin/tenants/detail?id=${tenant.id}`)
+ui/app/(admin)/admin/tenants.backup/page.tsx:210:                          href={`/admin/tenants/settings?id=${tenant.id}`}
+ui/app/(admin)/admin/tenants.backup/providers/page.tsx:563:              <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants.backup/rbac/page.tsx:346:            <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants.backup/scopes/page.tsx:657:                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants.backup/sessions/page.tsx:592:                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants.backup/settings/page.tsx:1264:              <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/tenants.backup/settings/page.tsx:1749:                        href={`/admin/tenants/providers?id=${tenantId}`}
+ui/app/(admin)/admin/tenants.backup/tokens/page.tsx:440:                        <Link href={`/admin/tenants/detail?id=${selectedTenantId}`}>
+ui/app/(admin)/admin/tenants.backup/users/page.tsx:266:                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/app/(admin)/admin/users/page.tsx:266:                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+ui/components/command-palette.tsx:176:                                            runCommand(() => router.push(`/admin/tenants/detail?id=${tenant.id}`))
+ui/components/command-palette.tsx:221:                                onSelect={() => runCommand(() => router.push(`/admin/tenants/users?id=${currentTenantId}`))}
+ui/components/command-palette.tsx:231:                                onSelect={() => runCommand(() => router.push(`/admin/tenants/clients?id=${currentTenantId}`))}
+ui/components/command-palette.tsx:294:                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/detail?id=${currentTenantId}`))}
+ui/components/command-palette.tsx:301:                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/settings?id=${currentTenantId}`))}
+ui/components/command-palette.tsx:308:                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/sessions?id=${currentTenantId}`))}
+ui/components/command-palette.tsx:315:                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/rbac?id=${currentTenantId}`))}
+ui/components/command-palette.tsx:322:                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/scopes?id=${currentTenantId}`))}
+ui/components/command-palette.tsx:329:                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/tokens?id=${currentTenantId}`))}
+ui/components/command-palette.tsx:343:                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/mailing?id=${currentTenantId}`))}
+ui/components/command-palette.tsx:350:                                    onSelect={() => runCommand(() => router.push(`/admin/tenants/forms?id=${currentTenantId}`))}

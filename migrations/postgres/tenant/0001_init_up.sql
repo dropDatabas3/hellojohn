@@ -83,10 +83,14 @@ CREATE INDEX IF NOT EXISTS idx_refresh_token_expires ON refresh_token(expires_at
 
 -- 4. RBAC (Role Based Access Control)
 CREATE TABLE IF NOT EXISTS rbac_role (
+  id UUID DEFAULT gen_random_uuid(),
   name TEXT PRIMARY KEY,
   description TEXT,
   permissions TEXT[] NOT NULL DEFAULT '{}',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  inherits_from TEXT,
+  system BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS rbac_user_role (

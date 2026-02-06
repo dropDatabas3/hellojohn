@@ -463,13 +463,13 @@ export default function PlaygroundPage() {
 
     const { data: clients } = useQuery({
         queryKey: ["clients", selectedTenant],
-        queryFn: () => api.get<Client[]>(`/v2/admin/clients?tenant_id=${selectedTenant}`),
+        queryFn: () => api.get<Client[]>(`/v2/admin/tenants/${selectedTenant}/clients`),
         enabled: !!selectedTenant,
     })
 
     // Selected client data
     const selectedClientData = useMemo(() =>
-        clients?.find((c) => c.id === selectedClient),
+        clients?.find((c: any) => (c.client_id || c.clientId || c.id) === selectedClient),
         [clients, selectedClient]
     )
 
@@ -481,8 +481,9 @@ export default function PlaygroundPage() {
 
     // Auto-populate redirect URI when client changes
     useEffect(() => {
-        if (selectedClientData?.redirectUris?.length) {
-            setRedirectUri(selectedClientData.redirectUris[0])
+        const uris = selectedClientData?.redirectUris || selectedClientData?.redirect_uris
+        if (uris?.length) {
+            setRedirectUri(uris[0])
         }
     }, [selectedClientData])
 
@@ -684,7 +685,7 @@ export default function PlaygroundPage() {
             const bodyParams: Record<string, string> = {
                 grant_type: "refresh_token",
                 refresh_token: tokenResponse.refresh_token,
-                client_id: selectedClientData?.clientId || "",
+                client_id: selectedClientData?.clientId || selectedClientData?.client_id || "",
             }
 
             if (selectedClientData?.type === "confidential" && selectedClientData?.secret) {
@@ -839,27 +840,52 @@ export default function PlaygroundPage() {
                                     Client (Aplicación)
                                     <InfoTooltip content="El client representa tu aplicación que solicita acceso a los recursos del usuario" />
                                 </Label>
-                                <Select
-                                    value={selectedClient}
-                                    onValueChange={setSelectedClient}
-                                    disabled={!selectedTenant}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder={selectedTenant ? "Selecciona un client" : "Primero selecciona un tenant"} />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {clients?.filter((c) => c.id).map((client) => (
-                                            <SelectItem key={client.id} value={client.id}>
-                                                <div className="flex items-center gap-2">
-                                                    <Badge variant="outline" className="text-[10px]">
-                                                        {client.type === "public" ? "Público" : "Confidencial"}
-                                                    </Badge>
-                                                    {client.name}
-                                                </div>
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                {clients && clients.length === 0 && selectedTenant ? (
+                                    <div className="flex flex-col gap-2">
+                                        <div className="relative">
+                                            <Select disabled>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="No hay clientes creados" />
+                                                </SelectTrigger>
+                                            </Select>
+                                        </div>
+                                        <Button
+                                            variant="outline"
+                                            className="w-full border-dashed"
+                                            onClick={() => window.location.href = `/admin/tenants/${selectedTenant}/clients`}
+                                        >
+                                            <Plus className="mr-2 h-4 w-4" />
+                                            Crear Cliente
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <Select
+                                        value={selectedClient}
+                                        onValueChange={setSelectedClient}
+                                        disabled={!selectedTenant}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder={selectedTenant ? "Selecciona un client" : "Primero selecciona un tenant"} />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {clients?.map((client: any) => {
+                                                const id = client.client_id || client.clientId || client.id
+                                                if (!id) return null
+
+                                                return (
+                                                    <SelectItem key={id} value={id}>
+                                                        <div className="flex items-center gap-2">
+                                                            <Badge variant="outline" className="text-[10px]">
+                                                                {client.type === "public" ? "Público" : "Confidencial"}
+                                                            </Badge>
+                                                            {client.name}
+                                                        </div>
+                                                    </SelectItem>
+                                                )
+                                            })}
+                                        </SelectContent>
+                                    </Select>
+                                )}
                             </div>
                         </div>
 
@@ -874,7 +900,7 @@ export default function PlaygroundPage() {
                                     <div className="flex items-center justify-between">
                                         <span className="text-muted-foreground">Client ID</span>
                                         <code className="bg-muted px-2 py-0.5 rounded text-xs">
-                                            {selectedClientData.clientId}
+                                            {selectedClientData.clientId || selectedClientData.client_id}
                                         </code>
                                     </div>
                                     <div className="flex items-center justify-between">
@@ -883,10 +909,10 @@ export default function PlaygroundPage() {
                                             {selectedClientData.type === "public" ? "Público" : "Confidencial"}
                                         </Badge>
                                     </div>
-                                    {selectedClientData.redirectUris?.length > 0 && (
+                                    {(selectedClientData.redirectUris?.length > 0 || selectedClientData.redirect_uris?.length > 0) && (
                                         <div className="flex items-center justify-between">
                                             <span className="text-muted-foreground">Redirect URIs</span>
-                                            <span className="text-xs">{selectedClientData.redirectUris.length} configurados</span>
+                                            <span className="text-xs">{(selectedClientData.redirectUris || selectedClientData.redirect_uris).length} configurados</span>
                                         </div>
                                     )}
                                     {selectedClientData.scopes && selectedClientData.scopes.length > 0 && (
@@ -952,14 +978,14 @@ export default function PlaygroundPage() {
                                         <SelectValue placeholder="Selecciona o escribe una URI" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {selectedClientData?.redirectUris?.map((uri) => (
+                                        {(selectedClientData?.redirectUris || selectedClientData?.redirect_uris)?.map((uri: string) => (
                                             <SelectItem key={uri} value={uri}>
                                                 {uri}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
-                                {selectedClientData?.redirectUris?.length === 0 && (
+                                {(selectedClientData?.redirectUris?.length === 0 && selectedClientData?.redirect_uris?.length === 0) && (
                                     <p className="text-xs text-amber-600">
                                         ⚠️ Este client no tiene redirect URIs configuradas
                                     </p>
@@ -1244,7 +1270,7 @@ export default function PlaygroundPage() {
                         <CodeSamples
                             authUrl={authUrl}
                             tokenEndpoint={tokenEndpoint}
-                            clientId={selectedClientData?.clientId || ""}
+                            clientId={selectedClientData?.clientId || selectedClientData?.client_id || ""}
                             clientSecret={selectedClientData?.type === "confidential" ? selectedClientData.secret : undefined}
                             redirectUri={redirectUri}
                             code={tokenCode}
@@ -1272,13 +1298,13 @@ export default function PlaygroundPage() {
                                 size="sm"
                                 className="shadow-clay-button hover:shadow-clay-float hover:scale-105 active:scale-95 transition-all"
                                 onClick={() => {
-                                setCurrentStep(1)
-                                setTokenResponse(null)
-                                setTokenCode("")
-                                setAuthUrl("")
-                                setUserInfoResponse(null)
-                                setRefreshCount(0)
-                            }}>
+                                    setCurrentStep(1)
+                                    setTokenResponse(null)
+                                    setTokenCode("")
+                                    setAuthUrl("")
+                                    setUserInfoResponse(null)
+                                    setRefreshCount(0)
+                                }}>
                                 <RefreshCw className="mr-2 h-4 w-4" />
                                 Nuevo Test
                             </Button>

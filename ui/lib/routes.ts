@@ -140,12 +140,9 @@ export const API_ROUTES = {
   ADMIN_CLAIMS_SETTINGS: "/v2/admin/claims/settings",
   ADMIN_CLAIMS_MAPPINGS: "/v2/admin/claims/mappings",
 
-  // ─── Admin - Consents ───
-  ADMIN_CONSENTS: "/v2/admin/consents",
-  ADMIN_CONSENTS_UPSERT: "/v2/admin/consents/upsert",
-  ADMIN_CONSENTS_REVOKE: "/v2/admin/consents/revoke",
-  ADMIN_CONSENT: (id: string) => `/v2/admin/consents/${id}`,
-  ADMIN_CONSENTS_BY_USER: (userId: string) => `/v2/admin/consents/by-user/${userId}`,
+  // ─── Admin - Consents (tenant-scoped) ───
+  ADMIN_TENANT_CONSENTS: (tenantId: string) => `/v2/admin/tenants/${tenantId}/consents`,
+  ADMIN_TENANT_CONSENT: (tenantId: string, consentId: string) => `/v2/admin/tenants/${tenantId}/consents/${consentId}`,
 
   // ─── Admin - RBAC ───
   ADMIN_RBAC_USER_ROLES: (userId: string) => `/v2/admin/rbac/users/${userId}/roles`,

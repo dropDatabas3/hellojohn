@@ -1,6 +1,7 @@
 package middlewares
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -232,9 +233,25 @@ func RequireAdminTenantAccess() Middleware {
 			}
 
 			if !hasAccess {
+				// SECURITY AUDIT: Log tenant elevation attempt
+				log.Printf(`{"level":"warn","msg":"admin_tenant_access_denied","reason":"tenant_elevation_attempt","admin_id":"%s","admin_email":"%s","requested_tenant":"%s","allowed_tenants":%q,"path":"%s","method":"%s"}`,
+					adminClaims.AdminID,
+					adminClaims.Email,
+					tenantID,
+					adminClaims.Tenants,
+					r.URL.Path,
+					r.Method,
+				)
 				errors.WriteError(w, errors.ErrForbidden.WithDetail("admin does not have access to this tenant"))
 				return
 			}
+
+			// SECURITY AUDIT: Log successful access (debug level)
+			log.Printf(`{"level":"debug","msg":"admin_tenant_access_granted","admin_type":"tenant","admin_id":"%s","tenant":"%s","path":"%s"}`,
+				adminClaims.AdminID,
+				tenantID,
+				r.URL.Path,
+			)
 
 			next.ServeHTTP(w, r)
 		})
@@ -242,28 +259,25 @@ func RequireAdminTenantAccess() Middleware {
 }
 
 // extractTenantID intenta extraer el tenant_id de varios lugares de la request.
+// ESTANDARIZADO (FASE 2): Prioriza path parameter "tenant_id" de rutas /v2/admin/tenants/{tenant_id}/...
 func extractTenantID(r *http.Request) string {
-	// 1. Query param: ?tenant_id=acme
+	// 1. Path param: /v2/admin/tenants/{tenant_id}/... (MÉTODO ESTÁNDAR - FASE 2)
+	if tid := strings.TrimSpace(r.PathValue("tenant_id")); tid != "" {
+		return tid
+	}
+
+	// 2. Query param: ?tenant_id=acme (fallback legacy)
 	if tid := r.URL.Query().Get("tenant_id"); tid != "" {
 		return tid
 	}
 
-	// 2. Query param alternativo: ?tenant=acme
+	// 3. Query param alternativo: ?tenant=acme (fallback legacy)
 	if tid := r.URL.Query().Get("tenant"); tid != "" {
 		return tid
 	}
 
-	// 3. Path param: /v2/admin/tenants/{tenant_id}/...
-	// Esto requiere parsing manual del path
-	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	for i, part := range pathParts {
-		if part == "tenants" && i+1 < len(pathParts) {
-			return pathParts[i+1]
-		}
-	}
-
 	// TODO: Parse JSON body si es POST/PUT/PATCH
-	// Por ahora, solo soportamos query params y path params
+	// Por ahora, solo soportamos path params y query params
 
 	return ""
 }

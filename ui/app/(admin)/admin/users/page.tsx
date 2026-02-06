@@ -27,7 +27,7 @@ import { useToast } from "@/hooks/use-toast"
 import { api } from "@/lib/api"
 import { useAuthStore } from "@/lib/auth-store"
 import { useI18n } from "@/lib/i18n"
-import { apiFetch, apiFetchWithTenant } from "@/lib/routes"
+import { apiFetch } from "@/lib/routes"
 import {
     CheckCircle2,
     Edit2,
@@ -263,7 +263,7 @@ export default function UsersPage() {
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                     <Button variant="ghost" size="sm" asChild>
-                        <Link href={`/admin/tenants/detail?id=${tenantId}`}>
+                        <Link href={`/admin/tenants/${tenantId}/detail`}>
                             <ArrowLeft className="h-4 w-4" />
                         </Link>
                     </Button>
@@ -364,8 +364,7 @@ function UsersList({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: stri
                 params.append("search", debouncedSearch)
             }
             const response = await api.get<UsersListResponse>(
-                `/v2/admin/tenants/${tenantId}/users?${params.toString()}`,
-                { headers: { "X-Tenant-ID": tenantId } }
+                `/v2/admin/tenants/${tenantId}/users?${params.toString()}&tenant_id=${tenantId}`
             )
             return response || { users: [], total_count: 0, page: 1, page_size: pageSize }
         },
@@ -405,9 +404,7 @@ function UsersList({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: stri
     // Mutations
     const createMutation = useMutation({
         mutationFn: async (vars: any) => {
-            return api.post(`/v2/admin/tenants/${tenantId}/users`, vars, {
-                headers: { "X-Tenant-ID": tenantId }
-            })
+            return api.post(`/v2/admin/tenants/${tenantId}/users?tenant_id=${tenantId}`, vars)
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
@@ -421,9 +418,7 @@ function UsersList({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: stri
 
     const updateMutation = useMutation({
         mutationFn: async ({ userId, data }: { userId: string, data: any }) => {
-            return api.put(`/v2/admin/tenants/${tenantId}/users/${userId}`, data, undefined, {
-                headers: { "X-Tenant-ID": tenantId }
-            })
+            return api.put(`/v2/admin/tenants/${tenantId}/users/${userId}?tenant_id=${tenantId}`, data)
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
@@ -438,9 +433,7 @@ function UsersList({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: stri
 
     const deleteMutation = useMutation({
         mutationFn: async (userId: string) => {
-            return api.delete(`/v2/admin/tenants/${tenantId}/users/${userId}`, {
-                headers: { "X-Tenant-ID": tenantId }
-            })
+            return api.delete(`/v2/admin/tenants/${tenantId}/users/${userId}?tenant_id=${tenantId}`)
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
@@ -453,9 +446,8 @@ function UsersList({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: stri
 
     const blockMutation = useMutation({
         mutationFn: async ({ userId, reason, duration }: { userId: string, reason: string, duration: string }) => {
-            return api.post(`/v2/admin/tenants/${tenantId}/users/${userId}/disable`,
-                { reason, duration },
-                { headers: { "X-Tenant-ID": tenantId } }
+            return api.post(`/v2/admin/tenants/${tenantId}/users/${userId}/disable?tenant_id=${tenantId}`,
+                { reason, duration }
             )
         },
         onSuccess: () => {
@@ -470,9 +462,7 @@ function UsersList({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: stri
 
     const enableMutation = useMutation({
         mutationFn: async (userId: string) => {
-            return api.post(`/v2/admin/tenants/${tenantId}/users/${userId}/enable`, {}, {
-                headers: { "X-Tenant-ID": tenantId }
-            })
+            return api.post(`/v2/admin/tenants/${tenantId}/users/${userId}/enable?tenant_id=${tenantId}`, {})
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["users", tenantId] })
@@ -485,9 +475,8 @@ function UsersList({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: stri
 
     const setEmailVerifiedMutation = useMutation({
         mutationFn: async ({ userId, verified }: { userId: string, verified: boolean }) => {
-            return api.post(`/v2/admin/tenants/${tenantId}/users/${userId}/set-email-verified`,
-                { verified },
-                { headers: { "X-Tenant-ID": tenantId } }
+            return api.post(`/v2/admin/tenants/${tenantId}/users/${userId}/set-email-verified?tenant_id=${tenantId}`,
+                { verified }
             )
         },
         onSuccess: () => {
@@ -502,9 +491,8 @@ function UsersList({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: stri
 
     const changePasswordMutation = useMutation({
         mutationFn: async ({ userId, newPassword }: { userId: string, newPassword: string }) => {
-            return api.post(`/v2/admin/tenants/${tenantId}/users/${userId}/set-password`,
-                { password: newPassword },
-                { headers: { "X-Tenant-ID": tenantId } }
+            return api.post(`/v2/admin/tenants/${tenantId}/users/${userId}/set-password?tenant_id=${tenantId}`,
+                { password: newPassword }
             )
         },
         onSuccess: () => {
@@ -520,9 +508,8 @@ function UsersList({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: stri
         mutationFn: async (userIds: string[]) => {
             const results = await Promise.allSettled(
                 userIds.map(id =>
-                    api.post(`/v2/admin/tenants/${tenantId}/users/${id}/disable`,
-                        { reason: "Bulk action", duration: "" },
-                        { headers: { "X-Tenant-ID": tenantId } }
+                    api.post(`/v2/admin/tenants/${tenantId}/users/${id}/disable?tenant_id=${tenantId}`,
+                        { reason: "Bulk action", duration: "" }
                     )
                 )
             )
@@ -545,9 +532,7 @@ function UsersList({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: stri
         mutationFn: async (userIds: string[]) => {
             const results = await Promise.allSettled(
                 userIds.map(id =>
-                    api.delete(`/v2/admin/tenants/${tenantId}/users/${id}`, {
-                        headers: { "X-Tenant-ID": tenantId }
-                    })
+                    api.delete(`/v2/admin/tenants/${tenantId}/users/${id}?tenant_id=${tenantId}`)
                 )
             )
             const failed = results.filter(r => r.status === "rejected").length
@@ -643,7 +628,7 @@ function UsersList({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: stri
                     Conecta una base de datos para comenzar a gestionar los usuarios de este tenant.
                 </p>
                 <Button
-                    onClick={() => router.push(`/admin/database?id=${tenantId}`)}
+                    onClick={() => router.push(`/admin/tenants/${tenantId}/database`)}
                     className="gap-2"
                     size="lg"
                 >
@@ -1535,7 +1520,7 @@ function UserDetails({
         if (!user.id || !tenantId) return
         setIsResending(true)
         try {
-            const res = await apiFetchWithTenant(`/v2/admin/users/resend-verification`, tenantId, {
+            const res = await apiFetch(`/v2/admin/users/resend-verification?tenant_id=${tenantId}`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

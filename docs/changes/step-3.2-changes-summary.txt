@@ -1,0 +1,62 @@
+FASE 3 - PASO 3.2: Integración de RequireAdminTenantAccess() en Cadena Admin
+
+ARCHIVO: internal/http/router/admin_routes.go
+
+CAMBIOS REALIZADOS:
+
+1. Middleware agregado a adminBaseChain():
+   - Agregado mw.RequireAdminTenantAccess() a la cadena de middlewares
+   - Posición: DESPUÉS de RequireAdmin(), ANTES de rate limiting
+
+2. Orden final de middlewares en cadena admin:
+   1. WithRecover() - Manejo de panics
+   2. WithRequestID() - Generación de request ID
+   3. WithTenantResolution() - Resolución de tenant desde path parameter
+   4. RequireTenant() - Validación de tenant en contexto
+   5. RequireTenantDB() - Validación de DB si es requerida (condicional)
+   6. RequireAuth() - Validación de JWT
+   7. RequireAdmin() - Validación de rol admin
+   8. RequireAdminTenantAccess() - ✅ NUEVO: Validación de acceso multi-tenant
+   9. WithRateLimit() - Rate limiting por IP (condicional)
+   10. WithLogging() - Logging de request
+
+RUTAS AFECTADAS:
+
+Todas las rutas que usan adminBaseChain():
+- /v2/admin/tenants/{tenant_id}/users (POST, GET, PUT, DELETE)
+- /v2/admin/tenants/{tenant_id}/tokens (GET, DELETE)
+- /v2/admin/tenants/{tenant_id}/tokens/stats (GET)
+- /v2/admin/tenants/{tenant_id}/tokens/revoke-* (POST)
+- /v2/admin/tenants/{tenant_id}/sessions (GET, POST)
+- /v2/admin/tenants/{tenant_id}/sessions/stats (GET)
+- /v2/admin/tenants/{tenant_id}/sessions/{sessionId} (GET)
+- /v2/admin/tenants/{tenant_id}/sessions/revoke-* (POST)
+
+TOTAL: ~36 rutas admin protegidas
+
+IMPACTO DE SEGURIDAD:
+
+✅ Previene tenant elevation attacks
+✅ Admin Global: Acceso a TODOS los tenants (sin cambios)
+✅ Admin Tenant: Solo acceso a sus tenants asignados
+✅ Logs de auditoría para intentos de acceso no autorizado
+
+EVIDENCIAS:
+
+- Diff: docs/changes/step-3.2-admin-chain.diff (15 líneas)
+- Compilación: ✅ Exitosa
+- Binario: hellojohn.exe (29 MB)
+
+CRITERIOS DE ACEPTACIÓN:
+
+- [x] RequireAdminTenantAccess() integrado en adminBaseChain()
+- [x] Posicionado correctamente (después de RequireAdmin)
+- [x] Aplica a todas las rutas admin multi-tenant
+- [x] Backend compila sin errores
+- [x] Orden de middlewares correcto
+
+NOTAS:
+
+- El middleware se aplica automáticamente a todas las rutas que usan adminBaseChain()
+- No afecta rutas de autenticación (/v2/admin/login, /v2/admin/refresh)
+- Rutas sin tenant_id en path no se ven afectadas (el middleware permite paso si no hay tenant_id)

@@ -1,0 +1,73 @@
+FASE 3 - PASO 3.3: Verificación de Emisión de AdminClaims
+
+ANÁLISIS REALIZADO:
+
+1. Emisión de AdminClaims en Login:
+   ✅ Archivo: internal/http/services/admin/auth_service.go
+   ✅ Método: Login() - líneas 91-96
+   ✅ Método: Refresh() - líneas 174-179
+
+   Claims emitidos correctamente:
+   - AdminID: admin.ID
+   - Email: admin.Email
+   - AdminType: string(admin.Type)
+   - Tenants: admin.AssignedTenants
+
+2. Verificación de AdminClaims en Middleware:
+   ⚠️ PROBLEMA DETECTADO:
+
+   Archivo: internal/http/router/admin_routes.go
+   Función: adminBaseChain()
+
+   CADENA ACTUAL:
+   - RequireAuth(issuer) -> Parsea JWT genérico, inyecta claims normales
+   - RequireAdmin() -> Valida si es admin, pero NO inyecta AdminClaims
+   - RequireAdminTenantAccess() -> Espera AdminClaims pero NO están disponibles
+
+   CADENA CORRECTA:
+   - RequireAdminAuth(issuer) -> Parsea JWT admin, inyecta AdminAccessClaims
+   - RequireAdminTenantAccess() -> Consume AdminClaims correctamente
+
+3. Middleware Correcto Disponible:
+   ✅ Archivo: internal/http/middlewares/admin.go
+   ✅ Función: RequireAdminAuth() - líneas 160-191
+
+   Funcionalidad:
+   - Extrae token del header Authorization
+   - Valida con issuer.VerifyAdminAccess()
+   - Inyecta AdminAccessClaims en contexto con SetAdminClaims()
+
+PROBLEMA IDENTIFICADO:
+
+La cadena adminBaseChain() usa RequireAuth() + RequireAdmin() en lugar de
+RequireAdminAuth(), lo que resulta en que AdminAccessClaims NO están
+disponibles en el contexto cuando RequireAdminTenantAccess() se ejecuta.
+
+SOLUCIÓN REQUERIDA:
+
+Reemplazar en adminBaseChain():
+  DE:
+    mw.RequireAuth(issuer),
+    mw.RequireAdmin(mw.AdminConfigFromEnv()),
+    mw.RequireAdminTenantAccess(),
+
+  A:
+    mw.RequireAdminAuth(issuer),
+    mw.RequireAdminTenantAccess(),
+
+IMPACTO:
+
+- RequireAdmin() NO se necesita si usamos RequireAdminAuth() (que ya valida que sea admin)
+- RequireAdminAuth() inyecta AdminAccessClaims estructuradas
+- RequireAdminTenantAccess() funciona correctamente con AdminClaims
+
+EVIDENCIAS:
+
+- Emisión de claims: ✅ Correcta (auth_service.go)
+- Middleware de verificación: ✅ Existe (RequireAdminAuth)
+- Integración en cadena: ❌ INCORRECTA (usa RequireAuth en lugar de RequireAdminAuth)
+
+ACCIÓN REQUERIDA:
+
+Actualizar adminBaseChain() para usar RequireAdminAuth() en lugar de
+RequireAuth() + RequireAdmin().

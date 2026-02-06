@@ -96,18 +96,13 @@ type TenantMiddlewareConfig struct {
 }
 
 // NewTenantMiddleware crea un nuevo middleware de tenant.
-// Si resolver es nil, usa la cadena: PathValue -> Header -> Query -> Subdomain
+// ESTÁNDAR: Solo resuelve desde path parameter "tenant_id" en rutas /tenants/{tenant_id}/...
+// Rutas esperadas: /v2/admin/tenants/{tenant_id}/users, /v2/admin/tenants/{tenant_id}/sessions, etc.
 func NewTenantMiddleware(cfg TenantMiddlewareConfig) *TenantMiddleware {
 	resolver := cfg.Resolver
 	if resolver == nil {
-		resolver = ChainResolvers(
-			PathValueTenantResolver("id"), // Para rutas como /v2/admin/tenants/{id}/...
-			HeaderTenantResolver("X-Tenant-ID"),
-			HeaderTenantResolver("X-Tenant-Slug"),
-			QueryTenantResolver("tenant"),
-			QueryTenantResolver("tenant_id"),
-			SubdomainTenantResolver(),
-		)
+		// SIMPLIFICADO: Solo path parameter "tenant_id" (estandarización multi-tenant)
+		resolver = PathValueTenantResolver("tenant_id")
 	}
 	return &TenantMiddleware{
 		manager:  cfg.Manager,

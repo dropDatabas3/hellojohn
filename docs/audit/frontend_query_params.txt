@@ -1,0 +1,12 @@
+app/(admin)/admin/admin-shell.tsx:    const q = searchParams.get("id") || searchParams.get("tenant")
+app/(admin)/admin/database/page.tsx:    const tenantId = searchParams.get("id")
+app/(admin)/admin/tenants/claims/page.tsx:    const tenantId = (params.id as string) || (searchParams.get("id") as string)
+app/(admin)/admin/tenants/clients/page.tsx:    const tenantId = (params.id as string) || (searchParams.get("id") as string)
+app/(admin)/admin/tenants/detail/page.tsx:  const tenantId = searchParams.get("id")
+app/(admin)/admin/tenants/providers/page.tsx:  const tenantId = searchParams.get("id") || ""
+app/(admin)/admin/tenants/rbac/page.tsx:  const tenantId = searchParams.get("id")
+app/(admin)/admin/tenants/scopes/page.tsx:    const tenantId = (params.id as string) || (searchParams.get("id") as string)
+app/(admin)/admin/tenants/sessions/page.tsx:    const tenantId = (params.id as string) || (searchParams.get("id") as string)
+app/(admin)/admin/tenants/tokens/page.tsx:    const tenantIdParam = (params.id as string) || searchParams.get("id") || ""
+app/(admin)/admin/tenants/users/page.tsx:    const tenantIdParam = searchParams.get("id")
+app/(admin)/admin/users/page.tsx:    const tenantIdParam = searchParams.get("id")

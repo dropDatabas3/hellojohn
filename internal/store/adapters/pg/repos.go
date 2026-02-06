@@ -377,7 +377,7 @@ func (r *scopeRepo) Upsert(ctx context.Context, tenantID string, input repositor
 type rbacRepo struct{ pool *pgxpool.Pool }
 
 func (r *rbacRepo) GetUserRoles(ctx context.Context, userID string) ([]string, error) {
-	const query = `SELECT role FROM user_role WHERE user_id = $1`
+	const query = `SELECT role_name FROM rbac_user_role WHERE user_id = $1`
 	rows, err := r.pool.Query(ctx, query, userID)
 	if err != nil {
 		return nil, err
@@ -397,9 +397,10 @@ func (r *rbacRepo) GetUserRoles(ctx context.Context, userID string) ([]string, e
 
 func (r *rbacRepo) GetUserPermissions(ctx context.Context, userID string) ([]string, error) {
 	const query = `
-		SELECT DISTINCT rp.permission
-		FROM user_role ur
-		JOIN role_permission rp ON rp.role = ur.role
+		SELECT DISTINCT perm
+		FROM rbac_user_role ur
+		JOIN rbac_role r ON r.name = ur.role_name
+		CROSS JOIN UNNEST(r.permissions) AS perm
 		WHERE ur.user_id = $1
 	`
 	rows, err := r.pool.Query(ctx, query, userID)
@@ -421,63 +422,62 @@ func (r *rbacRepo) GetUserPermissions(ctx context.Context, userID string) ([]str
 
 func (r *rbacRepo) AssignRole(ctx context.Context, tenantID, userID, role string) error {
 	const query = `
-		INSERT INTO user_role (tenant_id, user_id, role, created_at)
-		VALUES ($1, $2, $3, NOW())
+		INSERT INTO rbac_user_role (user_id, role_name, assigned_at)
+		VALUES ($1, $2, NOW())
 		ON CONFLICT DO NOTHING
 	`
-	_, err := r.pool.Exec(ctx, query, tenantID, userID, role)
+	_, err := r.pool.Exec(ctx, query, userID, role)
 	return err
 }
 
 func (r *rbacRepo) RemoveRole(ctx context.Context, tenantID, userID, role string) error {
-	const query = `DELETE FROM user_role WHERE tenant_id = $1 AND user_id = $2 AND role = $3`
-	_, err := r.pool.Exec(ctx, query, tenantID, userID, role)
+	const query = `DELETE FROM rbac_user_role WHERE user_id = $1 AND role_name = $2`
+	_, err := r.pool.Exec(ctx, query, userID, role)
 	return err
 }
 
 func (r *rbacRepo) GetRolePermissions(ctx context.Context, tenantID, role string) ([]string, error) {
-	const query = `SELECT permission FROM role_permission WHERE tenant_id = $1 AND role = $2`
-	rows, err := r.pool.Query(ctx, query, tenantID, role)
+	const query = `SELECT permissions FROM rbac_role WHERE name = $1`
+	var perms []string
+	err := r.pool.QueryRow(ctx, query, role).Scan(&perms)
+	if err == pgx.ErrNoRows {
+		return []string{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var perms []string
-	for rows.Next() {
-		var perm string
-		if err := rows.Scan(&perm); err != nil {
-			return nil, err
-		}
-		perms = append(perms, perm)
-	}
-	return perms, rows.Err()
+	return perms, nil
 }
 
 func (r *rbacRepo) AddPermissionToRole(ctx context.Context, tenantID, role, permission string) error {
 	const query = `
-		INSERT INTO role_permission (tenant_id, role, permission, created_at)
-		VALUES ($1, $2, $3, NOW())
-		ON CONFLICT DO NOTHING
+		UPDATE rbac_role
+		SET permissions = array_append(permissions, $2)
+		WHERE name = $1 AND NOT ($2 = ANY(permissions))
 	`
-	_, err := r.pool.Exec(ctx, query, tenantID, role, permission)
+	_, err := r.pool.Exec(ctx, query, role, permission)
 	return err
 }
 
 func (r *rbacRepo) RemovePermissionFromRole(ctx context.Context, tenantID, role, permission string) error {
-	const query = `DELETE FROM role_permission WHERE tenant_id = $1 AND role = $2 AND permission = $3`
-	_, err := r.pool.Exec(ctx, query, tenantID, role, permission)
+	const query = `
+		UPDATE rbac_role
+		SET permissions = array_remove(permissions, $2)
+		WHERE name = $1
+	`
+	_, err := r.pool.Exec(ctx, query, role, permission)
 	return err
 }
 
 func (r *rbacRepo) ListRoles(ctx context.Context, tenantID string) ([]repository.Role, error) {
 	const query = `
-		SELECT id, tenant_id, name, description, inherits_from, system, created_at, updated_at
-		FROM role
-		WHERE tenant_id = $1
+		SELECT COALESCE(id::text, gen_random_uuid()::text), name,
+		       COALESCE(description, ''), permissions, inherits_from,
+		       system, created_at, updated_at
+		FROM rbac_role
 		ORDER BY system DESC, name ASC
 	`
-	rows, err := r.pool.Query(ctx, query, tenantID)
+	rows, err := r.pool.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -485,30 +485,33 @@ func (r *rbacRepo) ListRoles(ctx context.Context, tenantID string) ([]repository
 
 	var roles []repository.Role
 	for rows.Next() {
-		var r repository.Role
-		var desc, inherits *string
-		if err := rows.Scan(&r.ID, &r.TenantID, &r.Name, &desc, &inherits, &r.System, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		var role repository.Role
+		var desc string
+		var inherits *string
+		if err := rows.Scan(&role.ID, &role.Name, &desc, &role.Permissions, &inherits, &role.System, &role.CreatedAt, &role.UpdatedAt); err != nil {
 			return nil, err
 		}
-		if desc != nil {
-			r.Description = *desc
-		}
-		r.InheritsFrom = inherits
-		roles = append(roles, r)
+		role.TenantID = tenantID
+		role.Description = desc
+		role.InheritsFrom = inherits
+		roles = append(roles, role)
 	}
 	return roles, rows.Err()
 }
 
 func (r *rbacRepo) GetRole(ctx context.Context, tenantID, name string) (*repository.Role, error) {
 	const query = `
-		SELECT id, tenant_id, name, description, inherits_from, system, created_at, updated_at
-		FROM role
-		WHERE tenant_id = $1 AND name = $2
+		SELECT COALESCE(id::text, gen_random_uuid()::text), name,
+		       COALESCE(description, ''), permissions, inherits_from,
+		       system, created_at, updated_at
+		FROM rbac_role
+		WHERE name = $1
 	`
 	var role repository.Role
-	var desc, inherits *string
-	err := r.pool.QueryRow(ctx, query, tenantID, name).Scan(
-		&role.ID, &role.TenantID, &role.Name, &desc, &inherits, &role.System, &role.CreatedAt, &role.UpdatedAt,
+	var desc string
+	var inherits *string
+	err := r.pool.QueryRow(ctx, query, name).Scan(
+		&role.ID, &role.Name, &desc, &role.Permissions, &inherits, &role.System, &role.CreatedAt, &role.UpdatedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, repository.ErrNotFound
@@ -516,27 +519,27 @@ func (r *rbacRepo) GetRole(ctx context.Context, tenantID, name string) (*reposit
 	if err != nil {
 		return nil, err
 	}
-	if desc != nil {
-		role.Description = *desc
-	}
+	role.TenantID = tenantID
+	role.Description = desc
 	role.InheritsFrom = inherits
 	return &role, nil
 }
 
 func (r *rbacRepo) CreateRole(ctx context.Context, tenantID string, input repository.RoleInput) (*repository.Role, error) {
 	const query = `
-		INSERT INTO role (tenant_id, name, description, inherits_from, system, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, false, NOW(), NOW())
-		RETURNING id, created_at, updated_at
+		INSERT INTO rbac_role (name, description, inherits_from, system, created_at, updated_at)
+		VALUES ($1, $2, $3, false, NOW(), NOW())
+		RETURNING COALESCE(id::text, gen_random_uuid()::text), created_at, updated_at
 	`
 	role := &repository.Role{
 		TenantID:     tenantID,
 		Name:         input.Name,
 		Description:  input.Description,
+		Permissions:  []string{},
 		InheritsFrom: input.InheritsFrom,
 		System:       false,
 	}
-	err := r.pool.QueryRow(ctx, query, tenantID, input.Name, input.Description, input.InheritsFrom).
+	err := r.pool.QueryRow(ctx, query, input.Name, input.Description, input.InheritsFrom).
 		Scan(&role.ID, &role.CreatedAt, &role.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("pg: create role: %w", err)
@@ -546,17 +549,20 @@ func (r *rbacRepo) CreateRole(ctx context.Context, tenantID string, input reposi
 
 func (r *rbacRepo) UpdateRole(ctx context.Context, tenantID, name string, input repository.RoleInput) (*repository.Role, error) {
 	const query = `
-		UPDATE role 
-		SET description = COALESCE($3, description),
-			inherits_from = $4,
+		UPDATE rbac_role
+		SET description = COALESCE($2, description),
+			inherits_from = $3,
 			updated_at = NOW()
-		WHERE tenant_id = $1 AND name = $2 AND system = false
-		RETURNING id, tenant_id, name, description, inherits_from, system, created_at, updated_at
+		WHERE name = $1 AND system = false
+		RETURNING COALESCE(id::text, gen_random_uuid()::text), name,
+		          COALESCE(description, ''), permissions, inherits_from,
+		          system, created_at, updated_at
 	`
 	var role repository.Role
-	var desc, inherits *string
-	err := r.pool.QueryRow(ctx, query, tenantID, name, input.Description, input.InheritsFrom).Scan(
-		&role.ID, &role.TenantID, &role.Name, &desc, &inherits, &role.System, &role.CreatedAt, &role.UpdatedAt,
+	var desc string
+	var inherits *string
+	err := r.pool.QueryRow(ctx, query, name, input.Description, input.InheritsFrom).Scan(
+		&role.ID, &role.Name, &desc, &role.Permissions, &inherits, &role.System, &role.CreatedAt, &role.UpdatedAt,
 	)
 	if err == pgx.ErrNoRows {
 		return nil, repository.ErrNotFound
@@ -564,9 +570,8 @@ func (r *rbacRepo) UpdateRole(ctx context.Context, tenantID, name string, input 
 	if err != nil {
 		return nil, fmt.Errorf("pg: update role: %w", err)
 	}
-	if desc != nil {
-		role.Description = *desc
-	}
+	role.TenantID = tenantID
+	role.Description = desc
 	role.InheritsFrom = inherits
 	return &role, nil
 }
@@ -582,19 +587,16 @@ func (r *rbacRepo) DeleteRole(ctx context.Context, tenantID, name string) error 
 	}
 
 	// Eliminar asignaciones de usuarios
-	_, _ = r.pool.Exec(ctx, `DELETE FROM user_role WHERE tenant_id = $1 AND role = $2`, tenantID, name)
+	_, _ = r.pool.Exec(ctx, `DELETE FROM rbac_user_role WHERE role_name = $1`, name)
 
-	// Eliminar permisos del rol
-	_, _ = r.pool.Exec(ctx, `DELETE FROM role_permission WHERE tenant_id = $1 AND role = $2`, tenantID, name)
-
-	// Eliminar rol
-	_, err = r.pool.Exec(ctx, `DELETE FROM role WHERE tenant_id = $1 AND name = $2`, tenantID, name)
+	// Eliminar rol (permissions se eliminan automáticamente al ser columna del rol)
+	_, err = r.pool.Exec(ctx, `DELETE FROM rbac_role WHERE name = $1`, name)
 	return err
 }
 
 func (r *rbacRepo) GetRoleUsersCount(ctx context.Context, tenantID, role string) (int, error) {
-	const query = `SELECT COUNT(*) FROM user_role WHERE tenant_id = $1 AND role = $2`
+	const query = `SELECT COUNT(*) FROM rbac_user_role WHERE role_name = $1`
 	var count int
-	err := r.pool.QueryRow(ctx, query, tenantID, role).Scan(&count)
+	err := r.pool.QueryRow(ctx, query, role).Scan(&count)
 	return count, err
 }

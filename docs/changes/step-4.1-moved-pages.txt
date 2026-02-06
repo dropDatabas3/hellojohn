@@ -1,0 +1,14 @@
+total 8
+drwxr-xr-x 1 juanp 197609 0 feb.  3 14:53 .
+drwxr-xr-x 1 juanp 197609 0 feb.  3 14:53 ..
+drwxr-xr-x 1 juanp 197609 0 feb.  3 14:14 claims
+drwxr-xr-x 1 juanp 197609 0 feb.  3 14:14 clients
+drwxr-xr-x 1 juanp 197609 0 feb.  3 14:14 consents
+drwxr-xr-x 1 juanp 197609 0 feb.  3 14:14 mailing
+drwxr-xr-x 1 juanp 197609 0 feb.  3 14:14 providers
+drwxr-xr-x 1 juanp 197609 0 feb.  3 14:14 rbac
+drwxr-xr-x 1 juanp 197609 0 feb.  3 14:14 scopes
+drwxr-xr-x 1 juanp 197609 0 feb.  3 14:14 sessions
+drwxr-xr-x 1 juanp 197609 0 feb.  3 14:14 settings
+drwxr-xr-x 1 juanp 197609 0 feb.  3 14:14 tokens
+drwxr-xr-x 1 juanp 197609 0 feb.  3 14:14 users

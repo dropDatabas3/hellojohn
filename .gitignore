@@ -84,12 +84,13 @@ roadmap_v2.md
 
 
 # --------- claude ---------
-/.claude/
-CLAUDE.md
-.clauderc
+#/.claude/
+#CLAUDE.md
+#.clauderc
 
 
 # ───────── Auditoría ─────────
 /docs/
-docs/audit
+docs/audit_older
 docs/ui-unification
+docs/controlplane

@@ -117,7 +117,7 @@ function OrganizationSelector({
             Organizations
           </p>
         </div>
-        
+
         {/* Tenant list - scrollable, max 3 visible */}
         <div className={cn(
           "space-y-0.5 max-h-[148px] overflow-y-auto",
@@ -131,44 +131,44 @@ function OrganizationSelector({
             ?.slice()
             .sort((a, b) => a.name.localeCompare(b.name))
             .map((t) => (
-            <SelectItem 
-              key={t.slug} 
-              value={t.slug} 
-              className={cn(
-                "relative cursor-pointer rounded-lg pl-7 pr-3 py-1.5",
-                "text-sm font-medium",
-                "transition-all duration-200 ease-out",
-                // Base text - white with shadow
-                "text-white",
-                // Hover/focus states - subtle violet bg
-                "hover:bg-violet-500/30",
-                "focus:bg-violet-500/30",
-                "data-[highlighted]:bg-violet-500/30",
-                // Hover text enhancement
-                "hover:text-white hover:[text-shadow:0_1px_8px_rgba(139,92,246,0.6),0_0_20px_rgba(139,92,246,0.4)]",
-                "data-[highlighted]:text-white data-[highlighted]:[text-shadow:0_1px_8px_rgba(139,92,246,0.6),0_0_20px_rgba(139,92,246,0.4)]",
-                // Selected state - stronger violet gradient
-                "data-[state=checked]:bg-gradient-to-r data-[state=checked]:from-violet-600 data-[state=checked]:to-purple-600",
-                "data-[state=checked]:text-white data-[state=checked]:[text-shadow:0_1px_3px_rgba(0,0,0,0.3)]",
-                // Fix indicator position - left side
-                "[&>span:first-child]:absolute [&>span:first-child]:left-2 [&>span:first-child]:top-1/2 [&>span:first-child]:-translate-y-1/2",
-                "[&>span:first-child]:text-white [&>span:first-child]:drop-shadow-sm"
-              )}
-            >
-              <div className="flex flex-col min-w-0">
-                <span className="truncate">{t.name}</span>
-                <span className="text-[10px] text-slate-400 truncate">{t.slug}</span>
-              </div>
-            </SelectItem>
-          ))}
+              <SelectItem
+                key={t.slug}
+                value={t.slug}
+                className={cn(
+                  "relative cursor-pointer rounded-lg pl-7 pr-3 py-1.5",
+                  "text-sm font-medium",
+                  "transition-all duration-200 ease-out",
+                  // Base text - white with shadow
+                  "text-white",
+                  // Hover/focus states - subtle violet bg
+                  "hover:bg-violet-500/30",
+                  "focus:bg-violet-500/30",
+                  "data-[highlighted]:bg-violet-500/30",
+                  // Hover text enhancement
+                  "hover:text-white hover:[text-shadow:0_1px_8px_rgba(139,92,246,0.6),0_0_20px_rgba(139,92,246,0.4)]",
+                  "data-[highlighted]:text-white data-[highlighted]:[text-shadow:0_1px_8px_rgba(139,92,246,0.6),0_0_20px_rgba(139,92,246,0.4)]",
+                  // Selected state - stronger violet gradient
+                  "data-[state=checked]:bg-gradient-to-r data-[state=checked]:from-violet-600 data-[state=checked]:to-purple-600",
+                  "data-[state=checked]:text-white data-[state=checked]:[text-shadow:0_1px_3px_rgba(0,0,0,0.3)]",
+                  // Fix indicator position - left side
+                  "[&>span:first-child]:absolute [&>span:first-child]:left-2 [&>span:first-child]:top-1/2 [&>span:first-child]:-translate-y-1/2",
+                  "[&>span:first-child]:text-white [&>span:first-child]:drop-shadow-sm"
+                )}
+              >
+                <div className="flex flex-col min-w-0">
+                  <span className="truncate">{t.name}</span>
+                  <span className="text-[10px] text-slate-400 truncate">{t.slug}</span>
+                </div>
+              </SelectItem>
+            ))}
         </div>
-        
+
         {/* Divider */}
         <div className="my-1.5 mx-2 h-px bg-slate-700/50" />
-        
+
         {/* Create new */}
-        <SelectItem 
-          value="+create" 
+        <SelectItem
+          value="+create"
           className={cn(
             "cursor-pointer rounded-lg px-3 py-1.5",
             "text-sm font-semibold",
@@ -196,7 +196,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const user = useAuthStore((state) => state.user)
   const hasRefresh = !!useAuthStore((s) => s.refreshToken)
   const [hideFsNotice, setHideFsNotice] = useState(false)
-  
+
   // Use next-themes for theme switching (canonical provider per UI_UNIFICATION_STRATEGY)
   const { theme, setTheme } = useTheme()
   const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark")
@@ -223,20 +223,20 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     // Prefer query param on static pages
     const q = searchParams.get("id") || searchParams.get("tenant")
     if (q) return q
-    
+
     // Known sub-routes that are NOT tenant IDs
     const knownSubRoutes = [
       "detail", "settings", "sessions", "rbac", "scopes", "claims",
       "clients", "tokens", "consents", "providers", "mailing", "database"
     ]
-    
+
     // Fallback: extract from legacy dynamic path /admin/tenants/{id}/...
     // but exclude known sub-routes
     const m = pathname?.match(/\/admin\/tenants\/([^\/]+)/)
     if (m?.[1] && !knownSubRoutes.includes(m[1])) {
       return m[1]
     }
-    
+
     return undefined
   })()
 
@@ -248,7 +248,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     } else {
       const t = tenants?.find((t) => t.slug === val)
       if (t) {
-        router.push(`/admin/tenants/detail?id=${t.id}`)
+        router.push(`/admin/tenants/${t.id}/detail`)
       }
     }
   }
@@ -266,7 +266,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     // Delay expansion by 250ms to avoid accidental triggers
     hoverTimeoutRef.current = setTimeout(() => {
       setIsCollapsed(false)
-    }, 700)
+    }, 300)
   }
 
   const handleSidebarMouseLeave = () => {
@@ -292,7 +292,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
     const hrefPath = href.split('?')[0]
     const isExactMatch = pathname === hrefPath
     const isActive = active || isExactMatch
-    
+
     return (
       <Link
         href={href}
@@ -344,10 +344,10 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           <Icon className={cn(
             "h-[20px] w-[20px] transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
             // Collapsed + Active - white icon
-            isCollapsed && isActive 
-              ? "text-white dark:text-white" 
-              : isActive 
-                ? "text-violet-600 dark:text-violet-400" 
+            isCollapsed && isActive
+              ? "text-white dark:text-white"
+              : isActive
+                ? "text-violet-600 dark:text-violet-400"
                 : "text-muted-foreground/70 group-hover:text-violet-600 dark:group-hover:text-violet-400",
             // Subtle scale and rotate on hover (non-active, expanded only)
             !isActive && !isCollapsed && "group-hover:scale-110 group-hover:-rotate-3"
@@ -370,7 +370,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         onOpenChange={setShowCreateWizard}
         onSuccess={(tenant) => {
           // Navegar al nuevo tenant al crearlo exitosamente
-          router.push(`/admin/tenants/detail?id=${tenant.id}`)
+          router.push(`/admin/tenants/${tenant.id}/detail`)
         }}
       />
 
@@ -397,67 +397,67 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           {/* ══════ TOP-LEFT CORNER EMPHASIS (Sidebar + Header intersection) ══════ */}
           {/* Primary hero orb - intense top left */}
           <div className="absolute -top-32 -left-32 h-[600px] w-[600px] rounded-full bg-gradient-to-br from-primary/10 via-primary/5 to-transparent blur-[100px] dark:from-primary/8 dark:via-primary/4" />
-          
+
           {/* Secondary accent layer - top left reinforcement */}
           <div className="absolute top-0 left-0 h-[400px] w-[400px] rounded-full bg-gradient-to-br from-accent/8 via-info/4 to-transparent blur-[80px] dark:from-accent/5 dark:via-info/3" />
-          
+
           {/* Soft highlight - top left corner glow */}
           <div className="absolute -top-10 left-20 h-[300px] w-[500px] rounded-full bg-gradient-to-r from-white/5 via-primary/4 to-transparent blur-[60px] dark:from-white/2 dark:via-primary/3" />
 
           {/* ══════ DIAGONAL DARK BAND (Top-left to Bottom-right center) ══════ */}
           {/* Diagonal shadow/depth band */}
-          <div 
+          <div
             className="absolute inset-0 bg-gradient-to-br from-transparent via-slate-950/[0.08] to-transparent dark:via-black/25"
-            style={{ 
+            style={{
               maskImage: 'linear-gradient(135deg, transparent 15%, black 35%, black 65%, transparent 85%)',
               WebkitMaskImage: 'linear-gradient(135deg, transparent 15%, black 35%, black 65%, transparent 85%)'
             }}
           />
-          
+
           {/* Center depth - darker diagonal stripe */}
           <div className="absolute top-1/4 left-1/4 right-1/4 bottom-1/4 bg-gradient-to-br from-slate-900/[0.04] via-slate-950/[0.08] to-slate-900/[0.04] blur-[40px] dark:from-black/10 dark:via-black/20 dark:to-black/10 rotate-[-10deg] scale-150" />
 
           {/* ══════ BOTTOM-RIGHT CORNER EMPHASIS (Violet/Purple + Grid) ══════ */}
           {/* Primary violet orb - bottom right */}
           <div className="absolute -bottom-20 -right-20 h-[550px] w-[550px] rounded-full bg-gradient-to-tl from-violet-200/15 via-purple-100/8 to-transparent blur-[100px] dark:from-violet-500/6 dark:via-purple-500/3" />
-          
+
           {/* Secondary purple layer */}
           <div className="absolute bottom-10 right-10 h-[350px] w-[350px] rounded-full bg-gradient-to-tl from-purple-100/10 via-indigo-100/5 to-transparent blur-[70px] dark:from-purple-500/5 dark:via-indigo-500/3" />
-          
+
           {/* Soft violet/lavender highlight - bottom right */}
           <div className="absolute bottom-0 right-0 h-[400px] w-[600px] rounded-full bg-gradient-to-tl from-violet-50/10 via-fuchsia-50/5 to-transparent blur-[80px] dark:from-violet-400/4 dark:via-fuchsia-500/2" />
 
           {/* ══════ SUPPORTING ELEMENTS ══════ */}
           {/* Subtle top-right accent (balance) */}
           <div className="absolute -top-20 right-20 h-[300px] w-[300px] rounded-full bg-gradient-to-bl from-info/5 via-transparent to-transparent blur-3xl dark:from-info/4" />
-          
+
           {/* Subtle bottom-left (balance) */}
           <div className="absolute bottom-20 -left-10 h-[250px] w-[250px] rounded-full bg-gradient-to-tr from-success/4 via-transparent to-transparent blur-3xl dark:from-success/3" />
 
           {/* ══════ TEXTURE OVERLAYS ══════ */}
           {/* Noise texture overlay for depth */}
           <div className="absolute inset-0 opacity-[0.02] dark:opacity-[0.04]" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 256 256\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.65\' numOctaves=\'3\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noise)\'/%3E%3C/svg%3E")' }} />
-          
+
           {/* Grid pattern - violet colored, enhanced visibility in bottom-right */}
-          <div 
-            className="absolute inset-0" 
-            style={{ 
-              backgroundImage: 'linear-gradient(to right, rgba(139,92,246,0.10) 1px, transparent 1px), linear-gradient(to bottom, rgba(139,92,246,0.10) 1px, transparent 1px)', 
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: 'linear-gradient(to right, rgba(139,92,246,0.10) 1px, transparent 1px), linear-gradient(to bottom, rgba(139,92,246,0.10) 1px, transparent 1px)',
               backgroundSize: '48px 48px',
               maskImage: 'linear-gradient(135deg, transparent 0%, transparent 30%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0.8) 70%, black 100%)',
               WebkitMaskImage: 'linear-gradient(135deg, transparent 0%, transparent 30%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0.8) 70%, black 100%)'
-            }} 
+            }}
           />
-          
+
           {/* Secondary finer grid - violet, bottom right only */}
-          <div 
-            className="absolute inset-0" 
-            style={{ 
-              backgroundImage: 'linear-gradient(to right, rgba(167,139,250,0.08) 1px, transparent 1px), linear-gradient(to bottom, rgba(167,139,250,0.08) 1px, transparent 1px)', 
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: 'linear-gradient(to right, rgba(167,139,250,0.08) 1px, transparent 1px), linear-gradient(to bottom, rgba(167,139,250,0.08) 1px, transparent 1px)',
               backgroundSize: '16px 16px',
               maskImage: 'linear-gradient(135deg, transparent 0%, transparent 60%, rgba(0,0,0,0.5) 80%, black 100%)',
               WebkitMaskImage: 'linear-gradient(135deg, transparent 0%, transparent 60%, rgba(0,0,0,0.5) 80%, black 100%)'
-            }} 
+            }}
           />
         </div>
 
@@ -480,8 +480,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           <div className="relative z-10 flex flex-col h-full">
             {/* Logo */}
             <div className="flex items-center h-16 gap-3 transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] justify-start px-4">
-              <Link 
-                href="/admin" 
+              <Link
+                href="/admin"
                 className="flex items-center gap-3 font-semibold text-base tracking-tight hover:opacity-70 transition-all duration-500"
               >
                 <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-primary to-primary/80 text-primary-foreground flex items-center justify-center shadow-lg shadow-primary/20 shrink-0 transition-transform duration-200 hover:scale-105">
@@ -496,11 +496,11 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
               </Link>
             </div>
 
-          {/* Navigation */}
-          <div className={cn(
-            "flex-1 py-4 px-3 space-y-6 transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
-            isCollapsed ? "overflow-hidden" : "overflow-y-auto custom-scrollbar"
-          )}>
+            {/* Navigation */}
+            <div className={cn(
+              "flex-1 py-4 px-3 space-y-6 transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+              isCollapsed ? "overflow-hidden" : "overflow-y-auto custom-scrollbar"
+            )}>
               {/* Overview */}
               <div className="space-y-1">
                 <h4 className={cn(
@@ -574,8 +574,8 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                       Overview
                     </h4>
                     <nav className="space-y-0.5">
-                      <NavItem href={`/admin/tenants/detail?id=${currentTenantId}`} icon={LayoutDashboard} label="Details" />
-                      <NavItem href={`/admin/tenants/settings?id=${currentTenantId}`} icon={Settings} label="Settings" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/detail`} icon={LayoutDashboard} label="Details" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/settings`} icon={Settings} label="Settings" />
                     </nav>
                   </div>
 
@@ -589,11 +589,11 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                       Users & Access
                     </h4>
                     <nav className="space-y-0.5">
-                      <NavItem href={`/admin/tenants/users?id=${currentTenantId}`} icon={Users} label="Users" />
-                      <NavItem href={`/admin/tenants/sessions?id=${currentTenantId}`} icon={Shapes} label="Sessions" />
-                      <NavItem href={`/admin/tenants/rbac?id=${currentTenantId}`} icon={Shield} label="Roles & RBAC" />
-                      <NavItem href={`/admin/tenants/scopes?id=${currentTenantId}`} icon={Lock} label="Scopes" />
-                      <NavItem href={`/admin/tenants/claims?id=${currentTenantId}`} icon={Fingerprint} label="Claims" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/users`} icon={Users} label="Users" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/sessions`} icon={Shapes} label="Sessions" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/rbac`} icon={Shield} label="Roles & RBAC" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/scopes`} icon={Lock} label="Scopes" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/claims`} icon={Fingerprint} label="Claims" />
                     </nav>
                   </div>
 
@@ -607,9 +607,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                       Applications
                     </h4>
                     <nav className="space-y-0.5">
-                      <NavItem href={`/admin/tenants/clients?id=${currentTenantId}`} icon={Boxes} label="Clients" />
-                      <NavItem href={`/admin/tenants/tokens?id=${currentTenantId}`} icon={ListChecks} label="Tokens" />
-                      <NavItem href={`/admin/tenants/consents?id=${currentTenantId}`} icon={FileText} label="Consents" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/clients`} icon={Boxes} label="Clients" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/tokens`} icon={ListChecks} label="Tokens" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/consents`} icon={FileText} label="Consents" />
                     </nav>
                   </div>
 
@@ -623,9 +623,9 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
                       Integrations
                     </h4>
                     <nav className="space-y-0.5">
-                      <NavItem href={`/admin/tenants/providers?id=${currentTenantId}`} icon={Globe2} label="Social Providers" />
-                      <NavItem href={`/admin/tenants/mailing?id=${currentTenantId}`} icon={Mail} label="Mailing" />
-                      <NavItem href={`/admin/database?id=${currentTenantId}`} icon={Database} label="Storage" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/providers`} icon={Globe2} label="Social Providers" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/mailing`} icon={Mail} label="Mailing" />
+                      <NavItem href={`/admin/tenants/${currentTenantId}/database`} icon={Database} label="Storage" />
                     </nav>
                   </div>
                 </>
@@ -700,110 +700,110 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
           </div>
         </aside>
 
-          {/* Main Content Area con Header */}
-          <div className="flex-1 flex flex-col overflow-hidden bg-transparent pr-4">
-                        {/* Header - Modern elevated card */}
-            <header
-              className={cn(
-                "relative z-10 ml-4 h-[64px] rounded-2xl px-5",
-                "flex items-center gap-5",
-                // Solid elevated background
-                "bg-gradient-to-b from-white to-slate-50/90",
-                "dark:from-slate-800/95 dark:to-slate-900/90",
-                // Clean border
-                "border border-slate-200/60 dark:border-slate-700/40",
-                // Premium 3D shadow stack - more pronounced
-                "shadow-[0_1px_2px_rgba(0,0,0,0.03),0_2px_4px_rgba(0,0,0,0.03),0_4px_8px_rgba(0,0,0,0.03),0_8px_16px_rgba(0,0,0,0.03),0_16px_32px_rgba(0,0,0,0.02)]",
-                "dark:shadow-[0_2px_4px_rgba(0,0,0,0.2),0_4px_8px_rgba(0,0,0,0.15),0_8px_16px_rgba(0,0,0,0.1),0_16px_32px_rgba(0,0,0,0.1)]",
-                // Micro interaction
-                "transform-gpu transition-all duration-300 ease-out",
-                "hover:shadow-[0_2px_4px_rgba(0,0,0,0.04),0_4px_8px_rgba(0,0,0,0.04),0_8px_16px_rgba(0,0,0,0.04),0_16px_32px_rgba(0,0,0,0.03),0_24px_48px_rgba(0,0,0,0.02)]",
-                "dark:hover:shadow-[0_4px_8px_rgba(0,0,0,0.25),0_8px_16px_rgba(0,0,0,0.2),0_16px_32px_rgba(0,0,0,0.15),0_32px_64px_rgba(0,0,0,0.1)]"
-              )}
-            >
-              {/* Subtle inner highlight */}
-              <div className="pointer-events-none absolute inset-x-0 top-0 h-px rounded-t-2xl bg-gradient-to-r from-transparent via-white/80 to-transparent dark:via-white/10" />
+        {/* Main Content Area con Header */}
+        <div className="flex-1 flex flex-col overflow-hidden bg-transparent pr-4">
+          {/* Header - Modern elevated card */}
+          <header
+            className={cn(
+              "relative z-10 ml-4 h-[64px] rounded-2xl px-5",
+              "flex items-center gap-5",
+              // Solid elevated background
+              "bg-gradient-to-b from-white to-slate-50/90",
+              "dark:from-slate-800/95 dark:to-slate-900/90",
+              // Clean border
+              "border border-slate-200/60 dark:border-slate-700/40",
+              // Premium 3D shadow stack - more pronounced
+              "shadow-[0_1px_2px_rgba(0,0,0,0.03),0_2px_4px_rgba(0,0,0,0.03),0_4px_8px_rgba(0,0,0,0.03),0_8px_16px_rgba(0,0,0,0.03),0_16px_32px_rgba(0,0,0,0.02)]",
+              "dark:shadow-[0_2px_4px_rgba(0,0,0,0.2),0_4px_8px_rgba(0,0,0,0.15),0_8px_16px_rgba(0,0,0,0.1),0_16px_32px_rgba(0,0,0,0.1)]",
+              // Micro interaction
+              "transform-gpu transition-all duration-300 ease-out",
+              "hover:shadow-[0_2px_4px_rgba(0,0,0,0.04),0_4px_8px_rgba(0,0,0,0.04),0_8px_16px_rgba(0,0,0,0.04),0_16px_32px_rgba(0,0,0,0.03),0_24px_48px_rgba(0,0,0,0.02)]",
+              "dark:hover:shadow-[0_4px_8px_rgba(0,0,0,0.25),0_8px_16px_rgba(0,0,0,0.2),0_16px_32px_rgba(0,0,0,0.15),0_32px_64px_rgba(0,0,0,0.1)]"
+            )}
+          >
+            {/* Subtle inner highlight */}
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px rounded-t-2xl bg-gradient-to-r from-transparent via-white/80 to-transparent dark:via-white/10" />
 
-              {/* Content */}
-              <div className="relative flex w-full items-center justify-between">
-                {/* Organization Selector - Left */}
-                <div className="flex items-center gap-3 shrink-0">
-                  <OrganizationSelector
-                    currentOrg={currentTenant}
-                    onSelect={handleTenantSelect}
-                  />
-                </div>
-
-                {/* Command Palette - Absolutely centered on screen */}
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[280px] pointer-events-auto">
-                  <CommandPalette />
-                </div>
-
-                {/* Actions - Right */}
-                <div className="flex items-center gap-2 shrink-0">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={cn(
-                      "h-9 w-9 rounded-xl",
-                      // Solid background with gradient
-                      "bg-gradient-to-b from-slate-50 to-slate-100/80",
-                      "dark:from-slate-700 dark:to-slate-800/90",
-                      "hover:from-slate-100 hover:to-slate-150/80",
-                      "dark:hover:from-slate-600 dark:hover:to-slate-700/90",
-                      // Border
-                      "border border-slate-200/80 dark:border-slate-600/50",
-                      "hover:border-slate-300 dark:hover:border-slate-500",
-                      // Text
-                      "text-slate-500 dark:text-slate-400",
-                      "hover:text-slate-700 dark:hover:text-slate-200",
-                      // 3D shadows
-                      "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_2px_4px_rgba(0,0,0,0.03),inset_0_1px_0_rgba(255,255,255,0.8)]",
-                      "dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)]",
-                      "hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),0_4px_8px_rgba(0,0,0,0.03),inset_0_1px_0_rgba(255,255,255,0.9)]",
-                      "dark:hover:shadow-[0_2px_4px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.08)]",
-                      // Animation
-                      "transition-all duration-200",
-                      "hover:-translate-y-0.5 active:translate-y-0 active:scale-95"
-                    )}
-                  >
-                    <Bell className="h-[17px] w-[17px]" />
-                  </Button>
-                </div>
+            {/* Content */}
+            <div className="relative flex w-full items-center justify-between">
+              {/* Organization Selector - Left */}
+              <div className="flex items-center gap-3 shrink-0">
+                <OrganizationSelector
+                  currentOrg={currentTenant}
+                  onSelect={handleTenantSelect}
+                />
               </div>
-            </header>
 
-
-            {/* Main Content - Glass panel with 3D depth */}
-            <main 
-              className={cn(
-                "flex-1 overflow-y-auto no-scrollbar",
-                "relative m-6 ml-8 mt-8 rounded-2xl",
-                // Glass background - semi-transparent with blur
-                "bg-white/40 dark:bg-slate-900/30",
-                "backdrop-blur-md backdrop-saturate-150",
-                // Border system for definition
-                "border border-white/60 dark:border-white/[0.08]",
-                "ring-1 ring-black/[0.03] dark:ring-white/[0.03]",
-                // 3D shadow stack for depth/volume
-                "shadow-[0_2px_4px_rgba(0,0,0,0.02),0_4px_8px_rgba(0,0,0,0.03),0_8px_16px_rgba(0,0,0,0.04),0_16px_32px_rgba(0,0,0,0.05),0_32px_64px_rgba(0,0,0,0.03)]",
-                "dark:shadow-[0_2px_4px_rgba(0,0,0,0.1),0_4px_8px_rgba(0,0,0,0.15),0_8px_16px_rgba(0,0,0,0.15),0_16px_32px_rgba(0,0,0,0.1),0_32px_64px_rgba(0,0,0,0.1)]",
-                // Inner highlight for raised effect
-                "before:absolute before:inset-0 before:rounded-2xl before:pointer-events-none",
-                "before:bg-gradient-to-b before:from-white/30 before:via-transparent before:to-transparent",
-                "dark:before:from-white/[0.05] dark:before:via-transparent dark:before:to-black/10"
-              )}
-            >
-              {/* Top edge highlight */}
-              <div className="pointer-events-none absolute inset-x-0 top-0 h-px rounded-t-2xl bg-gradient-to-r from-transparent via-white/70 to-transparent dark:via-white/15" />
-              
-              {/* Content wrapper */}
-              <div className="relative p-8 pb-4 space-y-8 animate-in fade-in duration-500">
-                {children}
+              {/* Command Palette - Absolutely centered on screen */}
+              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[280px] pointer-events-auto">
+                <CommandPalette />
               </div>
-            </main>
-          </div>
+
+              {/* Actions - Right */}
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "h-9 w-9 rounded-xl",
+                    // Solid background with gradient
+                    "bg-gradient-to-b from-slate-50 to-slate-100/80",
+                    "dark:from-slate-700 dark:to-slate-800/90",
+                    "hover:from-slate-100 hover:to-slate-150/80",
+                    "dark:hover:from-slate-600 dark:hover:to-slate-700/90",
+                    // Border
+                    "border border-slate-200/80 dark:border-slate-600/50",
+                    "hover:border-slate-300 dark:hover:border-slate-500",
+                    // Text
+                    "text-slate-500 dark:text-slate-400",
+                    "hover:text-slate-700 dark:hover:text-slate-200",
+                    // 3D shadows
+                    "shadow-[0_1px_2px_rgba(0,0,0,0.04),0_2px_4px_rgba(0,0,0,0.03),inset_0_1px_0_rgba(255,255,255,0.8)]",
+                    "dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.05)]",
+                    "hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),0_4px_8px_rgba(0,0,0,0.03),inset_0_1px_0_rgba(255,255,255,0.9)]",
+                    "dark:hover:shadow-[0_2px_4px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.08)]",
+                    // Animation
+                    "transition-all duration-200",
+                    "hover:-translate-y-0.5 active:translate-y-0 active:scale-95"
+                  )}
+                >
+                  <Bell className="h-[17px] w-[17px]" />
+                </Button>
+              </div>
+            </div>
+          </header>
+
+
+          {/* Main Content - Glass panel with 3D depth */}
+          <main
+            className={cn(
+              "flex-1 overflow-y-auto no-scrollbar",
+              "relative m-6 ml-8 mt-8 rounded-2xl",
+              // Glass background - semi-transparent with blur
+              "bg-white/40 dark:bg-slate-900/30",
+              "backdrop-blur-md backdrop-saturate-150",
+              // Border system for definition
+              "border border-white/60 dark:border-white/[0.08]",
+              "ring-1 ring-black/[0.03] dark:ring-white/[0.03]",
+              // 3D shadow stack for depth/volume
+              "shadow-[0_2px_4px_rgba(0,0,0,0.02),0_4px_8px_rgba(0,0,0,0.03),0_8px_16px_rgba(0,0,0,0.04),0_16px_32px_rgba(0,0,0,0.05),0_32px_64px_rgba(0,0,0,0.03)]",
+              "dark:shadow-[0_2px_4px_rgba(0,0,0,0.1),0_4px_8px_rgba(0,0,0,0.15),0_8px_16px_rgba(0,0,0,0.15),0_16px_32px_rgba(0,0,0,0.1),0_32px_64px_rgba(0,0,0,0.1)]",
+              // Inner highlight for raised effect
+              "before:absolute before:inset-0 before:rounded-2xl before:pointer-events-none",
+              "before:bg-gradient-to-b before:from-white/30 before:via-transparent before:to-transparent",
+              "dark:before:from-white/[0.05] dark:before:via-transparent dark:before:to-black/10"
+            )}
+          >
+            {/* Top edge highlight */}
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px rounded-t-2xl bg-gradient-to-r from-transparent via-white/70 to-transparent dark:via-white/15" />
+
+            {/* Content wrapper */}
+            <div className="relative p-8 pb-4 space-y-8 animate-in fade-in duration-500">
+              {children}
+            </div>
+          </main>
         </div>
-      </AuthGuard>
+      </div>
+    </AuthGuard>
   )
 }

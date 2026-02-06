@@ -1,9 +1,7 @@
 "use client"
 
 import { useQuery } from "@tanstack/react-query"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, Badge, Button } from "@/components/ds"
 import { useApi } from "@/hooks/use-api"
 import { useUIStore } from "@/lib/ui-store"
 import { getTranslations } from "@/lib/i18n"

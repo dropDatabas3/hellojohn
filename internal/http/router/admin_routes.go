@@ -32,67 +32,84 @@ func RegisterAdminRoutes(mux *http.ServeMux, deps AdminRouterDeps) {
 	mux.Handle("POST /v2/admin/login", adminAuthHandler(limiter, c.Auth.Login))
 	mux.Handle("POST /v2/admin/refresh", adminAuthHandler(limiter, c.Auth.Refresh))
 
-	// ─── Admin Routes (Requieren autenticación) ───
-
-	// Admin Clients (Control Plane - no requiere DB)
-	mux.Handle("/v2/admin/clients", adminClientsHandler(dal, issuer, limiter, c.Clients, false))
-	mux.Handle("/v2/admin/clients/", adminClientsHandler(dal, issuer, limiter, c.Clients, false))
-
-	// Admin Consents (Data Plane - requiere DB)
-	mux.Handle("/v2/admin/consents", adminConsentsHandler(dal, issuer, limiter, c.Consents, true))
-	mux.Handle("/v2/admin/consents/", adminConsentsHandler(dal, issuer, limiter, c.Consents, true))
-
-	// Admin Users (Data Plane - requiere DB)
-	mux.Handle("/v2/admin/users/", adminUsersHandler(dal, issuer, limiter, c.Users, true))
-
-	// Admin Scopes (Control Plane - no requiere DB)
-	mux.Handle("/v2/admin/scopes", adminScopesHandler(dal, issuer, limiter, c.Scopes, false))
-	mux.Handle("/v2/admin/scopes/", adminScopesHandler(dal, issuer, limiter, c.Scopes, false))
-
-	// Admin Claims (Control Plane - no requiere DB)
-	mux.Handle("/v2/admin/claims", adminClaimsHandler(dal, issuer, limiter, c.Claims, false))
-	mux.Handle("/v2/admin/claims/", adminClaimsHandler(dal, issuer, limiter, c.Claims, false))
-
-	// Admin RBAC (Data Plane - requiere DB)
-	mux.Handle("/v2/admin/rbac/", adminRBACHandler(dal, issuer, limiter, c.RBAC, true))
-
-	// Admin Keys (Control Plane - no requiere DB)
-	mux.Handle("/v2/admin/keys", adminKeysHandler(dal, issuer, limiter, c.Keys, false))
-	mux.Handle("/v2/admin/keys/", adminKeysHandler(dal, issuer, limiter, c.Keys, false))
-
-	// Admin Cluster (Control Plane - no requiere DB)
-	mux.Handle("/v2/admin/cluster/", adminClusterHandler(dal, issuer, limiter, c.Cluster, false))
-
-	// Admin Tenants (Control Plane - System Admin)
+	// ─── Admin Tenants (Control Plane - System Admin) ───
+	// NOTA: Estas rutas NO son tenant-scoped porque gestionan la lista de tenants
 	RegisterTenantAdminRoutes(mux, deps)
+
+	// ─── TENANT-SCOPED ROUTES (Enterprise Architecture) ───
+	// TODOS los recursos admin están bajo /tenants/{tenant_id}/
+	// Esto previene tenant elevation attacks y hace el modelo explícito
 
 	// User CRUD (Data Plane - requiere DB)
 	// Note: No trailing slash to avoid conflict with tenant routes
 	userHandler := adminUserCRUDHandler(dal, issuer, limiter, c.UsersCRUD, true)
-	mux.Handle("POST /v2/admin/tenants/{id}/users", userHandler)
-	mux.Handle("GET /v2/admin/tenants/{id}/users", userHandler)
-	mux.Handle("GET /v2/admin/tenants/{id}/users/{userId}", userHandler)
-	mux.Handle("PUT /v2/admin/tenants/{id}/users/{userId}", userHandler)
-	mux.Handle("DELETE /v2/admin/tenants/{id}/users/{userId}", userHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/users", userHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/users", userHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/users/{userId}", userHandler)
+	mux.Handle("PUT /v2/admin/tenants/{tenant_id}/users/{userId}", userHandler)
+	mux.Handle("DELETE /v2/admin/tenants/{tenant_id}/users/{userId}", userHandler)
 
 	// Token Management (Data Plane - requiere DB)
 	tokenHandler := adminTokensHandler(dal, issuer, limiter, c.Tokens, true)
-	mux.Handle("GET /v2/admin/tenants/{id}/tokens", tokenHandler)
-	mux.Handle("GET /v2/admin/tenants/{id}/tokens/stats", tokenHandler)
-	mux.Handle("GET /v2/admin/tenants/{id}/tokens/{tokenId}", tokenHandler)
-	mux.Handle("DELETE /v2/admin/tenants/{id}/tokens/{tokenId}", tokenHandler)
-	mux.Handle("POST /v2/admin/tenants/{id}/tokens/revoke-by-user", tokenHandler)
-	mux.Handle("POST /v2/admin/tenants/{id}/tokens/revoke-by-client", tokenHandler)
-	mux.Handle("POST /v2/admin/tenants/{id}/tokens/revoke-all", tokenHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/tokens", tokenHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/tokens/stats", tokenHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/tokens/{tokenId}", tokenHandler)
+	mux.Handle("DELETE /v2/admin/tenants/{tenant_id}/tokens/{tokenId}", tokenHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/tokens/revoke-by-user", tokenHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/tokens/revoke-by-client", tokenHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/tokens/revoke-all", tokenHandler)
 
 	// Session Management (Data Plane - requiere DB)
 	sessionHandler := adminSessionsHandler(dal, issuer, limiter, c.Sessions, true)
-	mux.Handle("GET /v2/admin/tenants/{id}/sessions", sessionHandler)
-	mux.Handle("GET /v2/admin/tenants/{id}/sessions/stats", sessionHandler)
-	mux.Handle("GET /v2/admin/tenants/{id}/sessions/{sessionId}", sessionHandler)
-	mux.Handle("POST /v2/admin/tenants/{id}/sessions/{sessionId}/revoke", sessionHandler)
-	mux.Handle("POST /v2/admin/tenants/{id}/sessions/revoke-by-user", sessionHandler)
-	mux.Handle("POST /v2/admin/tenants/{id}/sessions/revoke-all", sessionHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/sessions", sessionHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/sessions/stats", sessionHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/sessions/{sessionId}", sessionHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/sessions/{sessionId}/revoke", sessionHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/sessions/revoke-by-user", sessionHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/sessions/revoke-all", sessionHandler)
+
+	// Clients Management (Control Plane - no requiere DB)
+	clientsHandler := adminClientsHandler(dal, issuer, limiter, c.Clients, false)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/clients", clientsHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/clients/{clientId}", clientsHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/clients", clientsHandler)
+	mux.Handle("PUT /v2/admin/tenants/{tenant_id}/clients/{clientId}", clientsHandler)
+	mux.Handle("DELETE /v2/admin/tenants/{tenant_id}/clients/{clientId}", clientsHandler)
+
+	// Scopes Management (Control Plane - no requiere DB)
+	scopesHandler := adminScopesHandler(dal, issuer, limiter, c.Scopes, false)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/scopes", scopesHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/scopes/{scopeId}", scopesHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/scopes", scopesHandler)
+	mux.Handle("PUT /v2/admin/tenants/{tenant_id}/scopes/{scopeId}", scopesHandler)
+	mux.Handle("DELETE /v2/admin/tenants/{tenant_id}/scopes/{scopeId}", scopesHandler)
+
+	// Claims Management (Control Plane - no requiere DB)
+	claimsHandler := adminClaimsHandler(dal, issuer, limiter, c.Claims, false)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/claims", claimsHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/claims/{claimId}", claimsHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/claims", claimsHandler)
+	mux.Handle("PUT /v2/admin/tenants/{tenant_id}/claims/{claimId}", claimsHandler)
+	mux.Handle("DELETE /v2/admin/tenants/{tenant_id}/claims/{claimId}", claimsHandler)
+
+	// Consents Management (Data Plane - requiere DB)
+	consentsHandler := adminConsentsHandler(dal, issuer, limiter, c.Consents, true)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/consents", consentsHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/consents/{consentId}", consentsHandler)
+	mux.Handle("DELETE /v2/admin/tenants/{tenant_id}/consents/{consentId}", consentsHandler)
+
+	// RBAC Management (Data Plane - requiere DB)
+	rbacHandler := adminRBACHandler(dal, issuer, limiter, c.RBAC, true)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/rbac/roles", rbacHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/rbac/roles", rbacHandler)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/rbac/roles/{roleId}", rbacHandler)
+	mux.Handle("PUT /v2/admin/tenants/{tenant_id}/rbac/roles/{roleId}", rbacHandler)
+	mux.Handle("DELETE /v2/admin/tenants/{tenant_id}/rbac/roles/{roleId}", rbacHandler)
+
+	// Keys Management (Control Plane - no requiere DB)
+	keysHandler := adminKeysHandler(dal, issuer, limiter, c.Keys, false)
+	mux.Handle("GET /v2/admin/tenants/{tenant_id}/keys", keysHandler)
+	mux.Handle("POST /v2/admin/tenants/{tenant_id}/keys/rotate", keysHandler)
 }
 
 // ─── Helpers para crear handlers con middleware chain ───
@@ -111,10 +128,13 @@ func adminBaseChain(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter mw.R
 	}
 
 	// Auth obligatorio para admin
+	// FASE 3: Usa RequireAdminAuth() que verifica JWT admin E inyecta AdminAccessClaims
 	if issuer != nil {
 		chain = append(chain,
-			mw.RequireAuth(issuer),
-			mw.RequireAdmin(mw.AdminConfigFromEnv()),
+			mw.RequireAdminAuth(issuer), // Verifica JWT admin + inyecta AdminAccessClaims
+			// FASE 3: Multi-tenant admin access control
+			// Previene tenant elevation attacks (admin de Tenant A accediendo a Tenant B)
+			mw.RequireAdminTenantAccess(), // Consume AdminAccessClaims del contexto
 		)
 	}
 
@@ -139,7 +159,7 @@ func adminClientsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter
 		path := r.URL.Path
 
 		switch {
-		case path == "/v2/admin/clients" || path == "/v2/admin/clients/":
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/clients"):
 			switch r.Method {
 			case http.MethodGet:
 				c.ListClients(w, r)
@@ -149,16 +169,18 @@ func adminClientsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		case strings.HasSuffix(path, "/revoke"):
-			// Handle /v2/admin/clients/{clientId}/revoke
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/revoke"):
+			// Handle /v2/admin/tenants/{tenant_id}/clients/{clientId}/revoke
 			if r.Method == http.MethodPost {
 				c.RevokeSecret(w, r)
 			} else {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		case strings.HasPrefix(path, "/v2/admin/clients/"):
+		case strings.Contains(path, "/tenants/") && strings.Contains(path, "/clients/"):
 			switch r.Method {
+			case http.MethodGet:
+				c.ListClients(w, r)
 			case http.MethodPut, http.MethodPatch:
 				c.UpdateClient(w, r)
 			case http.MethodDelete:
@@ -182,20 +204,22 @@ func adminConsentsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 		path := r.URL.Path
 
 		switch {
-		case r.Method == http.MethodPost && path == "/v2/admin/consents/upsert":
-			c.Upsert(w, r)
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/consents"):
+			if r.Method == http.MethodGet {
+				c.List(w, r)
+			} else {
+				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
+			}
 
-		case r.Method == http.MethodPost && path == "/v2/admin/consents/revoke":
-			c.Revoke(w, r)
-
-		case r.Method == http.MethodGet && strings.HasPrefix(path, "/v2/admin/consents/by-user/"):
-			c.ListByUser(w, r)
-
-		case r.Method == http.MethodGet && (path == "/v2/admin/consents" || path == "/v2/admin/consents/"):
-			c.List(w, r)
-
-		case r.Method == http.MethodDelete && strings.HasPrefix(path, "/v2/admin/consents/"):
-			c.Delete(w, r)
+		case strings.Contains(path, "/tenants/") && strings.Contains(path, "/consents/"):
+			switch r.Method {
+			case http.MethodGet:
+				c.List(w, r)
+			case http.MethodDelete:
+				c.Delete(w, r)
+			default:
+				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
+			}
 
 		default:
 			httperrors.WriteError(w, httperrors.ErrNotFound)
@@ -236,18 +260,22 @@ func adminScopesHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 		path := r.URL.Path
 
 		switch {
-		case path == "/v2/admin/scopes" || path == "/v2/admin/scopes/":
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/scopes"):
 			switch r.Method {
 			case http.MethodGet:
 				c.ListScopes(w, r)
-			case http.MethodPost, http.MethodPut:
+			case http.MethodPost:
 				c.UpsertScope(w, r)
 			default:
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		case strings.HasPrefix(path, "/v2/admin/scopes/"):
+		case strings.Contains(path, "/tenants/") && strings.Contains(path, "/scopes/"):
 			switch r.Method {
+			case http.MethodGet:
+				c.ListScopes(w, r)
+			case http.MethodPut:
+				c.UpsertScope(w, r)
 			case http.MethodDelete:
 				c.DeleteScope(w, r)
 			default:
@@ -269,24 +297,24 @@ func adminClaimsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 		path := r.URL.Path
 
 		switch {
-		// GET /v2/admin/claims - Configuración completa
-		case path == "/v2/admin/claims" || path == "/v2/admin/claims/":
+		// GET /v2/admin/tenants/{tenant_id}/claims - Configuración completa
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/claims"):
 			if r.Method == http.MethodGet {
 				c.GetConfig(w, r)
 			} else {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET /v2/admin/claims/mappings - Scope-claim mappings
-		case path == "/v2/admin/claims/mappings":
+		// GET /v2/admin/tenants/{tenant_id}/claims/mappings - Scope-claim mappings
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/claims/mappings"):
 			if r.Method == http.MethodGet {
 				c.GetScopeMappings(w, r)
 			} else {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET/PATCH /v2/admin/claims/settings
-		case path == "/v2/admin/claims/settings":
+		// GET/PATCH /v2/admin/tenants/{tenant_id}/claims/settings
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/claims/settings"):
 			switch r.Method {
 			case http.MethodGet:
 				c.GetSettings(w, r)
@@ -296,8 +324,8 @@ func adminClaimsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET/POST /v2/admin/claims/custom
-		case path == "/v2/admin/claims/custom" || path == "/v2/admin/claims/custom/":
+		// GET/POST /v2/admin/tenants/{tenant_id}/claims/custom
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/claims/custom"):
 			switch r.Method {
 			case http.MethodGet:
 				c.ListCustomClaims(w, r)
@@ -307,16 +335,16 @@ func adminClaimsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// PATCH /v2/admin/claims/standard/{name}
-		case strings.HasPrefix(path, "/v2/admin/claims/standard/"):
+		// PATCH /v2/admin/tenants/{tenant_id}/claims/standard/{name}
+		case strings.Contains(path, "/tenants/") && strings.Contains(path, "/claims/standard/"):
 			if r.Method == http.MethodPatch {
 				c.ToggleStandardClaim(w, r)
 			} else {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET/PUT/DELETE /v2/admin/claims/custom/{id}
-		case strings.HasPrefix(path, "/v2/admin/claims/custom/"):
+		// GET/PUT/DELETE /v2/admin/tenants/{tenant_id}/claims/custom/{id}
+		case strings.Contains(path, "/tenants/") && strings.Contains(path, "/claims/custom/"):
 			switch r.Method {
 			case http.MethodGet:
 				c.GetCustomClaim(w, r)
@@ -343,38 +371,8 @@ func adminRBACHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter mw
 		path := r.URL.Path
 
 		switch {
-		// /v2/admin/rbac/permissions - list available permissions
-		case path == "/v2/admin/rbac/permissions" || path == "/v2/admin/rbac/permissions/":
-			if r.Method == http.MethodGet {
-				c.ListPermissions(w, r)
-			} else {
-				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
-			}
-
-		// /v2/admin/rbac/users/{userID}/roles
-		case strings.Contains(path, "/users/") && strings.HasSuffix(path, "/roles"):
-			switch r.Method {
-			case http.MethodGet:
-				c.GetUserRoles(w, r)
-			case http.MethodPost:
-				c.UpdateUserRoles(w, r)
-			default:
-				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
-			}
-
-		// /v2/admin/rbac/roles/{role}/perms - per-role permissions (legacy endpoints)
-		case strings.Contains(path, "/roles/") && strings.HasSuffix(path, "/perms"):
-			switch r.Method {
-			case http.MethodGet:
-				c.GetRolePerms(w, r)
-			case http.MethodPost:
-				c.UpdateRolePerms(w, r)
-			default:
-				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
-			}
-
-		// /v2/admin/rbac/roles - list or create roles
-		case path == "/v2/admin/rbac/roles" || path == "/v2/admin/rbac/roles/":
+		// /v2/admin/tenants/{tenant_id}/rbac/roles - list or create roles
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/rbac/roles"):
 			switch r.Method {
 			case http.MethodGet:
 				c.ListRoles(w, r)
@@ -384,12 +382,12 @@ func adminRBACHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter mw
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// /v2/admin/rbac/roles/{name} - get, update, delete specific role
-		case strings.HasPrefix(path, "/v2/admin/rbac/roles/"):
+		// /v2/admin/tenants/{tenant_id}/rbac/roles/{roleId}
+		case strings.Contains(path, "/tenants/") && strings.Contains(path, "/rbac/roles/"):
 			switch r.Method {
 			case http.MethodGet:
 				c.GetRoleByName(w, r)
-			case http.MethodPut, http.MethodPatch:
+			case http.MethodPut:
 				c.UpdateRoleByName(w, r)
 			case http.MethodDelete:
 				c.DeleteRoleByName(w, r)
@@ -412,7 +410,7 @@ func adminUserCRUDHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 		path := r.URL.Path
 
 		switch {
-		// POST /v2/admin/tenants/{id}/users/{userId}/disable
+		// POST /v2/admin/tenants/{tenant_id}/users/{userId}/disable
 		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/disable"):
 			if r.Method != http.MethodPost {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
@@ -420,7 +418,7 @@ func adminUserCRUDHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 			}
 			c.DisableUser(w, r)
 
-		// POST /v2/admin/tenants/{id}/users/{userId}/enable
+		// POST /v2/admin/tenants/{tenant_id}/users/{userId}/enable
 		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/enable"):
 			if r.Method != http.MethodPost {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
@@ -428,7 +426,7 @@ func adminUserCRUDHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 			}
 			c.EnableUser(w, r)
 
-		// POST /v2/admin/tenants/{id}/users/{userId}/set-email-verified
+		// POST /v2/admin/tenants/{tenant_id}/users/{userId}/set-email-verified
 		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/set-email-verified"):
 			if r.Method != http.MethodPost {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
@@ -436,7 +434,7 @@ func adminUserCRUDHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 			}
 			c.SetEmailVerified(w, r)
 
-		// POST /v2/admin/tenants/{id}/users/{userId}/set-password
+		// POST /v2/admin/tenants/{tenant_id}/users/{userId}/set-password
 		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/set-password"):
 			if r.Method != http.MethodPost {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
@@ -444,7 +442,7 @@ func adminUserCRUDHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 			}
 			c.SetPassword(w, r)
 
-		// POST/GET /v2/admin/tenants/{id}/users - Create user or List users
+		// POST/GET /v2/admin/tenants/{tenant_id}/users - Create user or List users
 		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/users"):
 			if r.Method == http.MethodPost {
 				c.CreateUser(w, r)
@@ -454,7 +452,7 @@ func adminUserCRUDHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET/PUT/DELETE /v2/admin/tenants/{id}/users/{userId}
+		// GET/PUT/DELETE /v2/admin/tenants/{tenant_id}/users/{userId}
 		case strings.Contains(path, "/tenants/") && strings.Contains(path, "/users/"):
 			switch r.Method {
 			case http.MethodGet:
@@ -483,7 +481,7 @@ func adminTokensHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 		path := r.URL.Path
 
 		switch {
-		// GET /v2/admin/tenants/{id}/tokens/stats
+		// GET /v2/admin/tenants/{tenant_id}/tokens/stats
 		case strings.Contains(path, "/tokens/stats"):
 			if r.Method == http.MethodGet {
 				c.GetStats(w, r)
@@ -491,7 +489,7 @@ func adminTokensHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// POST /v2/admin/tenants/{id}/tokens/revoke-by-user
+		// POST /v2/admin/tenants/{tenant_id}/tokens/revoke-by-user
 		case strings.Contains(path, "/tokens/revoke-by-user"):
 			if r.Method == http.MethodPost {
 				c.RevokeByUser(w, r)
@@ -499,7 +497,7 @@ func adminTokensHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// POST /v2/admin/tenants/{id}/tokens/revoke-by-client
+		// POST /v2/admin/tenants/{tenant_id}/tokens/revoke-by-client
 		case strings.Contains(path, "/tokens/revoke-by-client"):
 			if r.Method == http.MethodPost {
 				c.RevokeByClient(w, r)
@@ -507,7 +505,7 @@ func adminTokensHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// POST /v2/admin/tenants/{id}/tokens/revoke-all
+		// POST /v2/admin/tenants/{tenant_id}/tokens/revoke-all
 		case strings.Contains(path, "/tokens/revoke-all"):
 			if r.Method == http.MethodPost {
 				c.RevokeAll(w, r)
@@ -515,7 +513,7 @@ func adminTokensHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET/DELETE /v2/admin/tenants/{id}/tokens/{tokenId}
+		// GET/DELETE /v2/admin/tenants/{tenant_id}/tokens/{tokenId}
 		case strings.Contains(path, "/tokens/") && !strings.HasSuffix(path, "/tokens") && !strings.HasSuffix(path, "/tokens/"):
 			switch r.Method {
 			case http.MethodGet:
@@ -526,7 +524,7 @@ func adminTokensHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET /v2/admin/tenants/{id}/tokens
+		// GET /v2/admin/tenants/{tenant_id}/tokens
 		case strings.HasSuffix(path, "/tokens") || strings.HasSuffix(path, "/tokens/"):
 			if r.Method == http.MethodGet {
 				c.List(w, r)
@@ -549,7 +547,7 @@ func adminSessionsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 		path := r.URL.Path
 
 		switch {
-		// GET /v2/admin/tenants/{id}/sessions/stats
+		// GET /v2/admin/tenants/{tenant_id}/sessions/stats
 		case strings.Contains(path, "/sessions/stats"):
 			if r.Method == http.MethodGet {
 				c.GetStats(w, r)
@@ -557,7 +555,7 @@ func adminSessionsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// POST /v2/admin/tenants/{id}/sessions/revoke-by-user
+		// POST /v2/admin/tenants/{tenant_id}/sessions/revoke-by-user
 		case strings.Contains(path, "/sessions/revoke-by-user"):
 			if r.Method == http.MethodPost {
 				c.RevokeUserSessions(w, r)
@@ -565,7 +563,7 @@ func adminSessionsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// POST /v2/admin/tenants/{id}/sessions/revoke-all
+		// POST /v2/admin/tenants/{tenant_id}/sessions/revoke-all
 		case strings.Contains(path, "/sessions/revoke-all"):
 			if r.Method == http.MethodPost {
 				c.RevokeAllSessions(w, r)
@@ -573,7 +571,7 @@ func adminSessionsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// POST /v2/admin/tenants/{id}/sessions/{sessionId}/revoke
+		// POST /v2/admin/tenants/{tenant_id}/sessions/{sessionId}/revoke
 		case strings.Contains(path, "/revoke") && strings.Contains(path, "/sessions/"):
 			if r.Method == http.MethodPost {
 				c.RevokeSession(w, r)
@@ -581,7 +579,7 @@ func adminSessionsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET /v2/admin/tenants/{id}/sessions/{sessionId}
+		// GET /v2/admin/tenants/{tenant_id}/sessions/{sessionId}
 		case strings.Contains(path, "/sessions/") && !strings.HasSuffix(path, "/sessions") && !strings.HasSuffix(path, "/sessions/"):
 			if r.Method == http.MethodGet {
 				c.GetSession(w, r)
@@ -589,7 +587,7 @@ func adminSessionsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET /v2/admin/tenants/{id}/sessions
+		// GET /v2/admin/tenants/{tenant_id}/sessions
 		case strings.HasSuffix(path, "/sessions") || strings.HasSuffix(path, "/sessions/"):
 			if r.Method == http.MethodGet {
 				c.ListSessions(w, r)
@@ -612,30 +610,18 @@ func adminKeysHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter mw
 		path := r.URL.Path
 
 		switch {
-		case path == "/v2/admin/keys" || path == "/v2/admin/keys/":
-			// GET /v2/admin/keys?tenant_id=...
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/keys"):
+			// GET /v2/admin/tenants/{tenant_id}/keys
 			if r.Method == http.MethodGet {
 				c.ListKeys(w, r)
 			} else {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		case path == "/v2/admin/keys/rotate":
-			// POST /v2/admin/keys/rotate
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/keys/rotate"):
+			// POST /v2/admin/tenants/{tenant_id}/keys/rotate
 			if r.Method == http.MethodPost {
 				c.RotateKeys(w, r)
-			} else {
-				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
-			}
-
-		case strings.HasSuffix(path, "/revoke") && r.Method == http.MethodPost:
-			// POST /v2/admin/keys/{kid}/revoke
-			c.RevokeKey(w, r)
-
-		case strings.HasPrefix(path, "/v2/admin/keys/"):
-			// GET /v2/admin/keys/{kid}
-			if r.Method == http.MethodGet {
-				c.GetKey(w, r)
 			} else {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}

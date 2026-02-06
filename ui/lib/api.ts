@@ -216,7 +216,7 @@ export const api = new ApiClient(
   API_BASE,
   () => useAuthStore.getState().token,
   () => {
-    ; (useAuthStore.getState() as any).logout?.()
+    ; useAuthStore.getState().clearAuth()
     if (typeof window !== "undefined") {
       window.location.href = "/login"
     }
