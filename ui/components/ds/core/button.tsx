@@ -24,7 +24,7 @@ const buttonVariants = cva(
         outline:
           'border-2 border-border/60 bg-background/50 backdrop-blur-sm text-foreground hover:bg-accent/5 hover:border-accent/50 hover:shadow-[0_2px_8px_rgba(var(--accent-h),var(--accent-s),var(--accent-l),0.15)] hover:[text-shadow:0_0_8px_rgba(0,0,0,0.1)] dark:hover:[text-shadow:0_0_8px_rgba(255,255,255,0.2)] active:bg-accent/10',
         danger:
-          'bg-gradient-to-b from-danger to-danger/90 text-white shadow-[0_1px_2px_rgba(0,0,0,0.1),0_2px_4px_rgba(220,38,38,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] hover:shadow-[0_4px_8px_rgba(220,38,38,0.3),0_2px_4px_rgba(0,0,0,0.1)] hover:-translate-y-0.5 hover:brightness-110 hover:[text-shadow:0_0_12px_rgba(255,255,255,0.5)] active:translate-y-0 active:brightness-95',
+          'bg-gradient-to-b from-destructive to-destructive/90 text-destructive-foreground shadow-[0_1px_2px_rgba(0,0,0,0.1),0_2px_4px_rgba(220,38,38,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] hover:shadow-[0_4px_8px_rgba(220,38,38,0.3),0_2px_4px_rgba(0,0,0,0.1)] hover:-translate-y-0.5 hover:brightness-110 hover:[text-shadow:0_0_12px_rgba(255,255,255,0.5)] active:translate-y-0 active:brightness-95',
         success:
           'bg-gradient-to-b from-success to-success/90 text-white shadow-[0_1px_2px_rgba(0,0,0,0.1),0_2px_4px_rgba(34,197,94,0.2),inset_0_1px_0_rgba(255,255,255,0.1)] hover:shadow-[0_4px_8px_rgba(34,197,94,0.3),0_2px_4px_rgba(0,0,0,0.1)] hover:-translate-y-0.5 hover:brightness-110 hover:[text-shadow:0_0_12px_rgba(255,255,255,0.5)] active:translate-y-0 active:brightness-95',
         link:
@@ -50,7 +50,7 @@ const buttonVariants = cva(
 
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {
+  VariantProps<typeof buttonVariants> {
   /**
    * If true, renders as a child component (using Radix Slot).
    * Useful for rendering as Link, etc.

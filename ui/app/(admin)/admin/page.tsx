@@ -438,28 +438,28 @@ export default function DashboardPage() {
             icon={Building2}
             title="Gestionar Tenants"
             description="Crear y configurar organizaciones"
-            variant="warning"
+            iconColor="warning"
           />
           <QuickLinkCard
             href="/admin/cluster"
             icon={Server}
             title="Ver Clúster"
             description="Estado y configuración del clúster"
-            variant="info"
+            iconColor="info"
           />
           <QuickLinkCard
             href="/admin/metrics"
             icon={Activity}
             title="Métricas"
             description="Monitoreo y estadísticas"
-            variant="success"
+            iconColor="success"
           />
           <QuickLinkCard
             href="/admin/playground"
             icon={Key}
             title="OAuth Tools"
             description="Probar flujos de autenticación"
-            variant="accent"
+            iconColor="accent"
           />
         </div>
       </div>

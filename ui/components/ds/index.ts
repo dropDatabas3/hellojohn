@@ -39,6 +39,7 @@ export * from './feedback/inline-alert'
 export * from './feedback/empty-state'
 export * from './feedback/progress'
 export * from './feedback/alert'
+export * from './feedback/no-database-configured'
 
 // Overlays (Ola 3)
 export * from './overlays/dialog'

@@ -61,6 +61,8 @@ import {
   BackgroundBlobs,
   PageShell,
   PageHeader,
+  NoDatabaseConfigured,
+  isNoDatabaseError,
   cn,
 } from "@/components/ds"
 
@@ -90,7 +92,6 @@ import {
   UserCog,
   Settings2,
   Layers,
-  Database,
   ArrowRight,
   RefreshCw,
   Save,
@@ -143,6 +144,10 @@ interface RoleResponse {
   users_count: number
   created_at: string
   updated_at: string
+}
+
+interface RolesApiResponse {
+  roles: RoleResponse[]
 }
 
 // ----- Predefined Data -----
@@ -301,16 +306,20 @@ export default function RBACPage() {
   })
 
   // Fetch RBAC data for stats (roles count, permissions, etc.)
-  const { data: rolesData, isLoading: isLoadingRoles } = useQuery({
+  const { data: rolesData, isLoading: isLoadingRoles, error: rolesError } = useQuery({
     queryKey: ["rbac-roles", tenantId],
     enabled: !!tenantId,
     queryFn: () =>
-      api.get<RoleResponse[]>(`/v2/admin/tenants/${tenantId}/rbac/roles`),
+      api.get<RolesApiResponse>(`/v2/admin/tenants/${tenantId}/rbac/roles`),
+    retry: (_, error) => {
+      if ((error as any)?.error === "TENANT_NO_DATABASE" || (error as any)?.status === 424) return false
+      return true
+    },
   })
 
   // Calculate stats from data
   const stats = useMemo(() => {
-    const roles = rolesData || []
+    const roles = rolesData?.roles || []
     const rolesCount = roles.length || PREDEFINED_ROLES.length
     const permissionsCount = PREDEFINED_PERMISSIONS.length
     const resourcesCount = Object.keys(PERMISSION_GROUPS).length
@@ -333,6 +342,50 @@ export default function RBACPage() {
 
   if (!tenantId) {
     return null
+  }
+
+  const hasNoDatabaseError = isNoDatabaseError(rolesError)
+
+  if (hasNoDatabaseError) {
+    return (
+      <div className=" animate-in fade-in duration-500">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="sm" asChild>
+              <Link href={`/admin/tenants/${tenantId}/detail`}>
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+            <div className="flex items-center gap-3">
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight">Control de Acceso (RBAC)</h1>
+                <p className="text-sm text-muted-foreground">
+                  {tenant?.name || tenant?.slug} — Gestiona roles, permisos y asignaciones de usuarios
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Info Banner */}
+        <InlineAlert variant="info" className="mb-6">
+          <div>
+            <h4 className="font-semibold mb-1">¿Qué es RBAC?</h4>
+            <p className="text-sm">
+              <strong>Role-Based Access Control</strong> permite controlar qué pueden hacer los usuarios en tu aplicación.
+              Los <strong>Roles</strong> agrupan permisos, y los <strong>Permisos</strong> definen acciones específicas sobre recursos.
+              Un usuario puede tener múltiples roles, y sus permisos efectivos son la unión de todos ellos.
+            </p>
+          </div>
+        </InlineAlert>
+
+        <NoDatabaseConfigured
+          tenantId={tenantId}
+          message="Conecta una base de datos para comenzar a gestionar el control de acceso (RBAC) de este tenant."
+        />
+      </div>
+    )
   }
 
   return (
@@ -436,13 +489,17 @@ function RolesTab({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: strin
     queryKey: ["rbac-roles", tenantId],
     enabled: !!tenantId,
     queryFn: () =>
-      api.get<RoleResponse[]>(`/v2/admin/tenants/${tenantId}/rbac/roles`),
+      api.get<RolesApiResponse>(`/v2/admin/tenants/${tenantId}/rbac/roles`),
+    retry: (_, error) => {
+      if ((error as any)?.error === "TENANT_NO_DATABASE" || (error as any)?.status === 424) return false
+      return true
+    },
   })
 
   // Map backend response to frontend Role type
   const roles: Role[] = useMemo(() => {
-    if (!rolesData?.length) return PREDEFINED_ROLES
-    return rolesData.map((r) => ({
+    if (!rolesData?.roles?.length) return PREDEFINED_ROLES
+    return rolesData.roles.map((r) => ({
       name: r.name,
       description: r.description || "",
       isSystem: r.system,

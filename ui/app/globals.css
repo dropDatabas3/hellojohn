@@ -363,6 +363,59 @@
 }
 
 /* ============================================
+   ONBOARDING — Attention nudge animation
+   Animates CSS custom properties that feed into
+   the element's transform, avoiding conflicts
+   with Tailwind utility transform classes.
+   ============================================ */
+@keyframes onboarding-nudge {
+  0%, 100% {
+    --nudge-y: 0px;
+    --nudge-scale: 1;
+    --nudge-glow: 0.25;
+  }
+  50% {
+    --nudge-y: -8px;
+    --nudge-scale: 1.03;
+    --nudge-glow: 1;
+  }
+}
+
+@property --nudge-y {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --nudge-scale {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 1;
+}
+
+@property --nudge-glow {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0.25;
+}
+
+.animate-onboarding-nudge {
+  --nudge-y: 0px;
+  --nudge-scale: 1;
+  --nudge-glow: 0.25;
+  animation: onboarding-nudge 2.8s ease-in-out infinite;
+  transform: translateY(var(--nudge-y)) scale(var(--nudge-scale));
+}
+
+/* On hover: pause nudge, snap to lifted position, kill glow */
+.animate-onboarding-nudge:hover {
+  animation-play-state: paused;
+  --nudge-y: -8px;
+  --nudge-scale: 1.03;
+  --nudge-glow: 0;
+}
+
+/* ============================================
    ACCESSIBILITY — Reduced Motion
    ============================================ */
 @media (prefers-reduced-motion: reduce) {

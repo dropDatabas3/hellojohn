@@ -35,6 +35,7 @@ type ClientResponse struct {
 	Providers                []string `json:"providers,omitempty"`
 	Scopes                   []string `json:"scopes,omitempty"`
 	SecretHash               string   `json:"secret_hash,omitempty"`
+	Secret                   string   `json:"secret,omitempty"` // Solo se retorna al crear/rotar (plaintext)
 	RequireEmailVerification bool     `json:"require_email_verification,omitempty"`
 	ResetPasswordURL         string   `json:"reset_password_url,omitempty"`
 	VerifyEmailURL           string   `json:"verify_email_url,omitempty"`

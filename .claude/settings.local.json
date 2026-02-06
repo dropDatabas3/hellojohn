@@ -32,7 +32,16 @@
       "Bash(cat:*)",
       "Bash(tee:*)",
       "Bash(go test:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(psql:*)",
+      "Bash(git reset:*)",
+      "Bash(npx next build)",
+      "WebFetch(domain:auth0.com)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:clerk.com)",
+      "WebFetch(domain:stacytaylor.design)",
+      "WebFetch(domain:firebase.google.com)",
+      "Bash(python:*)"
     ]
   }
 }

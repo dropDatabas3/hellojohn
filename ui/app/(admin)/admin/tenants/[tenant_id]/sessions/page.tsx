@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo, Suspense } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
@@ -59,6 +59,8 @@ import {
     EmptyState,
     Skeleton,
     InlineAlert,
+    NoDatabaseConfigured,
+    isNoDatabaseError,
     cn,
 } from "@/components/ds"
 
@@ -431,6 +433,7 @@ function SessionsSkeleton() {
 function SessionsContent() {
     const params = useParams()
     const tenantId = params.tenant_id as string
+    const router = useRouter()
     const { toast } = useToast()
     const queryClient = useQueryClient()
 
@@ -453,7 +456,7 @@ function SessionsContent() {
     })
 
     // Fetch sessions from API
-    const { data: sessionsResponse, isLoading: sessionsLoading } = useQuery({
+    const { data: sessionsResponse, isLoading: sessionsLoading, error: sessionsError } = useQuery({
         queryKey: ["sessions", tenantId, deviceFilter, statusFilter, searchQuery],
         enabled: !!tenantId,
         queryFn: () => sessionsAdminAPI.list(tenantId!, {
@@ -461,6 +464,10 @@ function SessionsContent() {
             status: statusFilter !== "all" ? statusFilter as "active" | "expired" | "revoked" : undefined,
             search: searchQuery || undefined,
         }),
+        retry: (failureCount, error) => {
+            if ((error as any)?.error === "TENANT_NO_DATABASE" || (error as any)?.status === 424) return false
+            return failureCount < 3
+        },
     })
 
     // Fetch stats
@@ -582,6 +589,48 @@ function SessionsContent() {
 
     const hasActiveFilters = searchQuery !== "" || deviceFilter !== "all" || statusFilter !== "all"
 
+    const hasNoDatabaseError = isNoDatabaseError(sessionsError)
+
+    if (hasNoDatabaseError) {
+        return (
+            <div className="space-y-6 animate-in fade-in duration-500">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <Button variant="ghost" size="sm" asChild>
+                            <Link href={`/admin/tenants/${tenantId}/detail`}>
+                                <ArrowLeft className="h-4 w-4" />
+                            </Link>
+                        </Button>
+                        <div className="flex items-center gap-3">
+                            <div>
+                                <h1 className="text-2xl font-bold tracking-tight">Gestión de Sesiones</h1>
+                                <p className="text-sm text-muted-foreground">
+                                    {tenant?.name} — Monitorea y administra las sesiones activas
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Info Banner */}
+                <InlineAlert variant="info">
+                    <div>
+                        <p className="font-semibold">Sesiones Activas</p>
+                        <p className="text-sm opacity-90">
+                            Monitorea las sesiones activas de los usuarios, revoca accesos y configura políticas de sesión.
+                        </p>
+                    </div>
+                </InlineAlert>
+
+                <NoDatabaseConfigured
+                    tenantId={tenantId}
+                    message="Conecta una base de datos para comenzar a gestionar las sesiones de este tenant."
+                />
+            </div>
+        )
+    }
+
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
             {/* Header */}
@@ -632,10 +681,10 @@ function SessionsContent() {
                     </DropdownMenu>
                 </div>
             </div>
-                                {/* Info Banner */}
-                    <InlineAlert variant="info">
-                        <strong>Acerca de las sesiones:</strong> Las sesiones representan conexiones activas de usuarios autenticados. Revocar una sesión forzará al usuario a iniciar sesión nuevamente. La ubicación es aproximada y se basa en la dirección IP.
-                    </InlineAlert>
+            {/* Info Banner */}
+            <InlineAlert variant="info">
+                <strong>Acerca de las sesiones:</strong> Las sesiones representan conexiones activas de usuarios autenticados. Revocar una sesión forzará al usuario a iniciar sesión nuevamente. La ubicación es aproximada y se basa en la dirección IP.
+            </InlineAlert>
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
                 <TabsList>

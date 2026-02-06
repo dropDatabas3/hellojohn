@@ -63,6 +63,7 @@ import (
 
 	"github.com/dropDatabas3/hellojohn/internal/domain/repository"
 	sec "github.com/dropDatabas3/hellojohn/internal/security/secretbox"
+	tokens "github.com/dropDatabas3/hellojohn/internal/security/token"
 	store "github.com/dropDatabas3/hellojohn/internal/store"
 	"github.com/google/uuid"
 )
@@ -342,9 +343,14 @@ func (s *service) CreateClient(ctx context.Context, slug string, input ClientInp
 	if input.Type != "public" && input.Type != "confidential" {
 		return nil, fmt.Errorf("%w: invalid client type", ErrBadInput)
 	}
-	if len(input.RedirectURIs) == 0 {
+
+	// RedirectURIs solo es required si no es M2M (client_credentials only)
+	isM2M := len(input.GrantTypes) == 1 && input.GrantTypes[0] == "client_credentials"
+	if len(input.RedirectURIs) == 0 && !isM2M {
 		return nil, fmt.Errorf("%w: redirectUris required", ErrBadInput)
 	}
+
+	// Validar redirect URIs solo si hay alguna
 	for _, uri := range input.RedirectURIs {
 		if !s.ValidateRedirectURI(uri) {
 			return nil, fmt.Errorf("%w: invalid redirect uri: %s", ErrBadInput, uri)
@@ -353,11 +359,21 @@ func (s *service) CreateClient(ctx context.Context, slug string, input ClientInp
 
 	// Cifrar secret para confidential clients
 	var secretEnc string
+	var plainSecret string
 	if input.Type == "confidential" {
+		// Si no se proporcionó secret, generar uno automáticamente
 		if input.Secret == "" {
-			return nil, fmt.Errorf("%w: secret required for confidential client", ErrBadInput)
+			// Generate a secure random secret (64 bytes = 512 bits)
+			generated, err := tokens.GenerateOpaqueToken(64)
+			if err != nil {
+				return nil, fmt.Errorf("generate client secret: %w", err)
+			}
+			plainSecret = generated
+		} else {
+			plainSecret = input.Secret
 		}
-		enc, err := sec.Encrypt(input.Secret)
+
+		enc, err := sec.Encrypt(plainSecret)
 		if err != nil {
 			return nil, fmt.Errorf("encrypt client secret: %w", err)
 		}
@@ -387,7 +403,19 @@ func (s *service) CreateClient(ctx context.Context, slug string, input ClientInp
 		Description:     input.Description,
 	}
 
-	return s.store.ConfigAccess().Clients(slug).Create(ctx, slug, repoInput)
+	client, err := s.store.ConfigAccess().Clients(slug).Create(ctx, slug, repoInput)
+	if err != nil {
+		return nil, err
+	}
+
+	// Si generamos el secret automáticamente, devolverlo en texto plano (única vez)
+	// NOTA: Temporalmente sobrescribimos SecretEnc con el plaintext para que el controller
+	// lo pueda mapear al campo Secret en el DTO. Esto SOLO ocurre en memoria, no se persiste.
+	if plainSecret != "" {
+		client.SecretEnc = plainSecret
+	}
+
+	return client, nil
 }
 
 func (s *service) UpdateClient(ctx context.Context, slug string, input ClientInput) (*repository.Client, error) {

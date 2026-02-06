@@ -159,7 +159,7 @@ func adminClientsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter
 		path := r.URL.Path
 
 		switch {
-		case path == "/v2/admin/clients" || path == "/v2/admin/clients/":
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/clients"):
 			switch r.Method {
 			case http.MethodGet:
 				c.ListClients(w, r)
@@ -169,16 +169,18 @@ func adminClientsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		case strings.HasSuffix(path, "/revoke"):
-			// Handle /v2/admin/clients/{clientId}/revoke
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/revoke"):
+			// Handle /v2/admin/tenants/{tenant_id}/clients/{clientId}/revoke
 			if r.Method == http.MethodPost {
 				c.RevokeSecret(w, r)
 			} else {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		case strings.HasPrefix(path, "/v2/admin/clients/"):
+		case strings.Contains(path, "/tenants/") && strings.Contains(path, "/clients/"):
 			switch r.Method {
+			case http.MethodGet:
+				c.ListClients(w, r)
 			case http.MethodPut, http.MethodPatch:
 				c.UpdateClient(w, r)
 			case http.MethodDelete:
@@ -202,20 +204,22 @@ func adminConsentsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limite
 		path := r.URL.Path
 
 		switch {
-		case r.Method == http.MethodPost && path == "/v2/admin/consents/upsert":
-			c.Upsert(w, r)
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/consents"):
+			if r.Method == http.MethodGet {
+				c.List(w, r)
+			} else {
+				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
+			}
 
-		case r.Method == http.MethodPost && path == "/v2/admin/consents/revoke":
-			c.Revoke(w, r)
-
-		case r.Method == http.MethodGet && strings.HasPrefix(path, "/v2/admin/consents/by-user/"):
-			c.ListByUser(w, r)
-
-		case r.Method == http.MethodGet && (path == "/v2/admin/consents" || path == "/v2/admin/consents/"):
-			c.List(w, r)
-
-		case r.Method == http.MethodDelete && strings.HasPrefix(path, "/v2/admin/consents/"):
-			c.Delete(w, r)
+		case strings.Contains(path, "/tenants/") && strings.Contains(path, "/consents/"):
+			switch r.Method {
+			case http.MethodGet:
+				c.List(w, r)
+			case http.MethodDelete:
+				c.Delete(w, r)
+			default:
+				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
+			}
 
 		default:
 			httperrors.WriteError(w, httperrors.ErrNotFound)
@@ -256,18 +260,22 @@ func adminScopesHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 		path := r.URL.Path
 
 		switch {
-		case path == "/v2/admin/scopes" || path == "/v2/admin/scopes/":
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/scopes"):
 			switch r.Method {
 			case http.MethodGet:
 				c.ListScopes(w, r)
-			case http.MethodPost, http.MethodPut:
+			case http.MethodPost:
 				c.UpsertScope(w, r)
 			default:
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		case strings.HasPrefix(path, "/v2/admin/scopes/"):
+		case strings.Contains(path, "/tenants/") && strings.Contains(path, "/scopes/"):
 			switch r.Method {
+			case http.MethodGet:
+				c.ListScopes(w, r)
+			case http.MethodPut:
+				c.UpsertScope(w, r)
 			case http.MethodDelete:
 				c.DeleteScope(w, r)
 			default:
@@ -289,24 +297,24 @@ func adminClaimsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 		path := r.URL.Path
 
 		switch {
-		// GET /v2/admin/claims - Configuración completa
-		case path == "/v2/admin/claims" || path == "/v2/admin/claims/":
+		// GET /v2/admin/tenants/{tenant_id}/claims - Configuración completa
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/claims"):
 			if r.Method == http.MethodGet {
 				c.GetConfig(w, r)
 			} else {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET /v2/admin/claims/mappings - Scope-claim mappings
-		case path == "/v2/admin/claims/mappings":
+		// GET /v2/admin/tenants/{tenant_id}/claims/mappings - Scope-claim mappings
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/claims/mappings"):
 			if r.Method == http.MethodGet {
 				c.GetScopeMappings(w, r)
 			} else {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET/PATCH /v2/admin/claims/settings
-		case path == "/v2/admin/claims/settings":
+		// GET/PATCH /v2/admin/tenants/{tenant_id}/claims/settings
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/claims/settings"):
 			switch r.Method {
 			case http.MethodGet:
 				c.GetSettings(w, r)
@@ -316,8 +324,8 @@ func adminClaimsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET/POST /v2/admin/claims/custom
-		case path == "/v2/admin/claims/custom" || path == "/v2/admin/claims/custom/":
+		// GET/POST /v2/admin/tenants/{tenant_id}/claims/custom
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/claims/custom"):
 			switch r.Method {
 			case http.MethodGet:
 				c.ListCustomClaims(w, r)
@@ -327,16 +335,16 @@ func adminClaimsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter 
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// PATCH /v2/admin/claims/standard/{name}
-		case strings.HasPrefix(path, "/v2/admin/claims/standard/"):
+		// PATCH /v2/admin/tenants/{tenant_id}/claims/standard/{name}
+		case strings.Contains(path, "/tenants/") && strings.Contains(path, "/claims/standard/"):
 			if r.Method == http.MethodPatch {
 				c.ToggleStandardClaim(w, r)
 			} else {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// GET/PUT/DELETE /v2/admin/claims/custom/{id}
-		case strings.HasPrefix(path, "/v2/admin/claims/custom/"):
+		// GET/PUT/DELETE /v2/admin/tenants/{tenant_id}/claims/custom/{id}
+		case strings.Contains(path, "/tenants/") && strings.Contains(path, "/claims/custom/"):
 			switch r.Method {
 			case http.MethodGet:
 				c.GetCustomClaim(w, r)
@@ -363,38 +371,8 @@ func adminRBACHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter mw
 		path := r.URL.Path
 
 		switch {
-		// /v2/admin/rbac/permissions - list available permissions
-		case path == "/v2/admin/rbac/permissions" || path == "/v2/admin/rbac/permissions/":
-			if r.Method == http.MethodGet {
-				c.ListPermissions(w, r)
-			} else {
-				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
-			}
-
-		// /v2/admin/rbac/users/{userID}/roles
-		case strings.Contains(path, "/users/") && strings.HasSuffix(path, "/roles"):
-			switch r.Method {
-			case http.MethodGet:
-				c.GetUserRoles(w, r)
-			case http.MethodPost:
-				c.UpdateUserRoles(w, r)
-			default:
-				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
-			}
-
-		// /v2/admin/rbac/roles/{role}/perms - per-role permissions (legacy endpoints)
-		case strings.Contains(path, "/roles/") && strings.HasSuffix(path, "/perms"):
-			switch r.Method {
-			case http.MethodGet:
-				c.GetRolePerms(w, r)
-			case http.MethodPost:
-				c.UpdateRolePerms(w, r)
-			default:
-				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
-			}
-
-		// /v2/admin/rbac/roles - list or create roles
-		case path == "/v2/admin/rbac/roles" || path == "/v2/admin/rbac/roles/":
+		// /v2/admin/tenants/{tenant_id}/rbac/roles - list or create roles
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/rbac/roles"):
 			switch r.Method {
 			case http.MethodGet:
 				c.ListRoles(w, r)
@@ -404,12 +382,12 @@ func adminRBACHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter mw
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		// /v2/admin/rbac/roles/{name} - get, update, delete specific role
-		case strings.HasPrefix(path, "/v2/admin/rbac/roles/"):
+		// /v2/admin/tenants/{tenant_id}/rbac/roles/{roleId}
+		case strings.Contains(path, "/tenants/") && strings.Contains(path, "/rbac/roles/"):
 			switch r.Method {
 			case http.MethodGet:
 				c.GetRoleByName(w, r)
-			case http.MethodPut, http.MethodPatch:
+			case http.MethodPut:
 				c.UpdateRoleByName(w, r)
 			case http.MethodDelete:
 				c.DeleteRoleByName(w, r)
@@ -632,30 +610,18 @@ func adminKeysHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter mw
 		path := r.URL.Path
 
 		switch {
-		case path == "/v2/admin/keys" || path == "/v2/admin/keys/":
-			// GET /v2/admin/keys?tenant_id=...
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/keys"):
+			// GET /v2/admin/tenants/{tenant_id}/keys
 			if r.Method == http.MethodGet {
 				c.ListKeys(w, r)
 			} else {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}
 
-		case path == "/v2/admin/keys/rotate":
-			// POST /v2/admin/keys/rotate
+		case strings.Contains(path, "/tenants/") && strings.HasSuffix(path, "/keys/rotate"):
+			// POST /v2/admin/tenants/{tenant_id}/keys/rotate
 			if r.Method == http.MethodPost {
 				c.RotateKeys(w, r)
-			} else {
-				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
-			}
-
-		case strings.HasSuffix(path, "/revoke") && r.Method == http.MethodPost:
-			// POST /v2/admin/keys/{kid}/revoke
-			c.RevokeKey(w, r)
-
-		case strings.HasPrefix(path, "/v2/admin/keys/"):
-			// GET /v2/admin/keys/{kid}
-			if r.Method == http.MethodGet {
-				c.GetKey(w, r)
 			} else {
 				httperrors.WriteError(w, httperrors.ErrMethodNotAllowed)
 			}

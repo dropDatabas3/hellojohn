@@ -46,8 +46,6 @@ import {
     LayoutList,
     Sliders,
     X,
-    Database,
-    ArrowRight,
     ArrowLeft,
     Users as UsersIcon,
     Mail,
@@ -90,7 +88,7 @@ import {
 } from "@/components/ds"
 import { Textarea } from "@/components/ds"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ds"
-import { InlineAlert } from "@/components/ds"
+import { InlineAlert, NoDatabaseConfigured, isNoDatabaseError } from "@/components/ds"
 import { Skeleton } from "@/components/ds"
 import { Badge } from "@/components/ds/core/badge"
 import {
@@ -588,31 +586,12 @@ function UsersList({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: stri
         return { active, blocked, verified, unverified }
     }, [users])
 
-    // Check if tenant has no database configured
-    const isNoDatabaseError = usersError?.error === "TENANT_NO_DATABASE" || usersError?.status === 424
-
-    if (isNoDatabaseError) {
+    if (isNoDatabaseError(usersError)) {
         return (
-            <div className="flex flex-col items-center justify-center py-20 px-6">
-                <div className="relative mb-8">
-                    <div className="absolute inset-0 bg-gradient-to-br from-warning/20 to-warning/10 rounded-full blur-2xl scale-150" />
-                    <div className="relative rounded-clay bg-gradient-to-br from-warning/10 to-warning/5 p-5 border-2 border-clay shadow-clay-float">
-                        <Database className="h-8 w-8 text-warning" />
-                    </div>
-                </div>
-                <h3 className="text-xl font-semibold text-center mb-2">Configura tu base de datos</h3>
-                <p className="text-muted-foreground text-center max-w-sm mb-8 text-sm">
-                    Conecta una base de datos para comenzar a gestionar los usuarios de este tenant.
-                </p>
-                <Button
-                    onClick={() => router.push(`/admin/database?id=${tenantId}`)}
-                    className="gap-2"
-                    size="lg"
-                >
-                    Configurar
-                    <ArrowRight className="h-4 w-4" />
-                </Button>
-            </div>
+            <NoDatabaseConfigured
+                tenantId={tenantId}
+                message="Conecta una base de datos para comenzar a gestionar los usuarios de este tenant."
+            />
         )
     }
 

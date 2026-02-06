@@ -628,7 +628,7 @@ function UsersList({ tenantId, isCreateOpen, setIsCreateOpen }: { tenantId: stri
                     Conecta una base de datos para comenzar a gestionar los usuarios de este tenant.
                 </p>
                 <Button
-                    onClick={() => router.push(`/admin/database?id=${tenantId}`)}
+                    onClick={() => router.push(`/admin/tenants/${tenantId}/database`)}
                     className="gap-2"
                     size="lg"
                 >

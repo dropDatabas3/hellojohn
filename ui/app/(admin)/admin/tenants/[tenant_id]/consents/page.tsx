@@ -34,6 +34,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
   InlineAlert,
+  NoDatabaseConfigured,
+  isNoDatabaseError,
   Checkbox,
   Textarea,
   Collapsible,
@@ -254,7 +256,7 @@ function ConsentsContent() {
   const queryClient = useQueryClient()
 
   // State
-  const tenantId = (params.id as string) || (search.get("id") as string)
+  const tenantId = (params.tenant_id as string) || (search.get("id") as string)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedConsents, setSelectedConsents] = useState<Set<string>>(new Set())
   const [filterUser, setFilterUser] = useState<string>("")
@@ -299,7 +301,7 @@ function ConsentsContent() {
 
   // Fetch consents (we need a user_id, so we'll list all users first or use a placeholder)
   // Note: Backend requires user_id for listing. For demo, we'll mock the data.
-  const { data: consents, isLoading, refetch, isRefetching } = useQuery({
+  const { data: consents, isLoading, refetch, isRefetching, error: consentsError } = useQuery({
     queryKey: ["consents", tenantId],
     enabled: !!tenantId,
     queryFn: async () => {
@@ -307,7 +309,7 @@ function ConsentsContent() {
         // The backend requires user_id, so we'll try to get all consents
         // In production, you'd need a different endpoint or loop through users
         const response = await api.get<ConsentResponse[]>(
-          `${API_ROUTES.ADMIN_CONSENTS}?tenant=${tenantId}`
+          API_ROUTES.ADMIN_TENANT_CONSENTS(tenantId)
         )
         return response
       } catch (e: any) {
@@ -318,6 +320,10 @@ function ConsentsContent() {
         throw e
       }
     },
+    retry: (failureCount, error) => {
+      if ((error as any)?.error === "TENANT_NO_DATABASE" || (error as any)?.status === 424) return false
+      return failureCount < 3
+    },
   })
 
   const { data: clients } = useQuery({
@@ -325,7 +331,7 @@ function ConsentsContent() {
     enabled: !!tenantId,
     queryFn: async () => {
       try {
-        return await api.get<Client[]>(`${API_ROUTES.ADMIN_CLIENTS}?tenant_id=${tenantId}`)
+        return await api.get<Client[]>(`/v2/admin/tenants/${tenantId}/clients`)
       } catch {
         return [] as Client[]
       }
@@ -336,10 +342,8 @@ function ConsentsContent() {
 
   const revokeMutation = useMutation({
     mutationFn: async (consent: ConsentResponse) => {
-      return api.post(`${API_ROUTES.ADMIN_CONSENTS_REVOKE}?tenant_id=${tenantId}`, {
-        user_id: consent.user_id,
-        client_id: consent.client_id,
-      })
+      const consentId = consent.id || getConsentKey(consent)
+      return api.delete(API_ROUTES.ADMIN_TENANT_CONSENT(tenantId, consentId))
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["consents", tenantId] })
@@ -364,12 +368,10 @@ function ConsentsContent() {
         consentIds.includes(getConsentKey(c))
       )
       return Promise.all(
-        selectedList.map(consent =>
-          api.post(`${API_ROUTES.ADMIN_CONSENTS_REVOKE}?tenant_id=${tenantId}`, {
-            user_id: consent.user_id,
-            client_id: consent.client_id,
-          })
-        )
+        selectedList.map(consent => {
+          const consentId = consent.id || getConsentKey(consent)
+          return api.delete(API_ROUTES.ADMIN_TENANT_CONSENT(tenantId, consentId))
+        })
       )
     },
     onSuccess: () => {
@@ -517,6 +519,45 @@ function ConsentsContent() {
   }
 
   // ─── Render ───
+
+  if (isNoDatabaseError(consentsError)) {
+    return (
+      <div className="space-y-6 animate-in fade-in duration-500">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="sm" asChild>
+              <Link href={`/admin/tenants/${tenantId}/detail`}>
+                <ArrowLeft className="h-4 w-4" />
+              </Link>
+            </Button>
+            <div className="flex items-center gap-3">
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight">Consentimientos</h1>
+                <p className="text-sm text-muted-foreground">
+                  {tenant?.name} — Gestiona los permisos otorgados por los usuarios
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Info Banner */}
+        <InlineAlert variant="info" title="¿Qué son los Consentimientos?">
+          <p className="text-sm">
+            Cuando un usuario autoriza una aplicación a acceder a sus datos (ej: nombre, email),
+            se crea un consentimiento. Este registro documenta exactamente qué permisos (scopes)
+            el usuario ha otorgado a cada aplicación. Puedes revocar consentimientos aquí si es necesario.
+          </p>
+        </InlineAlert>
+
+        <NoDatabaseConfigured
+          tenantId={tenantId}
+          message="Conecta una base de datos para comenzar a gestionar los consentimientos de este tenant."
+        />
+      </div>
+    )
+  }
 
   return (
     <TooltipProvider>

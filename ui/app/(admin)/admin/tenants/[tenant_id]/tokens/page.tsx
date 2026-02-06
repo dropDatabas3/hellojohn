@@ -104,6 +104,8 @@ import {
     TooltipProvider,
     TooltipTrigger,
     cn,
+    NoDatabaseConfigured,
+    isNoDatabaseError,
 } from "@/components/ds"
 import { Tenant } from "@/lib/types"
 
@@ -854,9 +856,9 @@ function InspectorTab({ tenantId }: { tenantId: string }) {
 
                                     {/* Full JSON */}
                                     <div className="space-y-2">
-                                        <Button 
-                                            variant="ghost" 
-                                            size="sm" 
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
                                             className="w-full justify-between"
                                             onClick={() => setShowFullJson(!showFullJson)}
                                         >
@@ -960,7 +962,7 @@ function ActiveTokensTab({ tenantId }: { tenantId: string }) {
     const [selectedTokens, setSelectedTokens] = useState<Set<string>>(new Set())
 
     // Fetch tokens from API
-    const { data: tokensData, isLoading, refetch } = useQuery({
+    const { data: tokensData, isLoading, refetch, error } = useQuery({
         queryKey: ["admin-tokens", tenantId, page, filterClient, filterStatus, search],
         queryFn: () => tokensAdminAPI.list(tenantId, {
             page,
@@ -970,7 +972,13 @@ function ActiveTokensTab({ tenantId }: { tenantId: string }) {
             search: search || undefined,
         }),
         enabled: !!tenantId,
+        retry: (failureCount, error) => {
+            if (isNoDatabaseError(error)) return false
+            return failureCount < 3
+        },
     })
+
+
 
     const tokens = tokensData?.tokens || []
     const totalCount = tokensData?.total_count || 0
@@ -1044,6 +1052,15 @@ function ActiveTokensTab({ tenantId }: { tenantId: string }) {
         }, 300)
         return () => clearTimeout(timer)
     }, [search])
+
+    if (isNoDatabaseError(error)) {
+        return (
+            <NoDatabaseConfigured
+                tenantId={tenantId}
+                message="Conecta una base de datos para ver los tokens activos."
+            />
+        )
+    }
 
     return (
         <div className="space-y-4">
@@ -1178,12 +1195,12 @@ function ActiveTokensTab({ tenantId }: { tenantId: string }) {
                                             <Badge
                                                 variant={
                                                     token.status === "active" ? "default" :
-                                                    token.status === "revoked" ? "destructive" : "outline"
+                                                        token.status === "revoked" ? "destructive" : "outline"
                                                 }
                                                 className="text-xs"
                                             >
                                                 {token.status === "active" ? "Activo" :
-                                                 token.status === "revoked" ? "Revocado" : "Expirado"}
+                                                    token.status === "revoked" ? "Revocado" : "Expirado"}
                                             </Badge>
                                         </TableCell>
                                         <TableCell>
@@ -1264,11 +1281,17 @@ function StatsTab({ tenantId }: { tenantId: string }) {
     const queryClient = useQueryClient()
 
     // Fetch stats from API
-    const { data: stats, isLoading, refetch } = useQuery({
+    const { data: stats, isLoading, refetch, error } = useQuery({
         queryKey: ["admin-token-stats", tenantId],
         queryFn: () => tokensAdminAPI.getStats(tenantId),
         enabled: !!tenantId,
+        retry: (failureCount, error) => {
+            if (isNoDatabaseError(error)) return false
+            return failureCount < 3
+        },
     })
+
+
 
     // Revoke all mutation
     const revokeAllMutation = useMutation({
@@ -1300,6 +1323,15 @@ function StatsTab({ tenantId }: { tenantId: string }) {
 
     const [showRevokeAllConfirm, setShowRevokeAllConfirm] = useState(false)
     const [selectedClientForRevoke, setSelectedClientForRevoke] = useState<string | null>(null)
+
+    if (isNoDatabaseError(error)) {
+        return (
+            <NoDatabaseConfigured
+                tenantId={tenantId}
+                message="Conecta una base de datos para ver las estadísticas."
+            />
+        )
+    }
 
     if (isLoading) {
         return (
@@ -1536,6 +1568,19 @@ function HistoryTab({ tenantId }: { tenantId: string }) {
     const [filterAction, setFilterAction] = useState<string>("_all")
     const history = MOCK_HISTORY
 
+    // Helper query to check DB status
+    const { error } = useQuery({
+        queryKey: ["check-db-status", tenantId],
+        queryFn: () => tokensAdminAPI.getStats(tenantId),
+        enabled: !!tenantId,
+        retry: (failureCount, error) => {
+            if (isNoDatabaseError(error)) return false
+            return failureCount < 3
+        },
+    })
+
+
+
     const filteredHistory = useMemo(() => {
         if (filterAction === "_all") return history
         return history.filter((h) => h.action === filterAction)
@@ -1567,13 +1612,22 @@ function HistoryTab({ tenantId }: { tenantId: string }) {
         }
     }
 
+    if (isNoDatabaseError(error)) {
+        return (
+            <NoDatabaseConfigured
+                tenantId={tenantId}
+                message="Conecta una base de datos para ver el historial de tokens."
+            />
+        )
+    }
+
     return (
         <div className="space-y-4">
             {/* Info */}
             <InlineAlert variant="warning">
                 <AlertTriangle className="h-4 w-4" />
                 <span><strong>Nota:</strong> Este historial muestra datos de ejemplo. El backend necesita implementar
-                un endpoint de auditoría para tokens.</span>
+                    un endpoint de auditoría para tokens.</span>
             </InlineAlert>
 
             {/* Filters */}

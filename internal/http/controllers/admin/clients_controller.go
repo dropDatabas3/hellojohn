@@ -212,12 +212,13 @@ func (c *ClientsController) RevokeSecret(w http.ResponseWriter, r *http.Request)
 // ─── Helpers ───
 
 func extractClientID(path string) string {
-	// path = /v2/admin/clients/{clientId}
-	const base = "/v2/admin/clients/"
-	if !strings.HasPrefix(path, base) {
+	// path = /v2/admin/tenants/{tenant_id}/clients/{clientId}
+	// We need to extract the last segment after /clients/
+	parts := strings.Split(path, "/clients/")
+	if len(parts) < 2 {
 		return ""
 	}
-	remainder := strings.TrimPrefix(path, base)
+	remainder := parts[1]
 	// Check if this is a revoke path
 	if strings.HasSuffix(remainder, "/revoke") {
 		return ""
@@ -226,12 +227,13 @@ func extractClientID(path string) string {
 }
 
 func extractClientIDForRevoke(path string) string {
-	// path = /v2/admin/clients/{clientId}/revoke
-	const base = "/v2/admin/clients/"
-	if !strings.HasPrefix(path, base) {
+	// path = /v2/admin/tenants/{tenant_id}/clients/{clientId}/revoke
+	// Extract the part after /clients/
+	parts := strings.Split(path, "/clients/")
+	if len(parts) < 2 {
 		return ""
 	}
-	remainder := strings.TrimPrefix(path, base)
+	remainder := parts[1]
 	// Remove /revoke suffix
 	if !strings.HasSuffix(remainder, "/revoke") {
 		return ""
@@ -264,7 +266,7 @@ func toClientInput(req dto.ClientRequest) controlplane.ClientInput {
 }
 
 func toClientResponse(cl repository.Client) dto.ClientResponse {
-	return dto.ClientResponse{
+	resp := dto.ClientResponse{
 		ID:                       cl.ID,
 		Name:                     cl.Name,
 		ClientID:                 cl.ClientID,
@@ -273,7 +275,6 @@ func toClientResponse(cl repository.Client) dto.ClientResponse {
 		AllowedOrigins:           cl.AllowedOrigins,
 		Providers:                cl.Providers,
 		Scopes:                   cl.Scopes,
-		SecretHash:               cl.SecretEnc, // Enc field maps to hash in response
 		RequireEmailVerification: cl.RequireEmailVerification,
 		ResetPasswordURL:         cl.ResetPasswordURL,
 		VerifyEmailURL:           cl.VerifyEmailURL,
@@ -286,6 +287,16 @@ func toClientResponse(cl repository.Client) dto.ClientResponse {
 		Description:     cl.Description,
 		// CreatedAt/UpdatedAt no existen en repository.Client, se omiten
 	}
+
+	// Si SecretEnc es plaintext (no empieza con "enc:"), es un secret recién generado
+	// que debemos retornar solo una vez al usuario
+	if cl.SecretEnc != "" && !strings.HasPrefix(cl.SecretEnc, "enc:") {
+		resp.Secret = cl.SecretEnc // Plaintext secret (solo en creación)
+	} else {
+		resp.SecretHash = cl.SecretEnc // Encrypted hash (normal)
+	}
+
+	return resp
 }
 
 func mapError(err error) *httperrors.AppError {

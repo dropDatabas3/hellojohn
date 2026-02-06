@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
+import { useSearchParams, useRouter, useParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { API_ROUTES } from "@/lib/routes"
@@ -74,13 +74,13 @@ interface SettingsFormData {
   slug: string
   display_name: string
   language: string
-  
+
   // Branding
   logoUrl: string
   brandColor: string
   secondaryColor?: string  // Future: not in backend yet
   favicon?: string         // Future: not in backend yet
-  
+
   // Security
   sessionLifetimeSeconds: number
   refreshTokenLifetimeSeconds: number
@@ -90,7 +90,7 @@ interface SettingsFormData {
     passwordMinLength?: number
     mfaRequired?: boolean
   }
-  
+
   // Issuer
   issuerMode: "path" | "subdomain" | "global"
   issuerOverride?: string
@@ -135,21 +135,21 @@ const LANGUAGES = [
 ]
 
 const ISSUER_MODES = [
-  { 
-    value: "path", 
-    label: "Path-based", 
+  {
+    value: "path",
+    label: "Path-based",
     description: "https://auth.example.com/tenant-slug",
     example: "/acme"
   },
-  { 
-    value: "subdomain", 
-    label: "Subdomain", 
+  {
+    value: "subdomain",
+    label: "Subdomain",
     description: "https://tenant-slug.auth.example.com",
     example: "acme.auth.example.com"
   },
-  { 
-    value: "global", 
-    label: "Global (Custom)", 
+  {
+    value: "global",
+    label: "Global (Custom)",
     description: "URL personalizada definida en issuerOverride",
     example: "https://auth.acme.com"
   },
@@ -195,19 +195,19 @@ function isValidSlug(slug: string): boolean {
 // ============================================================================
 
 // Color Picker with presets
-function ColorPicker({ 
-  value, 
-  onChange, 
+function ColorPicker({
+  value,
+  onChange,
   label,
-  description 
-}: { 
+  description
+}: {
   value: string
   onChange: (color: string) => void
   label: string
   description?: string
 }) {
   const [customColor, setCustomColor] = useState(value || "#5E6AD2")
-  
+
   return (
     <div className="space-y-3">
       <div>
@@ -216,7 +216,7 @@ function ColorPicker({
           <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
         )}
       </div>
-      
+
       {/* Preset Colors */}
       <div className="flex flex-wrap gap-2">
         {DEFAULT_BRAND_COLORS.map((color) => (
@@ -231,8 +231,8 @@ function ColorPicker({
                 className={`
                   w-8 h-8 rounded-lg border-2 transition-all duration-200
                   hover:scale-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-background
-                  ${value === color.value 
-                    ? "border-foreground ring-2 ring-foreground/20 scale-110" 
+                  ${value === color.value
+                    ? "border-foreground ring-2 ring-foreground/20 scale-110"
                     : "border-transparent hover:border-muted-foreground/30"
                   }
                 `}
@@ -246,7 +246,7 @@ function ColorPicker({
           </Tooltip>
         ))}
       </div>
-      
+
       {/* Custom Color Input */}
       <div className="flex items-center gap-3">
         <div className="relative">
@@ -290,45 +290,45 @@ function LogoUploader({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [previewBg, setPreviewBg] = useState<"light" | "dark" | "brand">("light")
   const [isDragging, setIsDragging] = useState(false)
-  
+
   const handleFile = useCallback((file: File) => {
     if (file.size > 5 * 1024 * 1024) {
       alert("El archivo es muy grande. Máximo 5MB.")
       return
     }
-    
+
     const reader = new FileReader()
     reader.onloadend = () => {
       onChange(reader.result as string)
     }
     reader.readAsDataURL(file)
   }, [onChange])
-  
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
-    
+
     const file = e.dataTransfer.files[0]
     if (file && file.type.startsWith("image/")) {
       handleFile(file)
     }
   }, [handleFile])
-  
+
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(true)
   }, [])
-  
+
   const handleDragLeave = useCallback(() => {
     setIsDragging(false)
   }, [])
-  
+
   const bgStyles = {
     light: "bg-white",
     dark: "bg-zinc-900",
     brand: ""
   }
-  
+
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-6">
@@ -342,8 +342,8 @@ function LogoUploader({
             relative flex-1 min-h-[160px] rounded-xl border-2 border-dashed 
             transition-all duration-200 cursor-pointer group
             flex flex-col items-center justify-center gap-3 p-6
-            ${isDragging 
-              ? "border-primary bg-primary/5 scale-[1.02]" 
+            ${isDragging
+              ? "border-primary bg-primary/5 scale-[1.02]"
               : "border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/30"
             }
             ${value ? "border-solid" : ""}
@@ -359,10 +359,10 @@ function LogoUploader({
             }}
             className="hidden"
           />
-          
+
           {value ? (
             <div className="relative w-full h-full min-h-[120px] flex items-center justify-center">
-              <div 
+              <div
                 className={`
                   absolute inset-0 rounded-lg transition-colors
                   ${bgStyles[previewBg]}
@@ -401,7 +401,7 @@ function LogoUploader({
             </>
           )}
         </div>
-        
+
         {/* Preview Controls */}
         {value && (
           <div className="flex flex-col gap-2 animate-in slide-in-from-left-2">
@@ -429,7 +429,7 @@ function LogoUploader({
                 className="h-8 w-8 p-0"
                 onClick={() => setPreviewBg("brand")}
               >
-                <div 
+                <div
                   className="w-4 h-4 rounded border"
                   style={{ backgroundColor: brandColor }}
                 />
@@ -438,14 +438,14 @@ function LogoUploader({
           </div>
         )}
       </div>
-      
+
       {/* URL Input alternative */}
       <div className="flex items-center gap-2">
         <div className="flex-1 h-px bg-border" />
         <span className="text-xs text-muted-foreground">o pega una URL</span>
         <div className="flex-1 h-px bg-border" />
       </div>
-      
+
       <Input
         value={value?.startsWith("http") ? value : ""}
         onChange={(e) => onChange(e.target.value || null)}
@@ -477,7 +477,7 @@ function DurationSelector({
   const [isCustom, setIsCustom] = useState(
     !presets.some(p => p.seconds === value)
   )
-  
+
   return (
     <div className="space-y-3">
       <div>
@@ -486,7 +486,7 @@ function DurationSelector({
           <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
         )}
       </div>
-      
+
       <div className="grid grid-cols-3 gap-2">
         {presets.map((preset) => (
           <button
@@ -510,7 +510,7 @@ function DurationSelector({
           </button>
         ))}
       </div>
-      
+
       <div className="flex items-center gap-3">
         <Switch
           checked={isCustom}
@@ -518,7 +518,7 @@ function DurationSelector({
         />
         <span className="text-sm">Valor personalizado</span>
       </div>
-      
+
       {isCustom && (
         <div className="flex items-center gap-3 animate-in slide-in-from-top-2">
           <Input
@@ -558,7 +558,7 @@ function BrandingPreview({
       </CardHeader>
       <CardContent className="p-0">
         {/* Mock Login Page */}
-        <div 
+        <div
           className="p-6 min-h-[280px] flex flex-col items-center justify-center gap-6"
           style={{ backgroundColor: `${brandColor}15` }}
         >
@@ -566,13 +566,13 @@ function BrandingPreview({
           <div className="flex flex-col items-center gap-3">
             {logo ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img 
-                src={logo} 
-                alt="Logo" 
+              <img
+                src={logo}
+                alt="Logo"
                 className="h-12 w-auto object-contain"
               />
             ) : (
-              <div 
+              <div
                 className="h-14 w-14 rounded-xl flex items-center justify-center text-white font-bold text-xl"
                 style={{ backgroundColor: brandColor }}
               >
@@ -581,19 +581,19 @@ function BrandingPreview({
             )}
             <span className="text-lg font-semibold">{tenantName || "Mi Organización"}</span>
           </div>
-          
+
           {/* Mock Form */}
           <div className="w-full max-w-[260px] space-y-3">
             <div className="h-10 rounded-lg bg-background border" />
             <div className="h-10 rounded-lg bg-background border" />
-            <div 
+            <div
               className="h-10 rounded-lg flex items-center justify-center text-white text-sm font-medium"
               style={{ backgroundColor: brandColor }}
             >
               Iniciar Sesión
             </div>
           </div>
-          
+
           {/* Footer */}
           <p className="text-xs text-muted-foreground">
             Así verán tus usuarios la página de login
@@ -629,11 +629,11 @@ function ExportDialog({
     includeClaims: true
   })
   const { toast } = useToast()
-  
+
   const handleExport = async () => {
     setStatus("exporting")
     setProgress(30)
-    
+
     try {
       // ISS-11-03: Use single backend endpoint instead of 5 separate API calls
       const exportUrl = API_ROUTES.ADMIN_TENANT_EXPORT(tenantId, {
@@ -642,15 +642,15 @@ function ExportDialog({
         users: exportOptions.includeUsers,
         roles: exportOptions.includeRoles,
       })
-      
+
       setProgress(60)
       const exportData = await api.get<ExportData>(exportUrl)
-      
+
       setProgress(90)
-      
+
       // Generate and download file
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { 
-        type: "application/json" 
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+        type: "application/json"
       })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
@@ -660,21 +660,21 @@ function ExportDialog({
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
-      
+
       setProgress(100)
       setStatus("done")
-      
+
       toast({
         title: "Exportación completada",
         description: "El archivo se ha descargado correctamente.",
       })
-      
+
       setTimeout(() => {
         onOpenChange(false)
         setStatus("idle")
         setProgress(0)
       }, 1500)
-      
+
     } catch (error: any) {
       setStatus("error")
       toast({
@@ -684,7 +684,7 @@ function ExportDialog({
       })
     }
   }
-  
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -697,14 +697,14 @@ function ExportDialog({
             Descarga un archivo JSON con la configuración completa del tenant.
           </DialogDescription>
         </DialogHeader>
-        
+
         {status === "idle" && (
           <>
             <div className="space-y-4 py-4">
               <p className="text-sm text-muted-foreground">
                 Selecciona qué datos incluir en la exportación:
               </p>
-              
+
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -713,9 +713,9 @@ function ExportDialog({
                   </div>
                   <Badge variant="secondary">Siempre incluido</Badge>
                 </div>
-                
+
                 <hr className="border-border" />
-                
+
                 {[
                   { key: "includeClients", label: "Clientes OAuth2", icon: Key },
                   { key: "includeScopes", label: "Scopes", icon: Lock },
@@ -734,7 +734,7 @@ function ExportDialog({
                           </TooltipTrigger>
                           <TooltipContent>
                             <p className="max-w-xs text-xs">
-                              Incluir usuarios puede generar un archivo muy grande 
+                              Incluir usuarios puede generar un archivo muy grande
                               y contener información sensible.
                             </p>
                           </TooltipContent>
@@ -743,7 +743,7 @@ function ExportDialog({
                     </div>
                     <Switch
                       checked={exportOptions[key as keyof typeof exportOptions]}
-                      onCheckedChange={(checked) => 
+                      onCheckedChange={(checked) =>
                         setExportOptions(prev => ({ ...prev, [key]: checked }))
                       }
                     />
@@ -751,7 +751,7 @@ function ExportDialog({
                 ))}
               </div>
             </div>
-            
+
             <DialogFooter>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Cancelar
@@ -763,7 +763,7 @@ function ExportDialog({
             </DialogFooter>
           </>
         )}
-        
+
         {status === "exporting" && (
           <div className="py-8 space-y-4">
             <div className="flex flex-col items-center gap-3">
@@ -773,7 +773,7 @@ function ExportDialog({
             <Progress value={progress} className="h-2" />
           </div>
         )}
-        
+
         {status === "done" && (
           <div className="py-8 flex flex-col items-center gap-3">
             <div className="p-3 rounded-full bg-success/10">
@@ -782,7 +782,7 @@ function ExportDialog({
             <p className="text-sm font-medium">¡Exportación completada!</p>
           </div>
         )}
-        
+
         {status === "error" && (
           <div className="py-8 flex flex-col items-center gap-3">
             <div className="p-3 rounded-full bg-danger/10">
@@ -818,15 +818,15 @@ function ImportDialog({
   const [isValidating, setIsValidating] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
     if (!selectedFile) return
-    
+
     setFile(selectedFile)
     setError(null)
     setValidationResult(null)
-    
+
     const reader = new FileReader()
     reader.onload = (event) => {
       try {
@@ -848,17 +848,17 @@ function ImportDialog({
   // ISS-11-02: Validate import before applying
   const handleValidate = async () => {
     if (!preview || !tenantId) return
-    
+
     setIsValidating(true)
     setError(null)
-    
+
     try {
       const result = await api.post<{ valid: boolean; warnings?: string[]; errors?: string[] }>(
         API_ROUTES.ADMIN_TENANT_IMPORT_VALIDATE(tenantId),
         preview
       )
       setValidationResult(result)
-      
+
       if (result.valid) {
         toast({
           title: "Validación exitosa",
@@ -881,22 +881,22 @@ function ImportDialog({
   // ISS-11-02: Perform the actual import
   const handleImport = async () => {
     if (!preview || !tenantId) return
-    
+
     setIsImporting(true)
     setError(null)
-    
+
     try {
       await api.put(API_ROUTES.ADMIN_TENANT_IMPORT(tenantId), preview)
-      
+
       toast({
         title: "Importación exitosa",
         description: "La configuración ha sido importada correctamente.",
       })
-      
+
       // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ["tenant", tenantId] })
       queryClient.invalidateQueries({ queryKey: ["tenants"] })
-      
+
       onOpenChange(false)
     } catch (err: any) {
       setError(err?.error_description || err?.message || "Error al importar la configuración")
@@ -909,7 +909,7 @@ function ImportDialog({
       setIsImporting(false)
     }
   }
-  
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
@@ -922,12 +922,12 @@ function ImportDialog({
             Restaura la configuración de un tenant desde un archivo de exportación.
           </DialogDescription>
         </DialogHeader>
-        
+
         <InlineAlert variant="warning">
-            <strong>Precaución:</strong> La importación sobrescribirá la configuración existente.
-            Se recomienda hacer un backup antes de continuar.
+          <strong>Precaución:</strong> La importación sobrescribirá la configuración existente.
+          Se recomienda hacer un backup antes de continuar.
         </InlineAlert>
-        
+
         <div className="space-y-4 py-4">
           {/* File Drop Zone */}
           <div
@@ -962,7 +962,7 @@ function ImportDialog({
               </>
             )}
           </div>
-          
+
           {error && (
             <InlineAlert variant="destructive">{error}</InlineAlert>
           )}
@@ -970,28 +970,28 @@ function ImportDialog({
           {/* Validation Result */}
           {validationResult && (
             <InlineAlert variant={validationResult.valid ? "success" : "destructive"}>
-                {validationResult.valid ? (
-                  "El archivo es válido y puede ser importado."
-                ) : (
+              {validationResult.valid ? (
+                "El archivo es válido y puede ser importado."
+              ) : (
+                <ul className="list-disc list-inside">
+                  {validationResult.errors?.map((err, i) => (
+                    <li key={i}>{err}</li>
+                  ))}
+                </ul>
+              )}
+              {validationResult.warnings && validationResult.warnings.length > 0 && (
+                <div className="mt-2 text-warning">
+                  <strong>Advertencias:</strong>
                   <ul className="list-disc list-inside">
-                    {validationResult.errors?.map((err, i) => (
-                      <li key={i}>{err}</li>
+                    {validationResult.warnings.map((warn, i) => (
+                      <li key={i}>{warn}</li>
                     ))}
                   </ul>
-                )}
-                {validationResult.warnings && validationResult.warnings.length > 0 && (
-                  <div className="mt-2 text-warning">
-                    <strong>Advertencias:</strong>
-                    <ul className="list-disc list-inside">
-                      {validationResult.warnings.map((warn, i) => (
-                        <li key={i}>{warn}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                </div>
+              )}
             </InlineAlert>
           )}
-          
+
           {/* Preview */}
           {preview && (
             <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
@@ -1017,9 +1017,9 @@ function ImportDialog({
                   <span className="ml-2">{preview.version}</span>
                 </div>
               </div>
-              
+
               <hr className="border-border" />
-              
+
               <div className="flex flex-wrap gap-2">
                 {preview.clients && preview.clients.length > 0 && (
                   <Badge variant="secondary">{preview.clients.length} clients</Badge>
@@ -1037,7 +1037,7 @@ function ImportDialog({
             </div>
           )}
         </div>
-        
+
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancelar
@@ -1057,8 +1057,8 @@ function ImportDialog({
               )}
             </Button>
           )}
-          <Button 
-            onClick={handleImport} 
+          <Button
+            onClick={handleImport}
             disabled={!preview || isImporting || (validationResult !== null && !validationResult.valid)}
           >
             {isImporting ? (
@@ -1084,19 +1084,19 @@ function ImportDialog({
 // ============================================================================
 
 export default function TenantSettingsPage() {
-  const search = useSearchParams()
+  const params = useParams()
   const router = useRouter()
   const { t } = useI18n()
   const { toast } = useToast()
   const queryClient = useQueryClient()
-  const tenantId = search.get("id") as string
-  
+  const tenantId = params.tenant_id as string
+
   // State
   const [activeTab, setActiveTab] = useState("general")
   const [hasChanges, setHasChanges] = useState(false)
   const [showExportDialog, setShowExportDialog] = useState(false)
   const [showImportDialog, setShowImportDialog] = useState(false)
-  
+
   // Form State
   const [formData, setFormData] = useState<SettingsFormData>({
     name: "",
@@ -1112,14 +1112,14 @@ export default function TenantSettingsPage() {
     issuerMode: "path",
     issuerOverride: ""
   })
-  
+
   // Queries
   const { data: tenant, isLoading: loadingTenant } = useQuery({
     queryKey: ["tenant", tenantId],
     enabled: !!tenantId,
     queryFn: () => api.get<Tenant>(`/v2/admin/tenants/${tenantId}`),
   })
-  
+
   const { data: settings, isLoading: loadingSettings } = useQuery({
     queryKey: ["tenant-settings", tenantId, "v2"],
     enabled: !!tenantId,
@@ -1135,7 +1135,7 @@ export default function TenantSettingsPage() {
       return { ...data, _etag: etag }
     },
   })
-  
+
   // Initialize form data
   useEffect(() => {
     if (tenant && settings) {
@@ -1157,23 +1157,23 @@ export default function TenantSettingsPage() {
       setHasChanges(false)
     }
   }, [tenant, settings])
-  
+
   // Track changes
   const updateForm = useCallback((updates: Partial<SettingsFormData>) => {
     setFormData(prev => ({ ...prev, ...updates }))
     setHasChanges(true)
   }, [])
-  
+
   // Mutations
   const updateTenantMutation = useMutation({
-    mutationFn: (data: Partial<Tenant>) => 
+    mutationFn: (data: Partial<Tenant>) =>
       api.put<Tenant>(`/v2/admin/tenants/${tenantId}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tenant", tenantId] })
       queryClient.invalidateQueries({ queryKey: ["tenants"] })
     },
   })
-  
+
   const updateSettingsMutation = useMutation({
     mutationFn: (data: any) => {
       const etag = settings?._etag
@@ -1184,7 +1184,7 @@ export default function TenantSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["tenant-settings", tenantId, "v2"] })
     },
   })
-  
+
   // Save handler
   const handleSave = async () => {
     try {
@@ -1194,7 +1194,7 @@ export default function TenantSettingsPage() {
         slug: formData.slug,
         display_name: formData.display_name,
       })
-      
+
       // Update settings
       await updateSettingsMutation.mutateAsync({
         logoUrl: formData.logoUrl,
@@ -1207,7 +1207,7 @@ export default function TenantSettingsPage() {
         issuerOverride: formData.issuerOverride || undefined,
         security: formData.security
       })
-      
+
       setHasChanges(false)
       toast({
         title: "Configuración guardada",
@@ -1221,7 +1221,7 @@ export default function TenantSettingsPage() {
       })
     }
   }
-  
+
   // Loading state
   if (loadingTenant || loadingSettings) {
     return (
@@ -1233,7 +1233,7 @@ export default function TenantSettingsPage() {
       </div>
     )
   }
-  
+
   // No tenant selected
   if (!tenantId) {
     return (
@@ -1251,9 +1251,9 @@ export default function TenantSettingsPage() {
       </div>
     )
   }
-  
+
   const isSaving = updateTenantMutation.isPending || updateSettingsMutation.isPending
-  
+
   return (
     <TooltipProvider>
       <div className="space-y-6 animate-in fade-in duration-500">
@@ -1277,30 +1277,30 @@ export default function TenantSettingsPage() {
               </div>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2">
             {hasChanges && (
               <Badge variant="outline" className="text-warning border-warning/30">
                 Cambios sin guardar
               </Badge>
             )}
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="sm"
               onClick={() => setShowImportDialog(true)}
             >
               <Upload className="mr-2 h-4 w-4" />
               Importar
             </Button>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="sm"
               onClick={() => setShowExportDialog(true)}
             >
               <Download className="mr-2 h-4 w-4" />
               Exportar
             </Button>
-            <Button 
+            <Button
               onClick={handleSave}
               disabled={!hasChanges || isSaving}
               className="min-w-[100px]"
@@ -1314,13 +1314,13 @@ export default function TenantSettingsPage() {
             </Button>
           </div>
         </div>
-        
+
         {/* Info Banner */}
         <InlineAlert variant="info">
-            Configura la identidad visual, políticas de seguridad y comportamiento de tu organización.
-            Los cambios se aplican a todas las aplicaciones y usuarios del tenant.
+          Configura la identidad visual, políticas de seguridad y comportamiento de tu organización.
+          Los cambios se aplican a todas las aplicaciones y usuarios del tenant.
         </InlineAlert>
-        
+
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="bg-muted/50 p-1">
@@ -1345,7 +1345,7 @@ export default function TenantSettingsPage() {
               Export/Import
             </TabsTrigger>
           </TabsList>
-          
+
           {/* ============================================================== */}
           {/* TAB: GENERAL */}
           {/* ============================================================== */}
@@ -1374,7 +1374,7 @@ export default function TenantSettingsPage() {
                       Nombre visible para usuarios y administradores.
                     </p>
                   </div>
-                  
+
                   <div className="space-y-2">
                     <Label htmlFor="display_name">Nombre para mostrar</Label>
                     <Input
@@ -1388,7 +1388,7 @@ export default function TenantSettingsPage() {
                     </p>
                   </div>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <Label htmlFor="slug">
@@ -1428,7 +1428,7 @@ export default function TenantSettingsPage() {
                       URL: auth.example.com/<span className="font-mono">{formData.slug || "slug"}</span>
                     </p>
                   </div>
-                  
+
                   <div className="space-y-2">
                     <Label htmlFor="language">Idioma predeterminado</Label>
                     <Select
@@ -1451,9 +1451,9 @@ export default function TenantSettingsPage() {
                     </p>
                   </div>
                 </div>
-                
+
                 <hr className="border-border" />
-                
+
                 <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
@@ -1480,7 +1480,7 @@ export default function TenantSettingsPage() {
               </CardContent>
             </Card>
           </TabsContent>
-          
+
           {/* ============================================================== */}
           {/* TAB: BRANDING */}
           {/* ============================================================== */}
@@ -1506,7 +1506,7 @@ export default function TenantSettingsPage() {
                     />
                   </CardContent>
                 </Card>
-                
+
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -1524,9 +1524,9 @@ export default function TenantSettingsPage() {
                       label="Color Principal"
                       description="Usado en botones, links y elementos destacados."
                     />
-                    
+
                     <hr className="border-border" />
-                    
+
                     {/* Future: Secondary color - not in backend yet */}
                     <div className="opacity-50 pointer-events-none">
                       <div className="flex items-center gap-2 mb-3">
@@ -1546,7 +1546,7 @@ export default function TenantSettingsPage() {
                         Color para elementos secundarios y acentos.
                       </p>
                     </div>
-                    
+
                     {/* Future: Favicon */}
                     <div className="opacity-50 pointer-events-none">
                       <div className="flex items-center gap-2 mb-3">
@@ -1565,7 +1565,7 @@ export default function TenantSettingsPage() {
                   </CardContent>
                 </Card>
               </div>
-              
+
               {/* Preview sidebar */}
               <div className="space-y-6">
                 <BrandingPreview
@@ -1573,7 +1573,7 @@ export default function TenantSettingsPage() {
                   brandColor={formData.brandColor}
                   tenantName={formData.name}
                 />
-                
+
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -1603,7 +1603,7 @@ export default function TenantSettingsPage() {
               </div>
             </div>
           </TabsContent>
-          
+
           {/* ============================================================== */}
           {/* TAB: SECURITY */}
           {/* ============================================================== */}
@@ -1629,7 +1629,7 @@ export default function TenantSettingsPage() {
                   />
                 </CardContent>
               </Card>
-              
+
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -1651,7 +1651,7 @@ export default function TenantSettingsPage() {
                 </CardContent>
               </Card>
             </div>
-            
+
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -1682,7 +1682,7 @@ export default function TenantSettingsPage() {
                     onCheckedChange={(checked) => updateForm({ mfaEnabled: checked })}
                   />
                 </div>
-                
+
                 {formData.mfaEnabled && (
                   <div className="ml-4 pl-4 border-l space-y-4 animate-in slide-in-from-top-2">
                     <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
@@ -1694,23 +1694,23 @@ export default function TenantSettingsPage() {
                       </div>
                       <Switch
                         checked={formData.security?.mfaRequired || false}
-                        onCheckedChange={(checked) => 
-                          updateForm({ 
-                            security: { ...formData.security, mfaRequired: checked } 
+                        onCheckedChange={(checked) =>
+                          updateForm({
+                            security: { ...formData.security, mfaRequired: checked }
                           })
                         }
                       />
                     </div>
-                    
+
                     <InlineAlert variant="info">
-                        Los métodos de MFA disponibles son: TOTP (Google Authenticator, Authy) 
-                        y códigos de respaldo. WebAuthn/passkeys estará disponible próximamente.
+                      Los métodos de MFA disponibles son: TOTP (Google Authenticator, Authy)
+                      y códigos de respaldo. WebAuthn/passkeys estará disponible próximamente.
                     </InlineAlert>
                   </div>
                 )}
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -1741,21 +1741,21 @@ export default function TenantSettingsPage() {
                     onCheckedChange={(checked) => updateForm({ socialLoginEnabled: checked })}
                   />
                 </div>
-                
+
                 {formData.socialLoginEnabled && (
                   <InlineAlert variant="info">
-                      Configura los proveedores sociales en{" "}
-                      <Link 
-                        href={`/admin/tenants/${tenantId}/providers`}
-                        className="text-info hover:underline font-medium"
-                      >
-                        Social Providers →
-                      </Link>
+                    Configura los proveedores sociales en{" "}
+                    <Link
+                      href={`/admin/tenants/${tenantId}/providers`}
+                      className="text-info hover:underline font-medium"
+                    >
+                      Social Providers →
+                    </Link>
                   </InlineAlert>
                 )}
               </CardContent>
             </Card>
-            
+
             {/* Future: Password policies */}
             <Card className="opacity-60">
               <CardHeader>
@@ -1790,17 +1790,17 @@ export default function TenantSettingsPage() {
               </CardContent>
             </Card>
           </TabsContent>
-          
+
           {/* ============================================================== */}
           {/* TAB: ISSUER */}
           {/* ============================================================== */}
           <TabsContent value="issuer" className="space-y-6">
             <InlineAlert variant="info">
-                <strong>¿Qué es el Issuer?</strong> El issuer es la URL que identifica a tu servidor 
-                de autorización en tokens JWT. Aparece en el claim &quot;iss&quot; y debe coincidir con 
-                la configuración de tus aplicaciones cliente.
+              <strong>¿Qué es el Issuer?</strong> El issuer es la URL que identifica a tu servidor
+              de autorización en tokens JWT. Aparece en el claim &quot;iss&quot; y debe coincidir con
+              la configuración de tus aplicaciones cliente.
             </InlineAlert>
-            
+
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -1842,7 +1842,7 @@ export default function TenantSettingsPage() {
                     </button>
                   ))}
                 </div>
-                
+
                 {formData.issuerMode === "global" && (
                   <div className="space-y-3 animate-in slide-in-from-top-2">
                     <Label htmlFor="issuerOverride">URL del Issuer Personalizado</Label>
@@ -1854,14 +1854,14 @@ export default function TenantSettingsPage() {
                       className="font-mono"
                     />
                     <p className="text-xs text-muted-foreground">
-                      Asegúrate de que este dominio apunte a tu instancia de HelloJohn 
+                      Asegúrate de que este dominio apunte a tu instancia de HelloJohn
                       y tenga certificado SSL válido.
                     </p>
                   </div>
                 )}
-                
+
                 <hr className="border-border" />
-                
+
                 <div className="p-4 rounded-lg border bg-muted/30">
                   <h4 className="text-sm font-medium mb-2">Issuer URL actual</h4>
                   <div className="flex items-center gap-2">
@@ -1869,8 +1869,8 @@ export default function TenantSettingsPage() {
                       {formData.issuerMode === "global" && formData.issuerOverride
                         ? formData.issuerOverride
                         : formData.issuerMode === "subdomain"
-                        ? `https://${formData.slug}.auth.example.com`
-                        : `https://auth.example.com/${formData.slug}`}
+                          ? `https://${formData.slug}.auth.example.com`
+                          : `https://auth.example.com/${formData.slug}`}
                     </code>
                     <Button
                       variant="ghost"
@@ -1879,8 +1879,8 @@ export default function TenantSettingsPage() {
                         const url = formData.issuerMode === "global" && formData.issuerOverride
                           ? formData.issuerOverride
                           : formData.issuerMode === "subdomain"
-                          ? `https://${formData.slug}.auth.example.com`
-                          : `https://auth.example.com/${formData.slug}`
+                            ? `https://${formData.slug}.auth.example.com`
+                            : `https://auth.example.com/${formData.slug}`
                         navigator.clipboard.writeText(url)
                         toast({ title: "URL copiada" })
                       }}
@@ -1889,15 +1889,15 @@ export default function TenantSettingsPage() {
                     </Button>
                   </div>
                 </div>
-                
+
                 <InlineAlert variant="warning">
-                    <strong>Precaución:</strong> Cambiar el modo de issuer puede invalidar 
-                    tokens existentes y romper integraciones. Asegúrate de actualizar la 
-                    configuración en todas tus aplicaciones cliente.
+                  <strong>Precaución:</strong> Cambiar el modo de issuer puede invalidar
+                  tokens existentes y romper integraciones. Asegúrate de actualizar la
+                  configuración en todas tus aplicaciones cliente.
                 </InlineAlert>
               </CardContent>
             </Card>
-            
+
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -1917,7 +1917,7 @@ export default function TenantSettingsPage() {
                     { label: "Token", path: "/oauth2/token" },
                     { label: "UserInfo", path: "/oauth2/userinfo" },
                   ].map((endpoint) => (
-                    <div 
+                    <div
                       key={endpoint.label}
                       className="flex items-center justify-between p-3 rounded-lg border bg-muted/20"
                     >
@@ -1928,7 +1928,7 @@ export default function TenantSettingsPage() {
                     </div>
                   ))}
                 </div>
-                
+
                 <div className="mt-4">
                   <Button variant="outline" size="sm" asChild>
                     <Link href={`/admin/oidc?tenant=${formData.slug}`}>
@@ -1940,7 +1940,7 @@ export default function TenantSettingsPage() {
               </CardContent>
             </Card>
           </TabsContent>
-          
+
           {/* ============================================================== */}
           {/* TAB: EXPORT/IMPORT */}
           {/* ============================================================== */}
@@ -1983,15 +1983,15 @@ export default function TenantSettingsPage() {
                       Usuarios (opcional, datos sensibles)
                     </li>
                   </ul>
-                  
+
                   <hr className="border-border" />
-                  
+
                   <InlineAlert variant="info">
-                      El archivo exportado <strong>no incluye</strong> secrets 
-                      (client_secret, contraseñas SMTP, etc.) por seguridad.
+                    El archivo exportado <strong>no incluye</strong> secrets
+                    (client_secret, contraseñas SMTP, etc.) por seguridad.
                   </InlineAlert>
-                  
-                  <Button 
+
+                  <Button
                     className="w-full"
                     onClick={() => setShowExportDialog(true)}
                   >
@@ -2000,7 +2000,7 @@ export default function TenantSettingsPage() {
                   </Button>
                 </CardContent>
               </Card>
-              
+
               <Card className="border-info/20">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -2031,16 +2031,16 @@ export default function TenantSettingsPage() {
                       Detección de conflictos
                     </li>
                   </ul>
-                  
+
                   <hr className="border-border" />
-                  
+
                   <InlineAlert variant="warning">
-                      Esta funcionalidad requiere endpoints adicionales en el backend.
-                      Ver requisitos en el diálogo de importación.
+                    Esta funcionalidad requiere endpoints adicionales en el backend.
+                    Ver requisitos en el diálogo de importación.
                   </InlineAlert>
-                  
-                  <Button 
-                    variant="outline" 
+
+                  <Button
+                    variant="outline"
                     className="w-full"
                     onClick={() => setShowImportDialog(true)}
                   >
@@ -2050,7 +2050,7 @@ export default function TenantSettingsPage() {
                 </CardContent>
               </Card>
             </div>
-            
+
             {/* Backup History - Future */}
             <Card className="opacity-60">
               <CardHeader>
@@ -2074,7 +2074,7 @@ export default function TenantSettingsPage() {
             </Card>
           </TabsContent>
         </Tabs>
-        
+
         {/* Dialogs */}
         <ExportDialog
           open={showExportDialog}
@@ -2083,7 +2083,7 @@ export default function TenantSettingsPage() {
           tenantSlug={formData.slug}
           settings={settings}
         />
-        
+
         <ImportDialog
           open={showImportDialog}
           onOpenChange={setShowImportDialog}

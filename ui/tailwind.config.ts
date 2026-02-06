@@ -56,11 +56,16 @@ const config: Config = {
         'accent-foreground': 'hsl(var(--accent-foreground))',
         'accent-2': 'hsl(var(--accent-2) / <alpha-value>)',
 
-        // Semantic colors (HSL for opacity modifiers)
-        info: 'hsl(var(--info) / <alpha-value>)',
-        success: 'hsl(var(--success) / <alpha-value>)',
-        warning: 'hsl(var(--warning) / <alpha-value>)',
-        danger: 'hsl(var(--danger) / <alpha-value>)',
+        // Semantic colors - using <alpha-value> for opacity modifier support
+        // Usage: bg-success, text-success, border-success, bg-success/50
+        info: 'hsl(199 89% 48% / <alpha-value>)',
+        'info-foreground': 'hsl(0 0% 100%)',
+        success: 'hsl(158 64% 52% / <alpha-value>)',
+        'success-foreground': 'hsl(0 0% 100%)',
+        warning: 'hsl(38 92% 50% / <alpha-value>)',
+        'warning-foreground': 'hsl(0 0% 100%)',
+        danger: 'hsl(351 95% 71% / <alpha-value>)',
+        'danger-foreground': 'hsl(0 0% 100%)',
 
         // Destructive
         destructive: 'hsl(var(--destructive))',

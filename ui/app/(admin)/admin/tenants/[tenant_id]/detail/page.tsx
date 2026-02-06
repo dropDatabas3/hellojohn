@@ -117,6 +117,21 @@ export default function TenantDetailPage() {
     enabled: !!tenantId,
   })
 
+  // Fetch clients to determine onboarding state
+  const { data: clients } = useQuery<{ client_id: string }[]>({
+    queryKey: ["clients", tenantId],
+    queryFn: () => api.get(`/v2/admin/tenants/${tenantId}/clients`),
+    enabled: !!tenantId,
+  })
+
+  // Onboarding detection
+  // Note: userDb.dsnEnc has json:"-" in the backend so it never arrives here.
+  // The presence of userDb with a driver is the reliable indicator.
+  const hasDB = !!(tenant?.settings?.userDb?.driver)
+  const hasClients = Array.isArray(clients) && clients.length > 0
+  const needsStorage = !!tenant && !hasDB
+  const needsClients = !!tenant && hasDB && !hasClients
+
   // Loading State
   if (isLoading) {
     return <TenantDetailSkeleton />
@@ -190,7 +205,7 @@ export default function TenantDetailPage() {
       </section>
 
       {/* Quick Access Links */}
-      <section className="mt-8 space-y-6">
+      <section className="mt-6 space-y-3">
         <h2 className="text-lg font-semibold text-foreground">Quick Access</h2>
 
         {/* Identity Section */}
@@ -204,21 +219,21 @@ export default function TenantDetailPage() {
               icon={Users}
               title="Users"
               description="Manage user accounts and profiles"
-              variant="info"
+              iconColor="info"
             />
             <QuickLinkCard
               href={`/admin/tenants/${tenantId}/sessions`}
               icon={Activity}
               title="Sessions"
               description="View and manage active sessions"
-              variant="success"
+              iconColor="success"
             />
             <QuickLinkCard
               href={`/admin/tenants/${tenantId}/consents`}
               icon={FileText}
               title="Consents"
               description="User consent management"
-              variant="warning"
+              iconColor="warning"
             />
           </div>
         </div>
@@ -234,21 +249,21 @@ export default function TenantDetailPage() {
               icon={Shield}
               title="RBAC & Roles"
               description="Role-based access control"
-              variant="info"
+              iconColor="info"
             />
             <QuickLinkCard
               href={`/admin/tenants/${tenantId}/scopes`}
               icon={Lock}
               title="Scopes"
               description="OAuth2 scope definitions"
-              variant="info"
+              iconColor="info"
             />
             <QuickLinkCard
               href={`/admin/tenants/${tenantId}/claims`}
               icon={Fingerprint}
               title="Claims"
               description="Token claims configuration"
-              variant="success"
+              iconColor="success"
             />
           </div>
         </div>
@@ -264,21 +279,22 @@ export default function TenantDetailPage() {
               icon={Boxes}
               title="Clients"
               description="OAuth2 client applications"
-              variant="warning"
+              iconColor="warning"
+              attention={needsClients}
             />
             <QuickLinkCard
               href={`/admin/tenants/${tenantId}/tokens`}
               icon={Key}
               title="Tokens"
               description="Token policies and active tokens"
-              variant="info"
+              iconColor="info"
             />
             <QuickLinkCard
               href={`/admin/tenants/${tenantId}/providers`}
               icon={Globe2}
               title="Social Providers"
               description="External identity providers"
-              variant="danger"
+              iconColor="danger"
             />
           </div>
         </div>
@@ -294,21 +310,21 @@ export default function TenantDetailPage() {
               icon={Settings}
               title="Settings"
               description="General tenant configuration"
-              variant="default"
             />
             <QuickLinkCard
               href={`/admin/tenants/${tenantId}/mailing`}
               icon={Mail}
               title="Mailing"
               description="Email templates and SMTP"
-              variant="info"
+              iconColor="info"
             />
             <QuickLinkCard
               href={`/admin/tenants/${tenantId}/database`}
               icon={Database}
               title="Storage"
               description="Database and data management"
-              variant="success"
+              iconColor="success"
+              attention={needsStorage}
             />
           </div>
         </div>
