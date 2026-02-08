@@ -469,6 +469,58 @@ data/hellojohn/
 | `IdentityRepository` | ✅ | `identities` (social) |
 | `SchemaRepository` | ✅ | Dynamic SQL |
 
+### MySQL Adapter (`adapters/mysql/`)
+
+**Soporta:** Data Plane (Users, Tokens, MFA, Consents, etc.) - Alternativa a PostgreSQL
+
+**Requisitos:**
+- MySQL 8.0+
+- Driver: `github.com/go-sql-driver/mysql`
+
+**DSN Format:**
+```
+user:password@tcp(host:port)/database?parseTime=true&multiStatements=true
+```
+
+| Repositorio | Implementado | Notas |
+|-------------|--------------|-------|
+| `UserRepository` | ✅ | 12 métodos - `user.go` |
+| `TokenRepository` | ✅ | 10 métodos - `token.go` |
+| `SessionRepository` | ✅ | 10 métodos - `session.go` |
+| `MFARepository` | ✅ | TOTP, recovery codes, trusted devices |
+| `ConsentRepository` | ✅ | Scopes como JSON |
+| `RBACRepository` | ✅ | Usa JSON_TABLE en lugar de UNNEST |
+| `EmailTokenRepository` | ✅ | Verificación y reset |
+| `IdentityRepository` | ✅ | Social identities |
+| `ScopeRepository` | ✅ | OAuth2 scopes |
+| `SchemaRepository` | ✅ | Column introspection |
+
+**Configuración de Tenant:**
+```yaml
+# tenant.yaml
+settings:
+  user_db:
+    driver: "mysql"
+    dsn_enc: "encrypted_mysql_dsn_here"
+```
+
+**Diferencias con PostgreSQL:**
+
+| Concepto | PostgreSQL | MySQL |
+|----------|------------|-------|
+| Arrays | `TEXT[]` nativo | `JSON` + funciones JSON |
+| Case-insensitive | `ILIKE` | `LIKE` (collation ci) |
+| UUID generation | `gen_random_uuid()` | `UUID()` o generado en Go |
+| RETURNING | Soportado | No disponible |
+| Timestamps | `TIMESTAMPTZ` | `DATETIME(6)` |
+| IP addresses | `INET` | `VARCHAR(45)` |
+
+**Migraciones:** `migrations/mysql/tenant/`
+- `0001_init_up.sql` - Schema completo (14 tablas)
+- `0002_add_user_language_up.sql`
+- `0003_create_sessions_up.sql`
+- `0004_rbac_schema_fix_up.sql`
+
 ### Noop Adapter (`adapters/noop/`)
 
 **Para testing.** Retorna `ErrNotImplemented` para todo.

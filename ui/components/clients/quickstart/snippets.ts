@@ -65,9 +65,9 @@ export function getSnippet(sdkId: string, config: SnippetConfig): string {
   // Regular (interactive user) snippets
   switch (sdkId) {
     case "javascript":
-      return `import { createAuthClient } from '@hellojohn/js'
+      return `import { createHelloJohn } from '@hellojohn/js'
 
-const auth = createAuthClient({
+const auth = createHelloJohn({
   domain: '${config.domain}',
   clientID: '${config.clientId}',
   tenantID: '${config.tenantSlug}',

@@ -1,6 +1,0 @@
-internal/http/controllers/admin/sessions_controller.go:38:	tenantSlug := r.PathValue("tenant")
-internal/http/controllers/admin/sessions_controller.go:104:	tenantSlug := r.PathValue("tenant")
-internal/http/controllers/admin/sessions_controller.go:156:	tenantSlug := r.PathValue("tenant")
-internal/http/controllers/admin/sessions_controller.go:206:	tenantSlug := r.PathValue("tenant")
-internal/http/controllers/admin/sessions_controller.go:249:	tenantSlug := r.PathValue("tenant")
-internal/http/controllers/admin/sessions_controller.go:280:	tenantSlug := r.PathValue("tenant")

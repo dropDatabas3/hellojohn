@@ -1,8 +1,0 @@
-ui/app/(admin)/admin/tenants/[tenant_id]/claims/page.tsx
-ui/app/(admin)/admin/tenants/[tenant_id]/clients/page.tsx
-ui/app/(admin)/admin/tenants/[tenant_id]/providers/page.tsx
-ui/app/(admin)/admin/tenants/[tenant_id]/rbac/page.tsx
-ui/app/(admin)/admin/tenants/[tenant_id]/scopes/page.tsx
-ui/app/(admin)/admin/tenants/[tenant_id]/sessions/page.tsx
-ui/app/(admin)/admin/tenants/[tenant_id]/tokens/page.tsx
-ui/app/(admin)/admin/tenants/[tenant_id]/users/page.tsx

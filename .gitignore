@@ -69,7 +69,7 @@ roadmap_v2.md
 /sdks/react/.next
 
 
-/images
+#/images
 /bananacorp
 
 /bananacorp/node_modules
@@ -84,9 +84,11 @@ roadmap_v2.md
 
 
 # --------- claude ---------
-#/.claude/
-#CLAUDE.md
-#.clauderc
+/.claude/
+CLAUDE.md
+.clauderc
+.gemini
+/images
 
 
 # ───────── Auditoría ─────────
@@ -94,3 +96,4 @@ roadmap_v2.md
 docs/audit_older
 docs/ui-unification
 docs/controlplane
+nul

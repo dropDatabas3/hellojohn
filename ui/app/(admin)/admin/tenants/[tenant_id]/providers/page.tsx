@@ -421,15 +421,22 @@ function SocialProvidersContent() {
 
       // For now, only Google is supported in backend
       if (config.providerId === "google") {
+        // First, get current settings with ETag
+        const { data: currentSettings, headers } = await api.getWithHeaders<any>(
+          `${API_ROUTES.ADMIN_TENANT_SETTINGS(tenantId)}`
+        )
+        const etag = headers.get("ETag") || ""
+
         const settings = {
-          ...tenant?.settings,
+          ...currentSettings,
+          socialLoginEnabled: true, // Enable social login at tenant level
           socialProviders: {
             googleEnabled: true,
             googleClient: config.clientId,
             googleSecret: config.clientSecret,
           },
         }
-        return api.put(`${API_ROUTES.ADMIN_TENANT_SETTINGS(tenantId)}`, settings)
+        return api.put(`${API_ROUTES.ADMIN_TENANT_SETTINGS(tenantId)}`, settings, etag)
       }
 
       // For other providers, show mock success
@@ -459,15 +466,21 @@ function SocialProvidersContent() {
       if (!tenantId) throw new Error("Tenant ID required")
 
       if (providerId === "google") {
+        // First, get current settings with ETag
+        const { data: currentSettings, headers } = await api.getWithHeaders<any>(
+          `${API_ROUTES.ADMIN_TENANT_SETTINGS(tenantId)}`
+        )
+        const etag = headers.get("ETag") || ""
+
         const settings = {
-          ...tenant?.settings,
+          ...currentSettings,
           socialProviders: {
             googleEnabled: false,
             googleClient: "",
             googleSecret: "",
           },
         }
-        return api.put(`${API_ROUTES.ADMIN_TENANT_SETTINGS(tenantId)}`, settings)
+        return api.put(`${API_ROUTES.ADMIN_TENANT_SETTINGS(tenantId)}`, settings, etag)
       }
 
       await new Promise(resolve => setTimeout(resolve, 500))

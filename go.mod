@@ -5,18 +5,16 @@ go 1.23
 toolchain go1.24.5
 
 require (
-	github.com/go-chi/chi/v5 v5.2.3
 	github.com/go-mail/mail v2.3.1+incompatible
+	github.com/go-sql-driver/mysql v1.8.1
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/raft v1.7.3
 	github.com/hashicorp/raft-boltdb v0.0.0-20250926130943-f41fa5f23d89
 	github.com/jackc/pgx/v5 v5.7.0
 	github.com/joho/godotenv v1.5.1
-	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/prometheus/client_golang v1.19.1
 	github.com/redis/go-redis/v9 v9.5.1
-	github.com/spf13/cobra v1.7.0
 	go.uber.org/zap v1.27.1
 	golang.org/x/crypto v0.19.0
 	golang.org/x/sync v0.4.0
@@ -25,6 +23,7 @@ require (
 )
 
 require (
+	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/boltdb/bolt v1.3.1 // indirect
@@ -37,7 +36,6 @@ require (
 	github.com/hashicorp/go-msgpack v0.5.5 // indirect
 	github.com/hashicorp/go-msgpack/v2 v2.1.2 // indirect
 	github.com/hashicorp/golang-lru v0.5.0 // indirect
-	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
@@ -47,7 +45,6 @@ require (
 	github.com/prometheus/common v0.48.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/sys v0.26.0 // indirect
 	golang.org/x/text v0.14.0 // indirect

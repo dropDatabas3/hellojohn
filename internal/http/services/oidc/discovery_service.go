@@ -46,10 +46,10 @@ var (
 // Metadata OIDC común
 var (
 	responseTypesSupported            = []string{"code"}
-	grantTypesSupported               = []string{"authorization_code", "refresh_token"}
+	grantTypesSupported               = []string{"authorization_code", "refresh_token", "client_credentials"}
 	subjectTypesSupported             = []string{"public"}
 	idTokenSigningAlgValuesSupported  = []string{"EdDSA"}
-	tokenEndpointAuthMethodsSupported = []string{"none"}
+	tokenEndpointAuthMethodsSupported = []string{"none", "client_secret_post", "client_secret_basic"}
 	codeChallengeMethodsSupported     = []string{"S256"}
 	scopesSupported                   = []string{"openid", "email", "profile", "offline_access"}
 	claimsSupported                   = []string{

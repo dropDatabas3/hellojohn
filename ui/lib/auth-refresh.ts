@@ -31,30 +31,46 @@ export function useAuthRefresh() {
     // Refresh 60 seconds before expiry, but at least in 5 seconds
     const msUntilRefresh = Math.max(expiresAt - now - 60_000, 5_000)
 
+    console.log('[AUTH-REFRESH] Scheduling refresh in', Math.round(msUntilRefresh / 1000), 'seconds')
+    console.log('[AUTH-REFRESH] Current time:', new Date(now).toISOString())
+    console.log('[AUTH-REFRESH] Token expires at:', new Date(expiresAt).toISOString())
+
     timerRef.current = setTimeout(async () => {
+      const refreshStartTime = Date.now()
+      console.log('[AUTH-REFRESH] Starting refresh at:', new Date(refreshStartTime).toISOString())
+
       try {
         const apiBase = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080"
-        const client = new ApiClient(apiBase, () => token, () => {}, () => {})
-        // Derive client_id and tenant from current token claims if not present in user
-        let clientID: string | undefined
-        let tenantID: string | undefined
-        try {
-          if (token) {
-            const payload = token.split(".")[1]
-            const json = JSON.parse(new TextDecoder().decode(base64UrlDecode(payload)))
-            clientID = json["aud"] as string | undefined
-            tenantID = (json["tid"] as string | undefined) || (json["tenant_id"] as string | undefined)
-          }
-        } catch {}
+        const client = new ApiClient(apiBase, () => token, () => { }, () => { })
+
+        // Simplified: Backend handles admin refresh tokens automatically via JWT
+        // No need to extract client_id/tenant_id for admin tokens
+        console.log('[AUTH-REFRESH] Calling /v2/auth/refresh endpoint')
         const resp = await client.post<LoginResponse>("/v2/auth/refresh", {
-          client_id: clientID,
-          tenant_id: tenantID,
           refresh_token: refreshToken,
         })
+
+        console.log('[AUTH-REFRESH] Refresh successful')
+        console.log('[AUTH-REFRESH] Response expires_in:', resp.expires_in, 'seconds')
+
         const newExpiresAt = Date.now() + (resp.expires_in ? resp.expires_in * 1000 : 0)
+        console.log('[AUTH-REFRESH] New expiration:', new Date(newExpiresAt).toISOString())
+
         setAuth(resp.access_token, user, resp.refresh_token ?? refreshToken, newExpiresAt)
-      } catch (e) {
+        console.log('[AUTH-REFRESH] Auth state updated successfully')
+      } catch (e: any) {
+        // Log detailed error information for debugging
+        console.error('[AUTH-REFRESH] Refresh failed:', e)
+        console.error('[AUTH-REFRESH] Error details:', {
+          message: e?.message,
+          status: e?.status,
+          statusText: e?.statusText,
+          error: e?.error,
+          error_description: e?.error_description,
+        })
+
         // Refresh failed; clear auth to force re-login
+        console.warn('[AUTH-REFRESH] Clearing auth and redirecting to login')
         clearAuth()
         if (typeof window !== "undefined") {
           window.location.href = "/login"

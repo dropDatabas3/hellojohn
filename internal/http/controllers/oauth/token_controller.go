@@ -3,6 +3,7 @@ package oauth
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"strings"
 
@@ -79,10 +80,17 @@ func (c *TokenController) Token(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *TokenController) handleAuthorizationCode(ctx context.Context, r *http.Request, tenantSlug string) (*svc.TokenResponse, error) {
+	// Support client_secret_basic: extract client_id from Basic Auth header if present
+	basicID, _ := extractBasicAuth(r)
+	clientID := strings.TrimSpace(r.PostForm.Get("client_id"))
+	if clientID == "" && basicID != "" {
+		clientID = basicID
+	}
+
 	req := svc.AuthCodeRequest{
 		Code:         strings.TrimSpace(r.PostForm.Get("code")),
 		RedirectURI:  strings.TrimSpace(r.PostForm.Get("redirect_uri")),
-		ClientID:     strings.TrimSpace(r.PostForm.Get("client_id")),
+		ClientID:     clientID,
 		CodeVerifier: strings.TrimSpace(r.PostForm.Get("code_verifier")),
 		TenantSlug:   tenantSlug,
 	}
@@ -90,8 +98,15 @@ func (c *TokenController) handleAuthorizationCode(ctx context.Context, r *http.R
 }
 
 func (c *TokenController) handleRefreshToken(ctx context.Context, r *http.Request, tenantSlug string) (*svc.TokenResponse, error) {
+	// Support client_secret_basic: extract client_id from Basic Auth header if present
+	basicID, _ := extractBasicAuth(r)
+	clientID := strings.TrimSpace(r.PostForm.Get("client_id"))
+	if clientID == "" && basicID != "" {
+		clientID = basicID
+	}
+
 	req := svc.RefreshTokenRequest{
-		ClientID:     strings.TrimSpace(r.PostForm.Get("client_id")),
+		ClientID:     clientID,
 		RefreshToken: strings.TrimSpace(r.PostForm.Get("refresh_token")),
 		TenantSlug:   tenantSlug,
 	}
@@ -99,9 +114,23 @@ func (c *TokenController) handleRefreshToken(ctx context.Context, r *http.Reques
 }
 
 func (c *TokenController) handleClientCredentials(ctx context.Context, r *http.Request, tenantSlug string) (*svc.TokenResponse, error) {
+	// Support client_secret_basic (RFC 6749 §2.3.1):
+	// Authorization: Basic base64(client_id:client_secret)
+	// Falls back to client_secret_post (form body) if no Basic header.
+	basicID, basicSecret := extractBasicAuth(r)
+
+	clientID := strings.TrimSpace(r.PostForm.Get("client_id"))
+	clientSecret := strings.TrimSpace(r.PostForm.Get("client_secret"))
+
+	// Basic Auth takes precedence when present
+	if basicID != "" {
+		clientID = basicID
+		clientSecret = basicSecret
+	}
+
 	req := svc.ClientCredentialsRequest{
-		ClientID:     strings.TrimSpace(r.PostForm.Get("client_id")),
-		ClientSecret: strings.TrimSpace(r.PostForm.Get("client_secret")),
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
 		Scope:        strings.TrimSpace(r.PostForm.Get("scope")),
 		TenantSlug:   tenantSlug,
 	}
@@ -158,6 +187,25 @@ func (c *TokenController) writeTokenResponse(w http.ResponseWriter, resp *svc.To
 	}
 	out += `}`
 	_, _ = w.Write([]byte(out))
+}
+
+// extractBasicAuth parses the Authorization: Basic header (RFC 6749 §2.3.1).
+// Returns (clientID, clientSecret) or ("", "") if the header is missing/invalid.
+func extractBasicAuth(r *http.Request) (string, string) {
+	header := r.Header.Get("Authorization")
+	if !strings.HasPrefix(header, "Basic ") {
+		return "", ""
+	}
+	decoded, err := base64.StdEncoding.DecodeString(header[6:])
+	if err != nil {
+		return "", ""
+	}
+	// Format: client_id:client_secret
+	parts := strings.SplitN(string(decoded), ":", 2)
+	if len(parts) != 2 {
+		return "", ""
+	}
+	return parts[0], parts[1]
 }
 
 func resolveTenantSlug(r *http.Request) string {
