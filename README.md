@@ -120,8 +120,6 @@ El código está organizado modularmente para facilitar la contribución y mante
 
 ### Prerrequisitos
 *   **Go** 1.23+
-*   **PostgreSQL** 14+ (u otro motor soportado)
-*   **Redis** (Opcional, recomendado para producción)
 
 ### 1. Clonar y Configurar
 ```bash
