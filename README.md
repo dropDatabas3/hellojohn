@@ -1,4 +1,4 @@
-# HelloJohn
+# [HelloJohn](https://deepwiki.com/dropDatabas3/hellojohn?tab=readme-ov-file)
 
 > **The Developer-First Identity Platform**
 >
@@ -170,6 +170,11 @@ cd ui && npm install && npm run dev
 | `SECRETBOX_MASTER_KEY` | Base64 Key (32 bytes) para cifrado DB | `c3d4...` |
 | `FS_ROOT` | Directorio raíz del Control Plane | `./data` |
 | `V2_SERVER_ADDR` | Dirección de escucha HTTP | `:8080` |
+
+---
+
+
+### ¿Dudas? Preguntale a **[devin](https://deepwiki.com/dropDatabas3/hellojohn?tab=readme-ov-file)** 
 
 ---
 
