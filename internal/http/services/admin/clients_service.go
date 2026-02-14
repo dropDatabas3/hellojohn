@@ -15,6 +15,7 @@ import (
 // ClientService define las operaciones de clients para el admin API.
 type ClientService interface {
 	List(ctx context.Context, tenantSlug string) ([]repository.Client, error)
+	Get(ctx context.Context, tenantSlug, clientID string) (*repository.Client, error)
 	Create(ctx context.Context, tenantSlug string, input controlplane.ClientInput) (*repository.Client, error)
 	Update(ctx context.Context, tenantSlug string, input controlplane.ClientInput) (*repository.Client, error)
 	Delete(ctx context.Context, tenantSlug, clientID string) error
@@ -47,6 +48,29 @@ func (s *clientService) List(ctx context.Context, tenantSlug string) ([]reposito
 
 	log.Debug("clients listed", logger.Int("count", len(clients)))
 	return clients, nil
+}
+
+func (s *clientService) Get(ctx context.Context, tenantSlug, clientID string) (*repository.Client, error) {
+	log := logger.From(ctx).With(
+		logger.Layer("service"),
+		logger.Component("admin.clients"),
+		logger.Op("Get"),
+		logger.TenantSlug(tenantSlug),
+		logger.ClientID(clientID),
+	)
+
+	if clientID == "" {
+		return nil, fmt.Errorf("client_id is required")
+	}
+
+	client, err := s.cp.GetClient(ctx, tenantSlug, clientID)
+	if err != nil {
+		log.Error("failed to get client", logger.Err(err))
+		return nil, err
+	}
+
+	log.Debug("client retrieved", logger.ClientID(client.ClientID))
+	return client, nil
 }
 
 func (s *clientService) Create(ctx context.Context, tenantSlug string, input controlplane.ClientInput) (*repository.Client, error) {

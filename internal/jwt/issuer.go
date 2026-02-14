@@ -40,6 +40,11 @@ func (i *Issuer) WithTenantResolver(resolver TenantResolver) *Issuer {
 	return i
 }
 
+// GetIss returns the issuer string.
+func (i *Issuer) GetIss() string {
+	return i.Iss
+}
+
 // ActiveKID devuelve el KID activo actual.
 func (i *Issuer) ActiveKID() (string, error) {
 	kid, _, _, err := i.Keys.Active()

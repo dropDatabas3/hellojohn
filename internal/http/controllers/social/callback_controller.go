@@ -1,7 +1,9 @@
 package social
 
 import (
+	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	httperrors "github.com/dropDatabas3/hellojohn/internal/http/errors"
@@ -11,12 +13,13 @@ import (
 
 // CallbackController handles social login callback endpoint.
 type CallbackController struct {
-	service svc.CallbackService
+	service     svc.CallbackService
+	stateSigner svc.StateSigner // To extract redirect_uri for error redirects
 }
 
 // NewCallbackController creates a new CallbackController.
-func NewCallbackController(service svc.CallbackService) *CallbackController {
-	return &CallbackController{service: service}
+func NewCallbackController(service svc.CallbackService, stateSigner svc.StateSigner) *CallbackController {
+	return &CallbackController{service: service, stateSigner: stateSigner}
 }
 
 // Callback handles GET /v2/auth/social/{provider}/callback
@@ -59,6 +62,14 @@ func (c *CallbackController) Callback(w http.ResponseWriter, r *http.Request) {
 			logger.String("error", idpError),
 			logger.String("description", idpDesc),
 		)
+
+		// Try to redirect with error if we can extract redirect_uri from state
+		state := strings.TrimSpace(q.Get("state"))
+		if redirectURI := c.extractRedirectURI(state); redirectURI != "" {
+			redirectWithError(w, r, redirectURI, idpError, idpDesc)
+			return
+		}
+
 		httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("idp_error: "+idpError+" "+idpDesc))
 		return
 	}
@@ -106,23 +117,39 @@ func (c *CallbackController) Callback(w http.ResponseWriter, r *http.Request) {
 			logger.Err(err),
 		)
 
-		switch err {
-		case svc.ErrCallbackMissingState:
+		// Try to redirect with error to the client app (best UX)
+		if redirectURI := c.extractRedirectURI(state); redirectURI != "" {
+			errorCode, errorDesc := mapCallbackError(err)
+			log.Info("redirecting with error",
+				logger.String("redirect_uri", redirectURI),
+				logger.String("error_code", errorCode),
+			)
+			redirectWithError(w, r, redirectURI, errorCode, errorDesc)
+			return
+		}
+
+		// Fallback: JSON response (redirect_uri not extractable, e.g. invalid state)
+		switch {
+		case errors.Is(err, svc.ErrCallbackMissingState):
 			httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("state required"))
-		case svc.ErrCallbackMissingCode:
+		case errors.Is(err, svc.ErrCallbackMissingCode):
 			httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("code required"))
-		case svc.ErrCallbackInvalidState:
+		case errors.Is(err, svc.ErrCallbackInvalidState):
 			httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("invalid state"))
-		case svc.ErrCallbackProviderMismatch:
+		case errors.Is(err, svc.ErrCallbackProviderMismatch):
 			httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("provider mismatch"))
-		case svc.ErrCallbackProviderUnknown, svc.ErrCallbackProviderDisabled:
+		case errors.Is(err, svc.ErrCallbackProviderUnknown), errors.Is(err, svc.ErrCallbackProviderDisabled):
 			httperrors.WriteError(w, httperrors.ErrNotFound.WithDetail("provider not enabled"))
-		case svc.ErrCallbackOIDCExchangeFailed:
+		case errors.Is(err, svc.ErrCallbackOIDCExchangeFailed):
 			httperrors.WriteError(w, httperrors.ErrInternalServerError.WithDetail("code exchange failed"))
-		case svc.ErrCallbackIDTokenInvalid:
+		case errors.Is(err, svc.ErrCallbackIDTokenInvalid):
 			httperrors.WriteError(w, httperrors.ErrUnauthorized.WithDetail("id_token invalid"))
-		case svc.ErrCallbackEmailMissing:
+		case errors.Is(err, svc.ErrCallbackEmailMissing):
 			httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("email missing"))
+		case errors.Is(err, svc.ErrCallbackProvisionFailed):
+			httperrors.WriteError(w, httperrors.ErrServiceUnavailable.WithDetail("user provisioning failed"))
+		case errors.Is(err, svc.ErrCallbackTokenIssueFailed):
+			httperrors.WriteError(w, httperrors.ErrInternalServerError.WithDetail("token issuance failed"))
 		default:
 			httperrors.WriteError(w, httperrors.ErrInternalServerError)
 		}
@@ -150,4 +177,68 @@ func (c *CallbackController) Callback(w http.ResponseWriter, r *http.Request) {
 	log.Debug("callback completed",
 		logger.String("provider", provider),
 	)
+}
+
+// extractRedirectURI tries to parse the state JWT to extract the redirect_uri.
+// Returns empty string if state is empty or parsing fails.
+func (c *CallbackController) extractRedirectURI(state string) string {
+	if state == "" || c.stateSigner == nil {
+		return ""
+	}
+	claims, err := c.stateSigner.ParseState(state)
+	if err != nil || claims == nil {
+		return ""
+	}
+	return claims.RedirectURI
+}
+
+// mapCallbackError maps a service error to OAuth2-style error code and description.
+func mapCallbackError(err error) (code, description string) {
+	switch {
+	case errors.Is(err, svc.ErrCallbackProvisionFailed):
+		return "temporarily_unavailable", "The service is temporarily unavailable. Please try again later."
+	case errors.Is(err, svc.ErrCallbackTokenIssueFailed):
+		return "server_error", "Failed to complete authentication. Please try again."
+	case errors.Is(err, svc.ErrCallbackProviderDisabled), errors.Is(err, svc.ErrCallbackProviderUnknown):
+		return "unauthorized_client", "This login provider is not enabled."
+	case errors.Is(err, svc.ErrCallbackOIDCExchangeFailed):
+		return "server_error", "Failed to exchange authorization code. Please try again."
+	case errors.Is(err, svc.ErrCallbackIDTokenInvalid):
+		return "server_error", "Identity verification failed."
+	case errors.Is(err, svc.ErrCallbackEmailMissing):
+		return "invalid_request", "Email address is required but was not provided by the identity provider."
+	case errors.Is(err, svc.ErrCallbackInvalidState):
+		return "invalid_request", "Invalid or expired login session. Please try again."
+	case errors.Is(err, svc.ErrCallbackProviderMismatch):
+		return "invalid_request", "Provider mismatch detected."
+	case errors.Is(err, svc.ErrCallbackInvalidClient):
+		return "unauthorized_client", "Invalid client configuration."
+	case errors.Is(err, svc.ErrCallbackInvalidRedirect):
+		return "invalid_request", "Invalid redirect URI."
+	case errors.Is(err, svc.ErrCallbackProviderMisconfigured):
+		return "server_error", "The login provider is misconfigured."
+	default:
+		return "server_error", "An unexpected error occurred. Please try again."
+	}
+}
+
+// redirectWithError redirects the user to the client app with error parameters.
+func redirectWithError(w http.ResponseWriter, r *http.Request, redirectURI, errorCode, errorDesc string) {
+	u, err := url.Parse(redirectURI)
+	if err != nil {
+		// Fallback: if redirect URI is invalid, just write error
+		httperrors.WriteError(w, httperrors.ErrInternalServerError)
+		return
+	}
+
+	q := u.Query()
+	q.Set("error", errorCode)
+	if errorDesc != "" {
+		q.Set("error_description", errorDesc)
+	}
+	u.RawQuery = q.Encode()
+
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	http.Redirect(w, r, u.String(), http.StatusFound)
 }

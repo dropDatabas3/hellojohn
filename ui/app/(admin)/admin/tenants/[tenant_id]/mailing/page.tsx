@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useSearchParams } from "next/navigation"
+import { useParams, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
@@ -10,6 +10,7 @@ import {
     ChevronRight, Zap, ArrowLeft, RefreshCw, Activity
 } from "lucide-react"
 import { api } from "@/lib/api"
+import { useAuthStore } from "@/lib/auth-store"
 import { useToast } from "@/hooks/use-toast"
 import { DEFAULT_TEMPLATES } from "@/lib/default-templates"
 import type { Tenant, EmailTemplate } from "@/lib/types"
@@ -124,10 +125,15 @@ function StatCard({
 // ─── Main Component ───
 
 export default function MailingPage() {
+    const params = useParams()
     const search = useSearchParams()
-    const tenantId = search.get("id") as string
+    const tenantIdFromParams = params.tenant_id as string | undefined
+    const tenantIdFromQuery = search.get("id") || undefined
+    const tenantId = tenantIdFromParams || tenantIdFromQuery || ""
     const { toast } = useToast()
     const queryClient = useQueryClient()
+    const { token } = useAuthStore()
+    const [etag, setEtag] = useState<string>("")
 
     // ─── Data Fetching ───
 
@@ -139,15 +145,13 @@ export default function MailingPage() {
 
     const { data: settings, isLoading } = useQuery({
         queryKey: ["tenant-settings", tenantId, "mailing"],
-        enabled: !!tenantId,
+        enabled: !!tenantId && !!token,
         queryFn: async () => {
-            const token = (await import("@/lib/auth-store")).useAuthStore.getState().token
-            const resp = await fetch(`${api.getBaseUrl()}/v2/admin/tenants/${tenantId}/settings`, {
-                headers: { Authorization: token ? `Bearer ${token}` : "" },
-            })
-            const etag = resp.headers.get("ETag") || undefined
-            const data = await resp.json()
-            return { ...data, _etag: etag }
+            if (!tenantId || !token) throw new Error("No tenant ID or token")
+            const { data, headers } = await api.getWithHeaders<any>(`/v2/admin/tenants/${tenantId}/settings`)
+            const etagHeader = headers.get("ETag")
+            if (etagHeader) setEtag(etagHeader)
+            return data
         },
     })
 
@@ -207,8 +211,8 @@ export default function MailingPage() {
 
     const updateSettingsMutation = useMutation({
         mutationFn: (data: any) => {
-            if (!settings?._etag) throw new Error("Missing ETag. Please refresh.")
-            return api.put<any>(`/v2/admin/tenants/${tenantId}/settings`, data, settings._etag)
+            if (!etag) throw new Error("Missing ETag. Please refresh.")
+            return api.put<any>(`/v2/admin/tenants/${tenantId}/settings`, data, etag)
         },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["tenant-settings", tenantId, "mailing"] })
@@ -244,7 +248,6 @@ export default function MailingPage() {
             smtp: mapSmtpToBackend(smtpData),
             mailing: { ...settings?.mailing, templates: templatesData },
         }
-        delete payload._etag
         updateSettingsMutation.mutate(payload)
     }
 

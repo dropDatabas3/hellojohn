@@ -3,8 +3,10 @@ package social
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/dropDatabas3/hellojohn/internal/observability/logger"
+	sec "github.com/dropDatabas3/hellojohn/internal/security/secretbox"
 	store "github.com/dropDatabas3/hellojohn/internal/store"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -53,13 +55,35 @@ func (s *provisioningService) EnsureUserAndIdentity(ctx context.Context, tenantS
 	}
 
 	settings := tda.Settings()
-	if settings == nil || settings.UserDB == nil || settings.UserDB.DSN == "" {
+	if settings == nil || settings.UserDB == nil {
+		log.Error("tenant has no database configured", logger.TenantID(tenantSlug))
+		return "", fmt.Errorf("%w: no database for tenant", ErrProvisioningDBRequired)
+	}
+
+	// Get DSN - decrypt DSNEnc if DSN is empty (following Secret/SecretEnc pattern)
+	dsn := settings.UserDB.DSN
+	if dsn == "" && settings.UserDB.DSNEnc != "" {
+		// Decrypt the stored DSNEnc
+		decrypted, err := sec.Decrypt(settings.UserDB.DSNEnc)
+		if err != nil {
+			// Fallback: if it doesn't look encrypted (no pipe separator), use as plain text (dev mode)
+			if !strings.Contains(settings.UserDB.DSNEnc, "|") {
+				dsn = settings.UserDB.DSNEnc
+			} else {
+				log.Error("failed to decrypt DSN", logger.Err(err), logger.TenantID(tenantSlug))
+				return "", fmt.Errorf("%w: failed to decrypt DSN", ErrProvisioningDBRequired)
+			}
+		} else {
+			dsn = decrypted
+		}
+	}
+	if dsn == "" {
 		log.Error("tenant has no DSN configured", logger.TenantID(tenantSlug))
 		return "", fmt.Errorf("%w: no DSN for tenant", ErrProvisioningDBRequired)
 	}
 
 	// Connect to tenant DB via PoolManager
-	pool, err := DefaultPoolManager.GetPool(ctx, settings.UserDB.DSN)
+	pool, err := DefaultPoolManager.GetPool(ctx, dsn)
 	if err != nil {
 		log.Error("failed to get tenant DB pool", logger.Err(err), logger.TenantID(tenantSlug))
 		return "", fmt.Errorf("%w: db connection failed", ErrProvisioningDBRequired)

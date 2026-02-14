@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useSearchParams, useRouter, useParams } from "next/navigation"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api"
+import { useAuthStore } from "@/lib/auth-store"
 import { API_ROUTES } from "@/lib/routes"
 import { useI18n } from "@/lib/i18n"
 import { useToast } from "@/hooks/use-toast"
@@ -1090,12 +1091,14 @@ export default function TenantSettingsPage() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const tenantId = params.tenant_id as string
+  const { token } = useAuthStore()
 
   // State
   const [activeTab, setActiveTab] = useState("general")
   const [hasChanges, setHasChanges] = useState(false)
   const [showExportDialog, setShowExportDialog] = useState(false)
   const [showImportDialog, setShowImportDialog] = useState(false)
+  const [etag, setEtag] = useState<string>("")
 
   // Form State
   const [formData, setFormData] = useState<SettingsFormData>({
@@ -1122,17 +1125,13 @@ export default function TenantSettingsPage() {
 
   const { data: settings, isLoading: loadingSettings } = useQuery({
     queryKey: ["tenant-settings", tenantId, "v2"],
-    enabled: !!tenantId,
+    enabled: !!tenantId && !!token,
     queryFn: async () => {
-      const token = (await import("@/lib/auth-store")).useAuthStore.getState().token
-      const resp = await fetch(`${api.getBaseUrl()}/v2/admin/tenants/${tenantId}/settings`, {
-        headers: {
-          Authorization: token ? `Bearer ${token}` : "",
-        },
-      })
-      const etag = resp.headers.get("ETag") || undefined
-      const data = await resp.json()
-      return { ...data, _etag: etag }
+      if (!tenantId || !token) throw new Error("No tenant ID or token")
+      const { data, headers } = await api.getWithHeaders<any>(`/v2/admin/tenants/${tenantId}/settings`)
+      const etagHeader = headers.get("ETag")
+      if (etagHeader) setEtag(etagHeader)
+      return data
     },
   })
 
@@ -1176,7 +1175,6 @@ export default function TenantSettingsPage() {
 
   const updateSettingsMutation = useMutation({
     mutationFn: (data: any) => {
-      const etag = settings?._etag
       if (!etag) throw new Error("Missing ETag. Please refresh.")
       return api.put<any>(`/v2/admin/tenants/${tenantId}/settings`, data, etag)
     },

@@ -57,6 +57,37 @@ func (c *ClientsController) ListClients(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func (c *ClientsController) GetClient(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log := logger.From(ctx).With(
+		logger.Layer("controller"),
+		logger.Op("ClientsController.GetClient"),
+	)
+
+	tda := mw.GetTenant(ctx)
+	if tda == nil {
+		httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("tenant required"))
+		return
+	}
+
+	clientID := extractClientID(r.URL.Path)
+	if clientID == "" {
+		httperrors.WriteError(w, httperrors.ErrBadRequest.WithDetail("missing client_id"))
+		return
+	}
+
+	log = log.With(logger.TenantSlug(tda.Slug()), logger.ClientID(clientID))
+
+	client, err := c.service.Get(ctx, tda.Slug(), clientID)
+	if err != nil {
+		log.Error("get failed", logger.Err(err))
+		httperrors.WriteError(w, mapError(err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, toClientResponse(*client))
+}
+
 // CreateClient maneja POST /v2/admin/clients
 func (c *ClientsController) CreateClient(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

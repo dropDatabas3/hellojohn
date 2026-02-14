@@ -132,6 +132,8 @@ func NewManager(ctx context.Context, cfg ManagerConfig) (*Manager, error) {
 }
 
 // ForTenant retorna TenantDataAccess, cacheando el resultado.
+// Si el tenant tiene DB configurada pero la conexión falló (lazy connection),
+// el TDA NO se cachea para permitir reintentos en requests posteriores.
 func (m *Manager) ForTenant(ctx context.Context, slugOrID string) (TenantDataAccess, error) {
 	// Verificar cache
 	if val, ok := m.tenants.Load(slugOrID); ok {
@@ -144,10 +146,17 @@ func (m *Manager) ForTenant(ctx context.Context, slugOrID string) (TenantDataAcc
 		return nil, err
 	}
 
-	// Cachear por slug
-	m.tenants.Store(tda.Slug(), tda)
-	if tda.ID() != tda.Slug() {
-		m.tenants.Store(tda.ID(), tda)
+	// Solo cachear si la conexión DB está completa o si el tenant no tiene DB configurada.
+	// Si el tenant tiene DB configurada pero la conexión falló (HasDB() == false),
+	// NO cachear para que el próximo request reintente la conexión.
+	dbConfigured := tda.Settings() != nil &&
+		tda.Settings().UserDB != nil &&
+		tda.Settings().UserDB.Driver != ""
+	if tda.HasDB() || !dbConfigured {
+		m.tenants.Store(tda.Slug(), tda)
+		if tda.ID() != tda.Slug() {
+			m.tenants.Store(tda.ID(), tda)
+		}
 	}
 
 	return tda, nil

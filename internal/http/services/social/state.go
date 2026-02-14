@@ -118,3 +118,42 @@ func getString(m map[string]any, key string) string {
 	}
 	return ""
 }
+
+// issuerWrapper wraps jwt.Issuer to match the IssuerAdapter interface.
+type issuerWrapper struct {
+	iss      string
+	keyfunc  jwtv5.Keyfunc
+	signRaw  func(claims jwtv5.MapClaims) (string, string, error)
+}
+
+func (w *issuerWrapper) Iss() string {
+	return w.iss
+}
+
+func (w *issuerWrapper) Keyfunc() jwtv5.Keyfunc {
+	return w.keyfunc
+}
+
+func (w *issuerWrapper) SignRaw(claims jwtv5.MapClaims) (string, string, error) {
+	return w.signRaw(claims)
+}
+
+// NewIssuerAdapter creates an IssuerAdapter from a jwt.Issuer struct.
+// This helper wraps the struct to match the interface expected by IssuerAdapter.
+func NewIssuerAdapter(issuer IssuerStruct, stateTTL time.Duration) *IssuerAdapter {
+	return &IssuerAdapter{
+		Issuer: &issuerWrapper{
+			iss:     issuer.GetIss(),
+			keyfunc: issuer.Keyfunc(),
+			signRaw: issuer.SignRaw,
+		},
+		StateTTL: stateTTL,
+	}
+}
+
+// IssuerStruct represents the expected struct interface for jwt.Issuer.
+type IssuerStruct interface {
+	Keyfunc() jwtv5.Keyfunc
+	SignRaw(claims jwtv5.MapClaims) (string, string, error)
+	GetIss() string
+}

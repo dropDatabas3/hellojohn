@@ -173,10 +173,12 @@ func buildV2HandlerInternal() (http.Handler, func() error, store.DataAccessLayer
 			Cache:          socialsvc.NewCacheAdapter(cache.NewMemory("social")),
 			DebugPeek:      getenvBool("SOCIAL_DEBUG_PEEK", false),
 			Issuer:         issuer,
+			BaseURL:        v2BaseURL, // Base URL for issuer resolution
 			RefreshTTL:     24 * time.Hour * 30, // Default 30 days
 			LoginCodeTTL:   60 * time.Second,
 			TenantProvider: cpService,
 			OIDCFactory:    socialsvc.NewOIDCFactory(cpService),
+			StateSigner:    socialsvc.NewIssuerAdapter(issuer, 15*time.Minute),
 			// ConfiguredProviders: Load from config/env
 		}),
 		// OAuth

@@ -272,14 +272,14 @@ func (f *Factory) getDataConnection(ctx context.Context, tenant *repository.Tena
 			DSN:    tenant.Settings.UserDB.DSN,
 			Schema: tenant.Settings.UserDB.Schema,
 		}
-		// Si tiene DSNEnc, descifrar con secretbox
+		// Si tiene DSNEnc, descifrar con secretbox.
+		// Error de desencriptación sí es fatal: indica configuración corrompida.
 		if dbCfg.DSN == "" && tenant.Settings.UserDB.DSNEnc != "" {
 			decrypted, err := decryptDSN(tenant.Settings.UserDB.DSNEnc)
 			if err != nil {
 				if f.cfg.Logger != nil {
 					f.cfg.Logger.Printf("store/v2: failed to decrypt DSN for tenant %s: %v", tenant.Slug, err)
 				}
-				// Propagar el error en lugar de fallar silenciosamente
 				return nil, fmt.Errorf("failed to decrypt DSN for tenant %s: %w", tenant.Slug, err)
 			}
 			dbCfg.DSN = decrypted
@@ -288,19 +288,33 @@ func (f *Factory) getDataConnection(ctx context.Context, tenant *repository.Tena
 		dbCfg = f.cfg.DefaultTenantDB
 	}
 
-	// Sin configuración de DB
+	// Sin configuración de DB: tenant opera en modo Control Plane (FS) solamente.
 	if dbCfg == nil || !dbCfg.Valid() {
 		return nil, nil
 	}
 
-	// Obtener del pool
-	return f.pool.Get(ctx, tenant.Slug, AdapterConfig{
+	// Intentar conectar al pool. Si la DB está caída o inaccesible, NO es un error
+	// fatal para ForTenant(): el tenant sigue siendo válido para operaciones de
+	// Control Plane (clients, scopes, keys). El error se diferirá hasta que código
+	// intente usar métodos Data Plane (Users, Tokens, etc.) vía RequireDB().
+	conn, err := f.pool.Get(ctx, tenant.Slug, AdapterConfig{
 		Name:         dbCfg.Driver,
 		DSN:          dbCfg.DSN,
 		Schema:       dbCfg.Schema,
 		MaxOpenConns: dbCfg.MaxOpenConns,
 		MaxIdleConns: dbCfg.MaxIdleConns,
 	})
+	if err != nil {
+		if f.cfg.Logger != nil {
+			f.cfg.Logger.Printf(`{"level":"warn","tenant":"%s","driver":"%s","err":"%v","msg":"tenant DB unavailable, Control Plane operations only"}`,
+				tenant.Slug, dbCfg.Driver, err)
+		}
+		// Retornar (nil, nil): TenantDataAccess es válido para Control Plane.
+		// HasDB() → false, RequireDB() → ErrNoDBForTenant.
+		return nil, nil
+	}
+
+	return conn, nil
 }
 
 func (f *Factory) createTenantConnection(ctx context.Context, slug string, cfg AdapterConfig) (AdapterConnection, error) {
@@ -402,66 +416,68 @@ func (t *tenantAccess) Driver() string {
 	return t.dataConn.Name()
 }
 
-// Data plane repos (desde dataConn)
+// Data plane repos (desde dataConn).
+// Si dataConn es nil (DB no disponible), retorna stubs que devuelven ErrNoDBForTenant.
+// Esto evita nil pointer panics si un caller olvida RequireDB().
 func (t *tenantAccess) Users() repository.UserRepository {
 	if t.dataConn == nil {
-		return nil
+		return noDBUsers
 	}
 	return t.dataConn.Users()
 }
 
 func (t *tenantAccess) Tokens() repository.TokenRepository {
 	if t.dataConn == nil {
-		return nil
+		return noDBTokens
 	}
 	return t.dataConn.Tokens()
 }
 
 func (t *tenantAccess) MFA() repository.MFARepository {
 	if t.dataConn == nil {
-		return nil
+		return noDBMFA
 	}
 	return t.dataConn.MFA()
 }
 
 func (t *tenantAccess) Consents() repository.ConsentRepository {
 	if t.dataConn == nil {
-		return nil
+		return noDBConsents
 	}
 	return t.dataConn.Consents()
 }
 
 func (t *tenantAccess) RBAC() repository.RBACRepository {
 	if t.dataConn == nil {
-		return nil
+		return noDBRBAC
 	}
 	return t.dataConn.RBAC()
 }
 
 func (t *tenantAccess) Schema() repository.SchemaRepository {
 	if t.dataConn == nil {
-		return nil
+		return noDBSchema
 	}
 	return t.dataConn.Schema()
 }
 
 func (t *tenantAccess) EmailTokens() repository.EmailTokenRepository {
 	if t.dataConn == nil {
-		return nil
+		return noDBEmailTkns
 	}
 	return t.dataConn.EmailTokens()
 }
 
 func (t *tenantAccess) Identities() repository.IdentityRepository {
 	if t.dataConn == nil {
-		return nil
+		return noDBIdentities
 	}
 	return t.dataConn.Identities()
 }
 
 func (t *tenantAccess) Sessions() repository.SessionRepository {
 	if t.dataConn == nil {
-		return nil
+		return noDBSessions
 	}
 	return t.dataConn.Sessions()
 }

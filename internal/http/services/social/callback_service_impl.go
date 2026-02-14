@@ -365,11 +365,12 @@ func (s *callbackService) Callback(ctx context.Context, req CallbackRequest) (*C
 			logger.TenantID(stateClaims.TenantSlug),
 		)
 
-		// Build redirect URL with code
+		// Build redirect URL with code and social=true marker
 		redirectURL := stateClaims.RedirectURI
 		if u, err := url.Parse(redirectURL); err == nil {
 			q := u.Query()
 			q.Set("code", loginCode)
+			q.Set("social", "true") // Marker for SDK to identify social login callback
 			u.RawQuery = q.Encode()
 			redirectURL = u.String()
 		} else {
@@ -377,7 +378,7 @@ func (s *callbackService) Callback(ctx context.Context, req CallbackRequest) (*C
 			if strings.Contains(redirectURL, "?") {
 				sep = "&"
 			}
-			redirectURL = redirectURL + sep + "code=" + loginCode
+			redirectURL = redirectURL + sep + "code=" + loginCode + "&social=true"
 		}
 
 		return &CallbackResult{

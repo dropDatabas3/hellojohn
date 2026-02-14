@@ -82,7 +82,7 @@ func (f *DefaultOIDCFactory) Google(ctx context.Context, tenantSlug, baseURL str
 	}
 
 	clientID := settings.SocialProviders.GoogleClient
-	secretEnc := settings.SocialProviders.GoogleSecret
+	secretEnc := settings.SocialProviders.GoogleSecretEnc
 
 	if clientID == "" {
 		return nil, fmt.Errorf("google client_id not configured")
@@ -181,7 +181,7 @@ func (f *DefaultOIDCFactory) GitHub(ctx context.Context, tenantSlug, baseURL str
 	}
 
 	clientID := settings.SocialProviders.GitHubClient
-	secretEnc := settings.SocialProviders.GitHubSecret
+	secretEnc := settings.SocialProviders.GitHubSecretEnc
 
 	if clientID == "" {
 		return nil, fmt.Errorf("github client_id not configured")

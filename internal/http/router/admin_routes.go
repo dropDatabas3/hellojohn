@@ -180,7 +180,7 @@ func adminClientsHandler(dal store.DataAccessLayer, issuer *jwtx.Issuer, limiter
 		case strings.Contains(path, "/tenants/") && strings.Contains(path, "/clients/"):
 			switch r.Method {
 			case http.MethodGet:
-				c.ListClients(w, r)
+				c.GetClient(w, r)
 			case http.MethodPut, http.MethodPatch:
 				c.UpdateClient(w, r)
 			case http.MethodDelete:

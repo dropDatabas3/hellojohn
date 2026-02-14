@@ -19,6 +19,6 @@ func NewControllers(s svc.Services) *Controllers {
 		Result:    NewResultController(s.Result),
 		Providers: NewProvidersController(s.Providers),
 		Start:     NewStartController(s.Start),
-		Callback:  NewCallbackController(s.Callback),
+		Callback:  NewCallbackController(s.Callback, s.StateSigner),
 	}
 }

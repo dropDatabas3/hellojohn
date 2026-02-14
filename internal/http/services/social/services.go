@@ -34,6 +34,7 @@ type Services struct {
 	Provisioning ProvisioningService
 	Token        TokenService
 	ClientConfig ClientConfigService
+	StateSigner  StateSigner // Exposed for controller-level error redirects
 }
 
 // NewServices crea el agregador de services social.
@@ -75,6 +76,7 @@ func NewServices(d Deps) Services {
 		Provisioning: provisioning,
 		Token:        tokenSvc,
 		ClientConfig: clientConfig,
+		StateSigner:  d.StateSigner,
 		Start: NewStartService(StartDeps{
 			Providers:      providers,
 			AuthURLBuilder: d.AuthURLBuilder,
