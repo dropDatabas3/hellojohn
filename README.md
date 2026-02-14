@@ -1,4 +1,4 @@
-# HelloJohn
+# [HelloJohn](https://deepwiki.com/dropDatabas3/hellojohn?tab=readme-ov-file)
 
 > **The Developer-First Identity Platform**
 >
@@ -15,6 +15,14 @@
 
 **HelloJohn** es una plataforma de identidad (IAM) moderna, diseñada desde cero para ser **multi-tenant nativa**. A diferencia de soluciones tradicionales que requieren bases de datos compartidas o complejas configuraciones de infraestructura, HelloJohn utiliza una arquitectura de **Control Plane distribuido (Raft)** para la gestión global y **Data Plane aislado (Per-Tenant DB)** para la seguridad de los datos.
 
+### Integraciones: 
+ - [Backend: Go](https://github.com/dropDatabas3/hellojohn-sdk/tree/main/go)
+ - [Frontend: React / Next.js](https://github.com/dropDatabas3/hellojohn-sdk/tree/main/react)
+ - [Backend: Node.js / Express](https://github.com/dropDatabas3/hellojohn-sdk/tree/main/node)
+ - [Otros Frameworks (Vue, Svelte, Angular, Vanilla JS)](https://github.com/dropDatabas3/hellojohn-sdk/tree/main/js)
+
+
+
 ### Diferenciadores Clave
 
 | Característica | HelloJohn | Auth0 / Clerk | Keycloak |
@@ -23,7 +31,7 @@
 | **Control Plane** | **FileSystem Distribuido (Raft)** | Base de Datos Central | Base de Datos Central |
 | **Drivers DB** | **Múltiples** (Postgres, MySQL, Mongo*) | Propietario / Cloud | Relational Only |
 | **Costo** | **Self-Hosted (Gratis)** | $$$ por usuario/MAU | Gratis (Alto TCO ops) |
-| **Developer Exp** | **SDKs Simples**, API Rest Standard | Excelente | Curva de aprendizaje alta |
+| **Developer Exp** | **[SDKs Simples](https://github.com/dropDatabas3/hellojohn-sdk)**, API Rest Standard | Excelente | Curva de aprendizaje alta |
 
 > (*) MongoDB soporte planeado.
 
@@ -120,8 +128,6 @@ El código está organizado modularmente para facilitar la contribución y mante
 
 ### Prerrequisitos
 *   **Go** 1.23+
-*   **PostgreSQL** 14+ (u otro motor soportado)
-*   **Redis** (Opcional, recomendado para producción)
 
 ### 1. Clonar y Configurar
 ```bash
@@ -164,6 +170,11 @@ cd ui && npm install && npm run dev
 | `SECRETBOX_MASTER_KEY` | Base64 Key (32 bytes) para cifrado DB | `c3d4...` |
 | `FS_ROOT` | Directorio raíz del Control Plane | `./data` |
 | `V2_SERVER_ADDR` | Dirección de escucha HTTP | `:8080` |
+
+---
+
+
+### ¿Dudas? Preguntale a **[devin](https://deepwiki.com/dropDatabas3/hellojohn?tab=readme-ov-file)** 
 
 ---
 
